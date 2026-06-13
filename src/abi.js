@@ -82,6 +82,7 @@ export const HOST_IMPORTS = {
   __jit_run:     { params: [I], results: [I] },           // (rip) -> new rip (runs the JIT'd native block)
   __jit_x87:     { params: [I, I, I], results: [] },       // (fprOff,fspOff,swOff) — JIT learns the x87 FPU state offsets
   __jit_dispatch:{ params: [I], results: [I] },            // (budget) -> instr count: run a CHAIN of JIT'd blocks (amortizes the host round-trip)
+  __ap_run:      { params: [I, I], results: [I] },         // SMP: (rip,budget) -> instr count of a per-core-JIT block CHAIN (0 = cold; APs use this, no shared g_jit_rip)
   __jit_chain:   { params: [I, I], results: [] },
   __jit_seg:     { params: [I, I, I, I, I, I], results: [] },   // (fsbaseAddr,gsbaseAddr,tscAddr,x87cwAddr,xmmLoAddr,xmmHiAddr) — FS/GS/TSC for EAs + FPU/XMM offsets so the JIT can compile FXSAVE/FXRSTOR
 
