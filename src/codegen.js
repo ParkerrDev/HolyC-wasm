@@ -1404,6 +1404,7 @@ class FnCtx {
     const callee = node.callee;
     if (callee.kind === "Ident") {
       if (callee.name === "MyCore") { this.f.global_get(this.cg.coreGlobal); return T.I64; }   // SMP intrinsic: this worker's core index (per-instance WASM global)
+      if (callee.name.startsWith("__a_")) { const r = this.genAtomic(callee.name, node.args); if (r) return r; }   // SMP intrinsic: native WASM atomic RMW (LOCK ops over shared memory)
       const fn = this.cg.functions.get(callee.name);
       if (fn) return this.emitCall(fn, node.args, node);
       // maybe a function-pointer variable -> unsupported indirect
@@ -1414,6 +1415,24 @@ class FnCtx {
     }
     this.warnOnce("computed callee not supported");
     this.f.i64_const(0); return T.I64;
+  }
+
+  // SMP atomic intrinsics: __a_<op><size>(hostAddr, val[, replacement]) -> old value (U64).
+  // hostAddr is the byte offset into linear memory (i.e. guest `mem + ea`). Emits a native WASM
+  // threads atomic RMW (0xFE family, i64 result). Atomics require natural alignment at runtime.
+  genAtomic(name, args) {
+    const m = /^__a_(add|and|or|xchg|cmpxchg)(8|16|32|64)$/.exec(name);
+    if (!m) return null;
+    const op = m[1], size = +m[2];
+    const SUB = { add:{8:0x22,16:0x23,32:0x24,64:0x1F}, and:{8:0x30,16:0x31,32:0x32,64:0x2D},
+                  or:{8:0x37,16:0x38,32:0x39,64:0x34}, xchg:{8:0x45,16:0x46,32:0x47,64:0x42},
+                  cmpxchg:{8:0x4C,16:0x4D,32:0x4E,64:0x49} };
+    const ALIGN = { 8:0, 16:1, 32:2, 64:3 };
+    this.genExprCoerce(args[0], T.I64); this.f.op("i32_wrap_i64");   // address
+    this.genExprCoerce(args[1], T.I64);                              // val (rmw) or expected (cmpxchg)
+    if (op === "cmpxchg") this.genExprCoerce(args[2], T.I64);        // replacement
+    this.f.atomic(SUB[op][size], ALIGN[size]);
+    return T.I64;
   }
 
   emitCall(fn, args, node) {
