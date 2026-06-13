@@ -100,6 +100,7 @@ class Codegen {
     // globals for stack pointer & heap pointer
     this.spGlobal = this.m.addGlobal(VT.i64, true, new Func().i64_const(STACK_TOP));
     this.excGlobal = this.m.addGlobal(VT.i64, true, new Func().i64_const(0)); // thrown value
+    this.coreGlobal = this.m.addGlobal(VT.i64, true, new Func().i64_const(0)); // SMP: per-instance core index, read via MyCore(); host sets it per worker (default 0)
 
     // PASS 1: collect classes, function signatures, globals
     this.collectClasses();
@@ -129,6 +130,7 @@ class Codegen {
     this.m.exportFunc("__main", this.mainFn.index);
     this.m.exportFunc("__rt_init", this.rtInit.index);
     this.m.exportGlobal("__sp", this.spGlobal);
+    this.m.exportGlobal("__core", this.coreGlobal);   // SMP: host sets each worker's core index here
     // export functions a runtime JIT needs to call (hemu's RdMem/WrMem handle MMIO + the 2^40 alias).
     for (const nm of ["RdMem", "WrMem", "Step", "RasterHLE", ...(this.opts.exports || [])]) { const fn = this.functions.get(nm); if (fn && fn.slot) this.m.exportFunc(nm, fn.slot.index); }
 
@@ -1401,6 +1403,7 @@ class FnCtx {
   genCall(node) {
     const callee = node.callee;
     if (callee.kind === "Ident") {
+      if (callee.name === "MyCore") { this.f.global_get(this.cg.coreGlobal); return T.I64; }   // SMP intrinsic: this worker's core index (per-instance WASM global)
       const fn = this.cg.functions.get(callee.name);
       if (fn) return this.emitCall(fn, node.args, node);
       // maybe a function-pointer variable -> unsupported indirect
