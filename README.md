@@ -1,8 +1,8 @@
 # holyc-wasm — a HolyC → WebAssembly compiler + TempleOS browser runtime
 
 > Part of the TempleOS-web family:
-> [TempleOS-web](https://github.com/ParkerrDev/TempleOS-web) (the site, assembles this repo at build time) ·
-> [hemu-wasm](https://github.com/ParkerrDev/hemu-wasm) (the emulator, compiled BY this compiler) ·
+> [TempleOS-web](https://github.com/ParkerrDev/TempleOS-Web) (the site, assembles this repo at build time) ·
+> [hemu-wasm](https://github.com/ParkerrDev/Hemu-wasm) (the emulator, compiled BY this compiler) ·
 > [TerryADavis-archive-transcriber](https://github.com/ParkerrDev/TerryADavis-archive-transcriber).
 > `native/` is the in-browser HolyC editor app (it imports `src/` directly).
 
