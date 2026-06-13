@@ -232,6 +232,16 @@ export class Func {
   memory_grow() { this._op(OP.memory_grow); this.bytes.push(0x00); return this; }
   memory_size() { this._op(OP.memory_size); this.bytes.push(0x00); return this; }
 
+  // WASM threads atomic op: 0xFE prefix + uleb sub-opcode + memarg(align,offset).
+  // align is the log2 of the access size (atomics REQUIRE natural alignment) — caller passes it.
+  atomic(sub, align, offset = 0) {
+    this.bytes.push(0xfe);
+    this.bytes.push(...uleb(sub));
+    this.bytes.push(...uleb(align));
+    this.bytes.push(...uleb(offset));
+    return this;
+  }
+
   // generic single-byte op by name
   op(name) {
     if (!(name in OP)) throw new Error("unknown op " + name);
