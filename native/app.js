@@ -232,7 +232,16 @@ function reattachCanvas(c) {
   window._canvas = c;
 }
 
-$("runBtn").addEventListener("click", run);   // toggles Run <-> Stop (single button)
+$("runBtn").addEventListener("click", () => { if (!running) curCanvas = $("screen"); run(); });   // editor Run targets the editor screen
+
+// Run a given source in a GIVEN canvas (used by the games "Run in Browser" popup window).
+function runIn(canvasEl, source) {
+  if (running) stop();
+  curCanvas = canvasEl;
+  editor.value = source;
+  editor.dispatchEvent(new Event("input"));
+  run();
+}
 $("stopBtn")?.addEventListener("click", stop);  // optional second button; the overlay uses just runBtn
 
 // check cross-origin isolation
@@ -250,4 +259,4 @@ if (!self.crossOriginIsolated) {
 }
 // Expose run/stop so the host page (the overlay opener) can drive the editor:
 // run the default demo when the window opens, stop it when the window closes.
-window.__holycEditor = { run, stop, isRunning: () => running };
+window.__holycEditor = { run, stop, isRunning: () => running, runIn };
