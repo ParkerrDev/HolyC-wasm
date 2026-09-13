@@ -1,4 +1,4 @@
-// lexer.js — HolyC tokenizer.
+// lexer.js - HolyC tokenizer.
 //
 // Handles HolyC's real surface syntax:
 //   - // and /* */ comments

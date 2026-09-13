@@ -1,9 +1,9 @@
-// compiler.js — orchestrates lex -> preprocess -> parse -> codegen.
+// compiler.js - orchestrates lex -> preprocess -> parse -> codegen.
 //
 // The HolyC prelude is compiled together with the user program so its #defines,
 // classes, and functions are in scope (mirroring how TempleOS boots its runtime
 // before user code). The prelude and user source are lexed SEPARATELY so each
-// token keeps its true file+line — user diagnostics then report real line
+// token keeps its true file+line - user diagnostics then report real line
 // numbers instead of being shifted by the prelude's length.
 import { lex } from "./lexer.js";
 import { preprocess } from "./preprocess.js";

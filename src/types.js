@@ -1,4 +1,4 @@
-// types.js — HolyC type system.
+// types.js - HolyC type system.
 //
 // Value model for codegen:
 //   - everything that isn't F64 is represented as wasm i64 (ints, pointers,

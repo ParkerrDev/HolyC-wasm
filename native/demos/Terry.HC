@@ -1,4 +1,4 @@
-// Dancing Terry — a real TempleOS 8-bit sprite, converted from
+// Dancing Terry - a real TempleOS 8-bit sprite, converted from
 // assets/terrydancing.gif. One 16-color palette index per pixel; 0xFF =
 // transparent. 30 frames of 64x90, drawn 2x with GrSprite (holyc-wasm).
 // Press Esc to exit.

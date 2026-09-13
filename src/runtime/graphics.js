@@ -1,4 +1,4 @@
-// graphics.js — a 640x480 16-color indexed framebuffer with the TempleOS
+// graphics.js - a 640x480 16-color indexed framebuffer with the TempleOS
 // palette, software drawing primitives (plot/line/rect/circle/text), and a
 // blit to a Canvas/OffscreenCanvas 2D context. Works on both the main thread
 // (HTMLCanvas) and a worker (OffscreenCanvas).

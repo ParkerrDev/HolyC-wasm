@@ -1,4 +1,4 @@
-// ast.js — AST node factory. Nodes are plain objects with a `kind` tag plus a
+// ast.js - AST node factory. Nodes are plain objects with a `kind` tag plus a
 // source position (line) for diagnostics.
 export function mk(kind, props, tok) {
   const n = { kind, ...props };

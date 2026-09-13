@@ -1,4 +1,4 @@
-// prelude.js — the HolyC standard-library prelude, compiled together with every
+// prelude.js - the HolyC standard-library prelude, compiled together with every
 // user program. It is real HolyC: classes, #defines, and functions layered over
 // the small set of host intrinsics declared in abi.js (the __xxx imports).
 //

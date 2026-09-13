@@ -1,4 +1,4 @@
-// demos.js — curated list of real TempleOS demos to run in the browser,
+// demos.js - curated list of real TempleOS demos to run in the browser,
 // grouped by category. Paths are relative to the TempleOS repo root and are
 // fetched live via the dev server's /repo/ mount.
 export const DEMOS = [

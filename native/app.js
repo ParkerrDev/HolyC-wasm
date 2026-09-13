@@ -1,9 +1,9 @@
-// app.js — main-thread controller for the in-browser HolyC IDE.
+// app.js - main-thread controller for the in-browser HolyC IDE.
 // Spawns the worker, wires keyboard/mouse into the control SAB, drains the
 // sound ring into WebAudio, and shows console output.
 import { Speaker } from "../src/runtime/sound.js";
 import {
-  CTRL, KB_BASE, KB_RING, SND_BASE, SND_RING, SND_TONE, SND_NOTE, makeControlSAB,
+  CTRL, KB_BASE, KB_RING, SND_BASE, SND_RING, SND_TONE, SND_NOTE, KEY_STATE_BASE, makeControlSAB,
 } from "../src/runtime/protocol.js";
 import { DEMOS } from "./demos.js";
 import { Framebuffer } from "../src/runtime/graphics.js";
@@ -45,7 +45,7 @@ async function loadDemo(path) {
   let src = SOURCES[path];
   if (src == null) {
     // Large demos (e.g. the Terry sprite, ~600 KB) aren't in the always-loaded
-    // bundle — fetch the .HC on demand instead of bloating every page load.
+    // bundle - fetch the .HC on demand instead of bloating every page load.
     setStatus("fetching " + path + " …");
     // resolve relative to THIS module (works whether app.js is the page or is
     // loaded as an overlay from the main site at a different base URL).
@@ -85,11 +85,29 @@ function keyToChar(e) {
   return 0;
 }
 
-window.addEventListener("keydown", (e) => {
-  if (!running) return;
-  // let typical browser shortcuts through when not focused on canvas
-  const c = keyToChar(e);
-  if (c) { pushKey(c); e.preventDefault(); }
+let captureWanted=false;
+const scanKeys={KeyW:0x11,KeyA:0x1e,KeyS:0x1f,KeyD:0x20,KeyR:0x13,KeyF:0x21,KeyJ:0x24,KeyL:0x26,KeyI:0x17,KeyK:0x25};
+const hasInputFocus=()=>document.activeElement===curCanvas || document.pointerLockElement===curCanvas;
+function releaseInput(){
+  if(!ctrl)return;
+  for(let i=0;i<128;i++)Atomics.store(ctrl,KEY_STATE_BASE+i,0);
+  for(const i of [CTRL.MS_DX,CTRL.MS_DY,CTRL.MS_LB,CTRL.MS_RB])Atomics.store(ctrl,i,0);
+  Atomics.store(ctrl,CTRL.MS_X,320);Atomics.store(ctrl,CTRL.MS_Y,240);
+}
+addEventListener('keydown',e=>{
+  if(!running||!hasInputFocus())return;
+  if(e.code==='Escape'&&document.pointerLockElement===curCanvas){document.exitPointerLock();releaseInput();return;}
+  const sc=scanKeys[e.code];if(sc!==undefined)Atomics.store(ctrl,KEY_STATE_BASE+sc,1);
+  const c=keyToChar(e);if(c){if(!e.repeat || sc===undefined)pushKey(c);e.preventDefault();}
+});
+addEventListener('keyup',e=>{const sc=scanKeys[e.code];if(ctrl&&sc!==undefined)Atomics.store(ctrl,KEY_STATE_BASE+sc,0);});
+addEventListener('blur',()=>{releaseInput();if(document.pointerLockElement===curCanvas)document.exitPointerLock();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){releaseInput();if(document.pointerLockElement===curCanvas)document.exitPointerLock();}});
+document.addEventListener('pointerlockchange',()=>{releaseInput();document.body.classList.toggle('mouse-locked',!!document.pointerLockElement);});
+document.addEventListener('pointerdown',e=>{if(e.target!==curCanvas)releaseInput();},true);
+document.addEventListener('mousemove',e=>{
+  if(!running||document.pointerLockElement!==curCanvas)return;
+  Atomics.add(ctrl,CTRL.MS_DX,Math.round(e.movementX));Atomics.add(ctrl,CTRL.MS_DY,Math.round(e.movementY));
 });
 
 // ---- pointer (mouse + touch + pen) -> control SAB ----
@@ -97,7 +115,7 @@ window.addEventListener("keydown", (e) => {
 // (re)attach via attachInput()). Touch and mouse both map to the single
 // TempleOS mouse cursor + left button, so finger taps act like clicks.
 function setMousePos(target, clientX, clientY) {
-  if (!ctrl) return;
+  if (!ctrl || captureWanted) return;
   const r = target.getBoundingClientRect();
   const x = Math.round((clientX - r.left) * (640 / r.width));
   const y = Math.round((clientY - r.top) * (480 / r.height));
@@ -115,6 +133,11 @@ function attachInput(target) {
   if (window.PointerEvent) {
     target.addEventListener("pointermove", (e) => { setMousePos(target, e.clientX, e.clientY); });
     target.addEventListener("pointerdown", (e) => {
+      if(captureWanted && e.pointerType!=='touch' && document.pointerLockElement!==target){
+        target.focus();releaseInput();
+        try{target.requestPointerLock()?.catch(()=>setStatus('Click the screen to retry mouse capture.'));}catch{setStatus('Mouse capture unavailable.');}
+        e.preventDefault();return;
+      }
       target.setPointerCapture?.(e.pointerId);
       setMousePos(target, e.clientX, e.clientY);
       setButton(e.button === 2 ? CTRL.MS_RB : CTRL.MS_LB, true);
@@ -162,6 +185,7 @@ function pumpSound() {
 
 // ---- run / stop ----
 function stop() {
+  releaseInput();captureWanted=false;if(document.pointerLockElement===curCanvas)document.exitPointerLock();
   if (ctrl) { Atomics.store(ctrl, CTRL.RUNNING, 0); Atomics.notify(ctrl, CTRL.SLEEP_FUTEX); }
   if (worker) { worker.terminate(); worker = null; }
   if (sndTimer) { clearInterval(sndTimer); sndTimer = null; }
@@ -191,7 +215,7 @@ async function run() {
   reattachCanvas(fresh);
   mainFb = new Framebuffer(fresh.getContext("2d"), 640, 480, SCALE, new Uint8Array(fbSAB));
   // present + an HONEST fps counter: count only frames where the framebuffer
-  // actually changed (real animation frames), capped at the display refresh — so a
+  // actually changed (real animation frames), capped at the display refresh - so a
   // static screen reads 0, not a misleading 60. This is the *visible* native fps.
   let _ph = 0, _rf = 0, _t0 = performance.now();
   const fbBytes = new Uint8Array(fbSAB);
@@ -210,7 +234,12 @@ async function run() {
   worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
   worker.onmessage = (e) => {
     const m = e.data;
-    if (m.type === "text") appendConsole(m.text);
+    if(m.type === 'inputMode'){
+      captureWanted=!!m.capture;releaseInput();
+      if(captureWanted)setStatus('Click the screen to capture the mouse. Esc releases.');
+      else if(document.pointerLockElement===curCanvas)document.exitPointerLock();
+    }
+    else if (m.type === "text") appendConsole(m.text);
     else if (m.type === "compiled") setStatus(`compiled ${m.size} bytes` + (m.warnings && m.warnings.length ? `, ${m.warnings.length} warnings` : ""));
     else if (m.type === "done") { if (mainFb) mainFb.present(); setStatus("done"); stop(); }  // present the FINAL frame (fast finite demos finish before the first rAF)
     else if (m.type === "error") { if (mainFb) mainFb.present(); appendConsole("\n[error] " + m.error + "\n"); setStatus("error"); stop(); }
@@ -246,7 +275,7 @@ $("stopBtn")?.addEventListener("click", stop);  // optional second button; the o
 
 // check cross-origin isolation
 if (!self.crossOriginIsolated) {
-  setStatus("WARNING: not cross-origin isolated — SharedArrayBuffer unavailable. Use the dev server (npm run serve).");
+  setStatus("WARNING: not cross-origin isolated - SharedArrayBuffer unavailable. Use the dev server (npm run serve).");
 } else {
   setStatus("ready");
 }

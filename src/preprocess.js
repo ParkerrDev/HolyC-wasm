@@ -1,4 +1,4 @@
-// preprocess.js — token-level HolyC preprocessor.
+// preprocess.js - token-level HolyC preprocessor.
 //
 // Supports: #define (object- and function-like), #undef, #include,
 // #ifdef/#ifndef/#else/#endif, and ignores #help_index / #assert / #exe{...} /
@@ -128,7 +128,7 @@ export function preprocess(tokens, opts = {}) {
         }
         continue;
       }
-      // #exe { ... }  — compile-time execution block. The '{' may be on this
+      // #exe { ... }  - compile-time execution block. The '{' may be on this
       // line (consumed already) or the next; in both cases skip the brace block.
       if (dir === "exe") {
         // if '{' was on the directive line, skip from here; else arm for next '{'

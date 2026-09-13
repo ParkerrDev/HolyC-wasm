@@ -1,4 +1,4 @@
-# holyc-wasm — a HolyC → WebAssembly compiler + TempleOS browser runtime
+# holyc-wasm - a HolyC → WebAssembly compiler + TempleOS browser runtime
 
 > Part of the TempleOS-web family:
 > [TempleOS-web](https://github.com/ParkerrDev/TempleOS-Web) (the site, assembles this repo at build time) ·
@@ -6,11 +6,25 @@
 > [TerryADavis-archive-transcriber](https://github.com/ParkerrDev/TerryADavis-archive-transcriber).
 > `native/` is the in-browser HolyC editor app (it imports `src/` directly).
 
+## Current checkout
+
+This split repository tracks `src/` and `native/`. The older CLI, npm scripts and test tables below describe the pre-split layout. The supported checks here are:
+
+```sh
+node src/wasm/emitter.selftest.js
+node src/atomic.selftest.mjs
+node src/runtime/host.selftest.mjs
+```
+
+Run consumer integration checks in the sibling Hemu-wasm and HolyC-fmt checkouts. The host accepts diskRead, diskWrite and palette callbacks; compiled emulator artifacts must ship with this matching runtime.
+
+The native runner supports opt-in relative mouse input through the HolyC globals `I64 BrowserMouseCapture`, `I64 BrowserMouseDX`, `I64 BrowserMouseDY`, and `U8 BrowserKeys[128]`. Set capture to 1 while the game needs it and to 0 when returning to menus. The worker accumulates mouse deltas until the program consumes and clears them, and copies held movement keys by set-1 scancode. Capture requires a click on the game canvas; Esc releases it. HolyCraft exercises this protocol in `TempleOS-Web/tools/holycraft-input.test.mjs`.
+
 
 This is a **from-scratch compiler for HolyC** (Terry A. Davis's C dialect, the
 language of [TempleOS](https://templeos.org)) that emits **WebAssembly**, together
 with a browser runtime that reimplements TempleOS's **graphics and sound** so real
-`.HC` programs from this repository run in a web browser — **with no x86 emulation**.
+`.HC` programs from this repository run in a web browser - **with no x86 emulation**.
 
 Most "OS in the browser" projects (v86, JSLinux) emulate a whole PC in WASM and
 boot a disk image. This does the opposite: it **compiles the HolyC source itself to
@@ -73,46 +87,46 @@ screen once to enable audio; keyboard and mouse are forwarded to the running pro
 ## How it works
 
 ### The compiler (`src/`)
-- **`wasm/emitter.js`** — a dependency-free WebAssembly binary encoder (types,
+- **`wasm/emitter.js`** - a dependency-free WebAssembly binary encoder (types,
   imports, functions with forward references, memory, globals, data segments, the
   full i64/f64 opcode subset, saturating float→int). Self-tested by instantiating
   real modules in Node.
-- **`lexer.js`** — HolyC tokenizer: `//` and `/* */` comments, `0x`/`0b`/float/char
+- **`lexer.js`** - HolyC tokenizer: `//` and `/* */` comments, `0x`/`0b`/float/char
   literals, multi-char `'AB'` packing, adjacent string concatenation, `$$`→`$`,
   DolDoc `$...$` skipping in code context, high-byte identifiers.
-- **`preprocess.js`** — `#define` (object- and function-like), `#include`,
+- **`preprocess.js`** - `#define` (object- and function-like), `#include`,
   `#ifdef/#ifndef/#else/#endif`, `#exe{...}` (skipped), `#help_index`/`#assert`
   (ignored), recursive macro expansion.
-- **`parser.js`** — recursive-descent + Pratt expressions. Covers the HolyC
+- **`parser.js`** - recursive-descent + Pratt expressions. Covers the HolyC
   surface that real code uses: statement-level `"..."` auto-print and `'...'`
   auto-`PutChars`, no-parenthesis calls (`Yield;`), default arguments and skipped
   args (`GetChar(,FALSE)`), **chained range comparisons** (`0<=x<w`),
   `switch` with sub-`start:`/`end:`, empty `case:` auto-numbering and `case a ... b`
   ranges, `try`/`catch`/`throw`, classes/unions with base classes and forward
   declarations, `inline asm{}` (skipped), the `` ` `` power operator.
-- **`types.js` / `fold.js`** — HolyC type system (I0..I64/U0..U64/F64, pointers,
+- **`types.js` / `fold.js`** - HolyC type system (I0..I64/U0..U64/F64, pointers,
   arrays, classes, number-union sub-members like `x.i32[1]`) and constant folding.
-- **`codegen.js`** — lowers the AST to WASM. Value model: ints/pointers → `i64`,
+- **`codegen.js`** - lowers the AST to WASM. Value model: ints/pointers → `i64`,
   `F64` → `f64`; a linear-memory layout with a shadow stack for addressable locals
   and a bump heap for `MAlloc`. `printf` is implemented without varargs by
   marshalling tagged arguments into a scratch buffer and calling one host import.
-- **`prelude.js`** — the HolyC **standard library**, written in HolyC and compiled
+- **`prelude.js`** - the HolyC **standard library**, written in HolyC and compiled
   together with your program (`Gr*`, `DCAlias`/`DCFill`, math, `Rand`/`Seed`,
   `Play`/`Snd`/`Note`, `Sleep`/`Yield`, `MAlloc`, string/mem helpers, the `Fs` and
   `ms` globals). This mirrors how TempleOS builds most of its runtime in HolyC over
-  a few primitives — and it exercises the compiler on real HolyC.
+  a few primitives - and it exercises the compiler on real HolyC.
 
 ### The runtime (`src/runtime/`)
-- **`graphics.js`** — a 640×480 indexed framebuffer using the **real TempleOS
+- **`graphics.js`** - a 640×480 indexed framebuffer using the **real TempleOS
   16-color palette**, software `plot`/`line`/`rect`/`circle`/`text`, blitting to a
   Canvas/OffscreenCanvas.
-- **`font.js`** — the **actual TempleOS 8×8 system font**, extracted from
+- **`font.js`** - the **actual TempleOS 8×8 system font**, extracted from
   `Kernel/FontStd.HC` by `tools/extract-font.mjs`.
-- **`sound.js`** — WebAudio square-wave PC-speaker emulation (`tone`/`note`).
-- **`console.js`** — the `printf` engine: HolyC format codes (`%d %u %x %X %c %s
+- **`sound.js`** - WebAudio square-wave PC-speaker emulation (`tone`/`note`).
+- **`console.js`** - the `printf` engine: HolyC format codes (`%d %u %x %X %c %s
   %f %p %b`, width/precision/`,`/`-`/`0` flags, the `%h` aux modifier and repeat
   forms like `%h25c`) plus DolDoc inline color (`$RED$…$FG$`).
-- **`host.js`** — assembles the WASM import object backing the `__*` intrinsics;
+- **`host.js`** - assembles the WASM import object backing the `__*` intrinsics;
   parameterized by device adapters so the same core runs headless (Node) or in the
   worker (browser).
 
@@ -135,21 +149,21 @@ kernel. Honest boundaries:
 
 - **Inline x86-64 `asm{}`** is skipped (it would need an x86 assembler + CPU). The
   ~10 demos that are pure assembly compile to a trap. Everything else compiles.
-- **Ring-0 / hardware code** — paging, APIC, ATA/PS2, VGA register pokes, the task
-  scheduler, the filesystem (RedSea/FAT), `Spawn`/multicore — is not modeled.
+- **Ring-0 / hardware code** - paging, APIC, ATA/PS2, VGA register pokes, the task
+  scheduler, the filesystem (RedSea/FAT), `Spawn`/multicore - is not modeled.
   Programs that call into it still compile (see *lenient mode*) but those specific
   operations are no-ops.
-- **The self-hosting JIT** — TempleOS's own compiler emits x86-64 at runtime; a
+- **The self-hosting JIT** - TempleOS's own compiler emits x86-64 at runtime; a
   faithful full port would need that runtime compiler to emit WASM dynamically. Out
   of scope here.
 - **DolDoc documents, sprites, the editor/windowing system** are not reimplemented;
   inline color codes in strings *are* honored.
 
 ### Strict vs. lenient
-- **Strict** (`{lenient:false}`) — every unknown symbol/field/type is an error.
+- **Strict** (`{lenient:false}`) - every unknown symbol/field/type is an error.
   Used by the execution test suite so real bugs surface. 49/49 programs pass with
   exact expected output.
-- **Lenient** (default for the browser and coverage) — unknown kernel symbols become
+- **Lenient** (default for the browser and coverage) - unknown kernel symbols become
   zero-valued I64 globals, unknown calls evaluate their arguments and return 0,
   unknown struct fields get synthesized, and unsupported constructs degrade to
   no-ops with a recorded warning. This lets whole programs compile to *valid* WASM

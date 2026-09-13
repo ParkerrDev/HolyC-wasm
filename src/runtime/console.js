@@ -1,4 +1,4 @@
-// console.js — TempleOS-flavored printf engine + DolDoc inline markup handling.
+// console.js - TempleOS-flavored printf engine + DolDoc inline markup handling.
 //
 // Reads a NUL-terminated format string and a marshalled argument buffer from
 // linear memory and renders text. Supports the common HolyC format codes and
@@ -203,12 +203,12 @@ export function format(fmtBytes, mem, nargs, opts = {}) {
         s = fmtFloat(v, prec);
         break;
       }
-      case "D": { // date — we don't carry CDate; print as integer
+      case "D": { // date - we don't carry CDate; print as integer
         const v = args.nextInt(); s = v.toString(); break;
       }
       case "T": { const v = args.nextInt(); s = v.toString(); break; }
       case "z": case "Z": case "t": {
-        // string-table lookup; we lack tables — print the index
+        // string-table lookup; we lack tables - print the index
         const v = args.nextInt(); s = "#" + v.toString(); break;
       }
       default:

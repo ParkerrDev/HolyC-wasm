@@ -1,4 +1,4 @@
-// host.js — builds the WebAssembly import object backing the __xxx intrinsics.
+// host.js - builds the WebAssembly import object backing the __xxx intrinsics.
 //
 // It is parameterized by "devices" so the same core works in three contexts:
 //   - Node headless (console only; graphics/sound/input are stubs or buffers)
@@ -24,9 +24,11 @@ export function createHost(opts = {}) {
     timeMs: opts.timeMs || (() => Date.now()),
     onFlip: opts.onFlip || null,
     onTick: opts.onTick || null,           // called before scan/sleep/yield (e.g. mouse mirror)
-    present: opts.present || null,         // (addr,w,h,u8) => void — raw framebuffer blit (hemu)
-    snapLoad: opts.snapLoad || null,       // (memBase,u8) => void — load a RAM snapshot (hemu)
-    diskRead: opts.diskRead || null,       // (lba,count,u8,dst) => void — stage disk sectors into guest mem (hemu ATA)
+    present: opts.present || null,         // (addr,w,h,u8) => void - raw framebuffer blit (hemu)
+    snapLoad: opts.snapLoad || null,       // (memBase,u8) => void - load a RAM snapshot (hemu)
+    diskRead: opts.diskRead || null,       // (lba,count,u8,dst) => void - stage disk sectors into guest mem (hemu ATA)
+    palette: opts.palette || null,       // (index, RGB24) VGA DAC update
+    diskWrite: opts.diskWrite || null,     // Persist guest ATA writes through the same host adapter.
     hostIn: opts.hostIn || null,           // (port) => int
     hostOut: opts.hostOut || null,         // (port,val) => void
   };
@@ -68,19 +70,20 @@ export function createHost(opts = {}) {
       const a = Number(addr);
       state.gfx?.sprite?.(Number(x), Number(y), W, H, u8().subarray(a, a + W * H), Number(scale) || 1);
     },
-    // Blit a raw 8-bit indexed framebuffer (w*h palette-index bytes at addr) — used
+    // Blit a raw 8-bit indexed framebuffer (w*h palette-index bytes at addr) - used
     // by hemu to present its guest VGA/linear framebuffer to a canvas.
     __present(addr, w, h) { state.present?.(Number(addr), Number(w), Number(h), u8()); },
     __snap_load(base) { state.snapLoad?.(Number(base), u8()); },
     __host_disk(lba, count, buf) { state.diskRead?.(Number(lba), Number(count), u8(), Number(buf)); },
+    __host_palette(index,rgb) {state.palette?.(Number(index),Number(rgb));},
     __host_disk_wr(lba, count, buf) { state.diskWrite?.(Number(lba), Number(count), u8(), Number(buf)); },
     __host_in(port) { return BigInt(state.hostIn ? state.hostIn(Number(port)) | 0 : 0); },
     __host_out(port, val) { state.hostOut?.(Number(port), Number(val)); },
-    // hemu input/pacing hooks — default stubs; real runners (snap-run, web/hemu.html) override env.*
+    // hemu input/pacing hooks - default stubs; real runners (snap-run, web/hemu.html) override env.*
     __host_msx() { return 0n; }, __host_msy() { return 0n; }, __host_msb() { return 0n; },
     __host_key() { return -1n; }, __host_budget() { return 1000000n; }, __host_prof(_rip) {},
     __host_dt() { return 16n; },
-    // JIT hooks — default stubs (no JIT). A JIT-aware runner overrides __jit_compile/__jit_run and
+    // JIT hooks - default stubs (no JIT). A JIT-aware runner overrides __jit_compile/__jit_run and
     // uses the offsets from __jit_state. With these no-ops, hemu's g_jit_on stays 0 and nothing changes.
     __jit_state(_r, _f, _p) { return 0n; }, __jit_compile(_rip) { return 0n; }, __jit_run(rip) { return rip; }, __jit_x87(_a, _b, _c) {}, __jit_dispatch(_b) { return 0n; }, __ap_run(_rip, _bud) { return 0n; }, __jit_chain(_a, _b) {}, __jit_seg(_a, _b, _c) {},
     // CMOS RTC fields from the host wall clock, so the guest's Now() tracks real date/time

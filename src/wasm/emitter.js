@@ -1,4 +1,4 @@
-// emitter.js — a small, dependency-free WebAssembly binary module encoder.
+// emitter.js - a small, dependency-free WebAssembly binary module encoder.
 //
 // This is the back-end target for the HolyC compiler. It produces a Uint8Array
 // containing a valid .wasm module. It supports exactly the features the codegen
@@ -155,7 +155,7 @@ export const OP = {
   i64_extend8_s: 0xc2, i64_extend16_s: 0xc3, i64_extend32_s: 0xc4,
 };
 
-// 0xFC-prefixed saturating truncation (no trap on NaN/overflow) — HolyC casts
+// 0xFC-prefixed saturating truncation (no trap on NaN/overflow) - HolyC casts
 // floats to ints freely, so we use these to match C-ish wrap semantics safely.
 const FC = {
   i32_trunc_sat_f64_s: 0x02, i32_trunc_sat_f64_u: 0x03,
@@ -163,7 +163,7 @@ const FC = {
 };
 
 // ----------------------------------------------------------------------------
-// Func — a function body builder
+// Func - a function body builder
 // ----------------------------------------------------------------------------
 
 export class Func {
@@ -233,7 +233,7 @@ export class Func {
   memory_size() { this._op(OP.memory_size); this.bytes.push(0x00); return this; }
 
   // WASM threads atomic op: 0xFE prefix + uleb sub-opcode + memarg(align,offset).
-  // align is the log2 of the access size (atomics REQUIRE natural alignment) — caller passes it.
+  // align is the log2 of the access size (atomics REQUIRE natural alignment) - caller passes it.
   atomic(sub, align, offset = 0) {
     this.bytes.push(0xfe);
     this.bytes.push(...uleb(sub));

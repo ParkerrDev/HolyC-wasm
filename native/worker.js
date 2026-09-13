@@ -1,4 +1,4 @@
-// worker.js — runs a compiled HolyC program with TempleOS-style blocking
+// worker.js - runs a compiled HolyC program with TempleOS-style blocking
 // semantics inside a Web Worker.
 //
 // Key trick: HolyC programs use synchronous infinite loops with Sleep()/ScanChar.
@@ -9,7 +9,7 @@
 import { compileHolyC } from "../src/compiler.js";
 import { createHost } from "../src/runtime/host.js";
 import { Framebuffer } from "../src/runtime/graphics.js";
-import { CTRL, KB_BASE, KB_RING, SND_BASE, SND_RING, SND_TONE, SND_NOTE } from "../src/runtime/protocol.js";
+import { CTRL, KB_BASE, KB_RING, SND_BASE, SND_RING, SND_TONE, SND_NOTE, KEY_STATE_BASE } from "../src/runtime/protocol.js";
 
 let ctrl = null;       // Int32Array view over the control SAB
 let fb = null;         // Framebuffer over OffscreenCanvas
@@ -101,7 +101,7 @@ self.onmessage = async (e) => {
 
     let host;
     try {
-      const { bytes, warnings } = compileHolyC(source, { filename: "program.HC", lenient: true, resilient: true });
+      const { bytes, warnings, globals } = compileHolyC(source, { filename: "program.HC", lenient: true, resilient: true });
       self.postMessage({ type: "compiled", size: bytes.length, warnings });
 
       host = createHost({
@@ -135,6 +135,8 @@ self.onmessage = async (e) => {
 
       // mirror the mouse SAB into the wasm `ms` struct on every tick
       const MS_ADDR = 64;
+      const capture=globals.get('BrowserMouseCapture'), dx=globals.get('BrowserMouseDX'), dy=globals.get('BrowserMouseDY'), keys=globals.get('BrowserKeys');
+      let wasCapture=false;
       host.state.onTick = () => {
         const dv = new DataView(inst.exports.memory.buffer);
         dv.setInt32(MS_ADDR + 0, Atomics.load(ctrl, CTRL.MS_X), true);
@@ -142,6 +144,12 @@ self.onmessage = async (e) => {
         dv.setInt32(MS_ADDR + 8, Atomics.load(ctrl, CTRL.MS_Z), true);
         dv.setInt32(MS_ADDR + 12, Atomics.load(ctrl, CTRL.MS_LB), true);
         dv.setInt32(MS_ADDR + 16, Atomics.load(ctrl, CTRL.MS_RB), true);
+        if(keys)for(let sc=0;sc<128;sc++)dv.setUint8(Number(keys.addr)+sc,Atomics.load(ctrl,KEY_STATE_BASE+sc));
+        for(const [variable,index] of [[dx,CTRL.MS_DX],[dy,CTRL.MS_DY]])if(variable){
+          const addr=Number(variable.addr);dv.setBigInt64(addr,dv.getBigInt64(addr,true)+BigInt(Atomics.exchange(ctrl,index,0)),true);
+        }
+        const wanted=!!(capture && dv.getBigInt64(Number(capture.addr),true));
+        if(wanted!==wasCapture){wasCapture=wanted;self.postMessage({type:'inputMode',capture:wanted});}
       };
 
       Atomics.store(ctrl, CTRL.RUNNING, 1);

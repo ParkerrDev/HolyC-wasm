@@ -1,4 +1,4 @@
-// fold.js — compile-time constant folding for integer expressions.
+// fold.js - compile-time constant folding for integer expressions.
 // Used for array dimensions, enum-like #defines, and global initializers.
 // Returns a BigInt or null if not a compile-time integer constant.
 export function foldConstInt(node, env = {}) {

@@ -1,4 +1,4 @@
-// parser.js — recursive-descent + Pratt parser for HolyC.
+// parser.js - recursive-descent + Pratt parser for HolyC.
 import { mk } from "./ast.js";
 import { BASE_TYPES, ptrTo, arrayOf } from "./types.js";
 
@@ -110,7 +110,7 @@ export class Parser {
     if (this.cur().type === "ident") name = this.next().value;
     let base = null;
     if (this.optP(":")) { base = this.next().value; }
-    // forward declaration: `class Name;` (no body) — register the name only.
+    // forward declaration: `class Name;` (no body) - register the name only.
     if (this.isP(";")) {
       this.next();
       if (name) this.typeNames.add(name);

@@ -1,4 +1,4 @@
-// sound.js — WebAudio PC-speaker emulation for the main thread.
+// sound.js - WebAudio PC-speaker emulation for the main thread.
 //
 // TempleOS sound is a single square-wave "PC speaker" tone. `tone(freq)` turns
 // it on at a frequency (0 = silence). `note(freq, ms)` is handled by the worker

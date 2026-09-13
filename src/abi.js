@@ -1,4 +1,4 @@
-// abi.js — the contract between compiled HolyC modules and the JS runtime host.
+// abi.js - the contract between compiled HolyC modules and the JS runtime host.
 // Both src/codegen.js and src/runtime/host.js import this so memory layout and
 // host import signatures stay in sync.
 //
@@ -61,30 +61,31 @@ export const HOST_IMPORTS = {
   __gr_flip:     { params: [], results: [] },
   __gr_width:    { params: [], results: [I] },
   __gr_height:   { params: [], results: [I] },
-  __gr_sprite:   { params: [I, I, I, I, I, I], results: [] }, // x,y,w,h,dataAddr,scale — 8-bit indexed sprite, 0xFF=transparent
-  __present:     { params: [I, I, I], results: [] },      // (fbAddr, w, h) — blit a raw 8-bit indexed framebuffer
-  __snap_load:   { params: [I], results: [] },            // (memBase) — host loads a RAM snapshot into guest memory
-  __host_in:     { params: [I], results: [I] },           // (port) — host I/O read (devices the host owns)
-  __host_out:    { params: [I, I], results: [] },         // (port,val) — host I/O write
+  __gr_sprite:   { params: [I, I, I, I, I, I], results: [] }, // x,y,w,h,dataAddr,scale - 8-bit indexed sprite, 0xFF=transparent
+  __present:     { params: [I, I, I], results: [] },      // (fbAddr, w, h) - blit a raw 8-bit indexed framebuffer
+  __snap_load:   { params: [I], results: [] },            // (memBase) - host loads a RAM snapshot into guest memory
+  __host_in:     { params: [I], results: [I] },           // (port) - host I/O read (devices the host owns)
+  __host_out:    { params: [I, I], results: [] },         // (port,val) - host I/O write
   __host_msx:    { params: [], results: [I] },            // absolute mouse x (0..639), host-owned cursor
   __host_msy:    { params: [], results: [I] },            // absolute mouse y (0..479)
   __host_msb:    { params: [], results: [I] },            // mouse button bits
   __host_key:    { params: [], results: [I] },            // next set-1 scancode, or <0 when drained
   __host_budget: { params: [], results: [I] },            // guest instructions to run this display frame
   __host_dt:     { params: [], results: [I] },            // real wall-clock ms since last frame (for pacing)
-  __host_time:   { params: [I], results: [I] },           // (cmosRegIdx) — host wall-clock field for the guest RTC
+  __host_time:   { params: [I], results: [I] },           // (cmosRegIdx) - host wall-clock field for the guest RTC
   __host_wheel:  { params: [], results: [I] },            // cumulative mouse-wheel position -> ms.pos.z
-  __host_disk:   { params: [I, I, I], results: [] },      // (lba, sectorCount, bufAddr) — stage real disk sectors into guest mem
-  __host_disk_wr:{ params: [I, I, I], results: [] },      // (lba, sectorCount, bufAddr) — persist guest sectors to a writable overlay
+  __host_disk:   { params: [I, I, I], results: [] },      // (lba, sectorCount, bufAddr) - stage real disk sectors into guest mem
+  __host_palette:{params:[I,I],results:[]},             // (index, RGB24) VGA DAC color update
+  __host_disk_wr:{ params: [I, I, I], results: [] },      // (lba, sectorCount, bufAddr) - persist guest sectors to a writable overlay
   __host_prof:   { params: [I], results: [] },            // debug: sample rip for profiling
   __jit_state:   { params: [I, I, I], results: [I] },     // (regOff,rflOff,ripOff) -> 1 to enable the JIT (0 = stub/off)
   __jit_compile: { params: [I], results: [I] },           // (rip) -> block instr count if jitted, else 0 (host compiles)
   __jit_run:     { params: [I], results: [I] },           // (rip) -> new rip (runs the JIT'd native block)
-  __jit_x87:     { params: [I, I, I], results: [] },       // (fprOff,fspOff,swOff) — JIT learns the x87 FPU state offsets
+  __jit_x87:     { params: [I, I, I], results: [] },       // (fprOff,fspOff,swOff) - JIT learns the x87 FPU state offsets
   __jit_dispatch:{ params: [I], results: [I] },            // (budget) -> instr count: run a CHAIN of JIT'd blocks (amortizes the host round-trip)
   __ap_run:      { params: [I, I], results: [I] },         // SMP: (rip,budget) -> instr count of a per-core-JIT block CHAIN (0 = cold; APs use this, no shared g_jit_rip)
   __jit_chain:   { params: [I, I], results: [] },
-  __jit_seg:     { params: [I, I, I, I, I, I], results: [] },   // (fsbaseAddr,gsbaseAddr,tscAddr,x87cwAddr,xmmLoAddr,xmmHiAddr) — FS/GS/TSC for EAs + FPU/XMM offsets so the JIT can compile FXSAVE/FXRSTOR
+  __jit_seg:     { params: [I, I, I, I, I, I], results: [] },   // (fsbaseAddr,gsbaseAddr,tscAddr,x87cwAddr,xmmLoAddr,xmmHiAddr) - FS/GS/TSC for EAs + FPU/XMM offsets so the JIT can compile FXSAVE/FXRSTOR
 
   __snd:         { params: [F], results: [] },           // freq Hz (0 = off)
   __play_note:   { params: [F, I], results: [] },        // freq, ms (blocks)

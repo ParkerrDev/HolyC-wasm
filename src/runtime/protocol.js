@@ -1,4 +1,4 @@
-// protocol.js — shared layout for the SharedArrayBuffer control block used to
+// protocol.js - shared layout for the SharedArrayBuffer control block used to
 // coordinate the worker (running WASM) and the main thread (input + audio).
 //
 // Control SAB (Int32Array): synchronous Sleep/Yield + input ring + sound ring.
@@ -17,7 +17,7 @@ export const CTRL = {
   // --- stats / status ---
   FRAME: 11,         // incremented by worker on each flip
   DONE: 12,          // worker sets 1 when program returns
-  _RESERVED: 13,
+  MS_DX: 13, MS_DY: 14, // relative movement accumulated by the captured canvas
   HEADER_LEN: 16,    // ints reserved for header
 };
 
@@ -27,7 +27,8 @@ export const SND_RING = 512;  // sound ring capacity (entries of 2 ints: type,ar
 // Offsets (in Int32 units) of the ring regions after the header.
 export const KB_BASE = CTRL.HEADER_LEN;
 export const SND_BASE = KB_BASE + KB_RING;
-export const TOTAL_INTS = SND_BASE + SND_RING * 2;
+export const KEY_STATE_BASE = SND_BASE + SND_RING * 2;
+export const TOTAL_INTS = KEY_STATE_BASE + 128;
 
 // sound command types
 export const SND_TONE = 1;   // arg = freq (Hz), 0=off

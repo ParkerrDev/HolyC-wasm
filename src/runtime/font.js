@@ -1,4 +1,4 @@
-// font.js — the real TempleOS 8x8 system font (sys_font_std), extracted from
+// font.js - the real TempleOS 8x8 system font (sys_font_std), extracted from
 // Kernel/FontStd.HC by tools/extract-font.mjs. 256 glyphs x 8 rows.
 // Row r of glyph g = FONT[g*8 + r]; within a row byte, bit (1<<col) is the
 // pixel at x=col (bit 0 = leftmost column).

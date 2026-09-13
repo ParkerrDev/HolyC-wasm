@@ -1,4 +1,4 @@
-// codegen.js — lowers the HolyC AST to a WebAssembly module.
+// codegen.js - lowers the HolyC AST to a WebAssembly module.
 const NOFOLD = typeof process !== "undefined" && process.env && process.env.NOFOLD;  // bisect toggle (Node-only)
 //
 // Value model:
@@ -366,7 +366,7 @@ class Codegen {
     const ctx = new FnCtx(this, { name: "__rt_init", params: [], retType: T.U0, node: { body: null } });
     const f = ctx.f;
     // RUN-ONCE guard: __main calls __rt_init on every invocation (per frame in the emulator), but
-    // global initializers must apply exactly once — re-running them silently reverted every mutated
+    // global initializers must apply exactly once - re-running them silently reverted every mutated
     // initialized global each frame (e.g. a scan cursor reset to its initial value 60×/s).
     const guard = this.alloc(8, 8);
     f.i64_const(guard); f.op("i32_wrap_i64"); f.load("i64_load", 0, 3); f.op("i64_eqz");
@@ -650,7 +650,7 @@ class FnCtx {
 
   genGlobalInit(g) {
     // Constant integer arrays (sprite/bitmap data, tables) compile to one wasm
-    // data segment rather than thousands of per-element stores — instant to emit.
+    // data segment rather than thousands of per-element stores - instant to emit.
     if (g.init.kind === "InitList" && this.cg.tryStaticConstArray(g)) return;
     const pushAddr = () => this.f.i64_const(g.addr);
     if (g.init.kind === "InitList") { this.storeInitInto(pushAddr, g.type, g.init); return; }
@@ -786,7 +786,7 @@ class FnCtx {
     const defLabel = labels.find((l) => l.isDefault);
     const defDst = defLabel ? segMarks[defLabel.segIdx] : brk;
     // Fast path: a dense block of constant integer cases compiles to an O(1) br_table (jump table)
-    // instead of an O(n) compare chain — critical for big dispatchers like the CPU opcode switch.
+    // instead of an O(n) compare chain - critical for big dispatchers like the CPU opcode switch.
     const cst = labels.filter((l) => !l.isDefault);
     const dense = cst.length > 1 && cst.every((l) => l.lo != null && !l.loExpr);
     let blo, bhi;
@@ -999,7 +999,7 @@ class FnCtx {
   // address of an lvalue: pushes i64 addr, returns pointee type
   // Fold a pure-constant address chain (globalIdent[.field|[constIdx]]*) to its absolute address.
   // Returns {addr, type} or null. This restores flat i64.const addressing for the per-core CPU-state
-  // pattern (g_cpu_st[MY_CORE].f_reg[i] etc.) — without it every register access in the interpreter
+  // pattern (g_cpu_st[MY_CORE].f_reg[i] etc.) - without it every register access in the interpreter
   // rebuilt the address with const+add chains (~2x slower interp).
   addrConst(node) {
     try {
@@ -1072,7 +1072,7 @@ class FnCtx {
       this.genExpr(node.base); elemT = T.I64;
     }
     const esz = this.cg.typeSize(elemT);
-    // constant index: fold idx*esz at compile time (a[0] adds NOTHING) — hot for the per-core
+    // constant index: fold idx*esz at compile time (a[0] adds NOTHING) - hot for the per-core
     // CPU-state pattern g_cpu_st[MY_CORE].f_reg[i], where a runtime 0*sizeof mul on every register
     // access cost the interpreter ~2x.
     const cidx = foldConstInt(node.index, this.cg.defines || {});
@@ -1421,11 +1421,11 @@ class FnCtx {
   // hostAddr is the byte offset into linear memory (i.e. guest `mem + ea`). Emits a native WASM
   // threads atomic RMW (0xFE family, i64 result). Atomics require natural alignment at runtime.
   genAtomic(name, args) {
-    const m = /^__a_(add|and|or|xchg|cmpxchg)(8|16|32|64)$/.exec(name);
+    const m = /^__a_(add|and|or|xor|xchg|cmpxchg)(8|16|32|64)$/.exec(name);
     if (!m) return null;
     const op = m[1], size = +m[2];
     const SUB = { add:{8:0x22,16:0x23,32:0x24,64:0x1F}, and:{8:0x30,16:0x31,32:0x32,64:0x2D},
-                  or:{8:0x37,16:0x38,32:0x39,64:0x34}, xchg:{8:0x45,16:0x46,32:0x47,64:0x42},
+                  or:{8:0x37,16:0x38,32:0x39,64:0x34}, xor:{8:0x3E,16:0x3F,32:0x40,64:0x3B}, xchg:{8:0x45,16:0x46,32:0x47,64:0x42},
                   cmpxchg:{8:0x4C,16:0x4D,32:0x4E,64:0x49} };
     const ALIGN = { 8:0, 16:1, 32:2, 64:3 };
     this.genExprCoerce(args[0], T.I64); this.f.op("i32_wrap_i64");   // address
@@ -1450,7 +1450,7 @@ class FnCtx {
         if (isFloat(pType)) this.f.f64_const(0); else this.f.i64_const(0);
       }
     }
-    // extra args beyond params (varargs) — only meaningful for known variadics; drop
+    // extra args beyond params (varargs) - only meaningful for known variadics; drop
     for (let i = params.length; i < args.length; i++) { if (args[i]) this.dropIfValue(this.genExpr(args[i])); }
     this.f.call(fn.index);
     return fn.retType;
