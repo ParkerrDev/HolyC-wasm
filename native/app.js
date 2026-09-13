@@ -185,6 +185,7 @@ function pumpSound() {
 
 // ---- run / stop ----
 function stop() {
+  cancelAnimationFrame(rafId);rafId=0;
   releaseInput();captureWanted=false;if(document.pointerLockElement===curCanvas)document.exitPointerLock();
   if (ctrl) { Atomics.store(ctrl, CTRL.RUNNING, 0); Atomics.notify(ctrl, CTRL.SLEEP_FUTEX); }
   if (worker) { worker.terminate(); worker = null; }
@@ -194,7 +195,7 @@ function stop() {
   $("runBtn").textContent = "▶ Run";
 }
 
-async function run() {
+async function run(source=editor.value) {
   if (running) { stop(); return; }
   clearConsole();
   speaker.resume();
@@ -248,7 +249,7 @@ async function run() {
   running = true;
   $("runBtn").textContent = "■ Stop";
   setStatus("running…");
-  worker.postMessage({ type: "run", source: editor.value, controlSAB: sab, fbSAB });
+  worker.postMessage({ type: "run", source, controlSAB: sab, fbSAB });
   rafId = requestAnimationFrame(present);
 
   sndTimer = setInterval(pumpSound, 16);
@@ -263,13 +264,16 @@ function reattachCanvas(c) {
 
 $("runBtn").addEventListener("click", () => { if (!running) curCanvas = $("screen"); run(); });   // editor Run targets the editor screen
 
-// Run a given source in a GIVEN canvas (used by the games "Run in Browser" popup window).
-function runIn(canvasEl, source) {
+// Run a source snapshot in the game popup or editor preview. Keeping the textarea
+// separate lets the user edit another file or prepare the next run while playing.
+function runIn(canvasEl, source, {preserveEditor=false}={}) {
   if (running) stop();
   curCanvas = canvasEl;
-  editor.value = source;
-  editor.dispatchEvent(new Event("input"));
-  run();
+  if(!preserveEditor){
+    editor.value = source;
+    editor.dispatchEvent(new Event("input"));
+  }
+  return run(source);
 }
 $("stopBtn")?.addEventListener("click", stop);  // optional second button; the overlay uses just runBtn
 
