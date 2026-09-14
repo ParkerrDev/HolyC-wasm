@@ -8,6 +8,7 @@
 // main thread drains into WebAudio; keyboard/mouse come in through the same SAB.
 import { compileHolyC } from "../src/compiler.js";
 import { compileNativeProject } from "./project.js";
+import { createMouseButtons } from "./mouse-buttons.js";
 import { createHost } from "../src/runtime/host.js";
 import { Framebuffer } from "../src/runtime/graphics.js";
 import { CTRL, KB_BASE, KB_RING, SND_BASE, SND_RING, SND_TONE, SND_NOTE, KEY_STATE_BASE } from "../src/runtime/protocol.js";
@@ -80,20 +81,17 @@ function presentMaybe(force) {
   if (force || t - lastFlip > 16) {
     lastFlip = t;
     Atomics.add(ctrl, CTRL.FRAME, 1);   // signal the main-thread presenter
+    return true;
   }
 }
 
 // --- mouse mirror into wasm memory ---
-function updateMouseMemory(host) {
-  // host.state.mem holds the wasm memory; ms struct lives at MS_ADDR
-  // CMouse { CD3I32 pos{ I32 x,y,z }, I32 lb, I32 rb } -> see prelude
-}
-
 self.onmessage = async (e) => {
   const msg = e.data;
   if (msg.type === "run") {
     const { source, controlSAB, fbSAB } = msg;
     ctrl = new Int32Array(controlSAB);
+    const buttons=createMouseButtons(ctrl);
     // Draw into the SHARED index buffer; the main thread presents it. (A worker
     // blocked in a synchronous program loop never composites its own canvas.)
     fb = new Framebuffer(null, 640, 480, 1, new Uint8Array(fbSAB));
@@ -126,8 +124,8 @@ self.onmessage = async (e) => {
           tone: (f) => pushSnd(SND_TONE, f),
           note: (f, ms) => { pushSnd(SND_NOTE, f); sleep(ms); pushSnd(SND_TONE, 0); },
         },
-        sleep: (ms) => sleep(ms),
-        yield: () => presentMaybe(false),
+        sleep: (ms) => {sleep(ms);buttons.advance();host.state.onTick();},
+        yield: () => {if(presentMaybe(false)){buttons.advance();host.state.onTick();}},
         scanChar: () => scanChar(),
         getChar: (echo, scan) => { const ch = getChar(); return ch; },
         timeMs: () => nowMs(),
@@ -146,8 +144,9 @@ self.onmessage = async (e) => {
         dv.setInt32(MS_ADDR + 0, Atomics.load(ctrl, CTRL.MS_X), true);
         dv.setInt32(MS_ADDR + 4, Atomics.load(ctrl, CTRL.MS_Y), true);
         dv.setInt32(MS_ADDR + 8, Atomics.load(ctrl, CTRL.MS_Z), true);
-        dv.setInt32(MS_ADDR + 12, Atomics.load(ctrl, CTRL.MS_LB), true);
-        dv.setInt32(MS_ADDR + 16, Atomics.load(ctrl, CTRL.MS_RB), true);
+        const mouseButtons=buttons.sample();
+        dv.setInt32(MS_ADDR + 12, mouseButtons&1?1:0, true);
+        dv.setInt32(MS_ADDR + 16, mouseButtons&2?1:0, true);
         if(keys)for(let sc=0;sc<128;sc++)dv.setUint8(Number(keys.addr)+sc,Atomics.load(ctrl,KEY_STATE_BASE+sc));
         for(const [variable,index] of [[dx,CTRL.MS_DX],[dy,CTRL.MS_DY]])if(variable){
           const addr=Number(variable.addr);dv.setBigInt64(addr,dv.getBigInt64(addr,true)+BigInt(Atomics.exchange(ctrl,index,0)),true);

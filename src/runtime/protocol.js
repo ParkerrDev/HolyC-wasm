@@ -18,7 +18,9 @@ export const CTRL = {
   FRAME: 11,         // incremented by worker on each flip
   DONE: 12,          // worker sets 1 when program returns
   MS_DX: 13, MS_DY: 14, // relative movement accumulated by the captured canvas
-  HEADER_LEN: 16,    // ints reserved for header
+  MS_PRESSED: 15,    // pending left/right presses, including clicks between polls
+  INPUT_RESET: 16,   // clears worker-side click latches when focus/capture changes
+  HEADER_LEN: 20,    // ints reserved for header
 };
 
 export const KB_RING = 256;   // keyboard ring capacity (ints)

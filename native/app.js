@@ -95,6 +95,7 @@ function releaseInput(){
   if(!ctrl)return;
   for(let i=0;i<128;i++)Atomics.store(ctrl,KEY_STATE_BASE+i,0);
   for(const i of [CTRL.MS_DX,CTRL.MS_DY,CTRL.MS_LB,CTRL.MS_RB])Atomics.store(ctrl,i,0);
+  Atomics.store(ctrl,CTRL.MS_PRESSED,0);Atomics.add(ctrl,CTRL.INPUT_RESET,1);
   Atomics.store(ctrl,CTRL.MS_X,320);Atomics.store(ctrl,CTRL.MS_Y,240);
 }
 addEventListener('keydown',e=>{
@@ -144,16 +145,21 @@ function setMousePos(target, clientX, clientY) {
 }
 function setButton(which, down) {
   if (!ctrl) return;
-  Atomics.store(ctrl, which, down ? 1 : 0);
+  const previous=Atomics.exchange(ctrl, which, down ? 1 : 0);
+  if(down&&!previous)Atomics.or(ctrl,CTRL.MS_PRESSED,which===CTRL.MS_LB?1:2);
   Atomics.notify(ctrl, CTRL.SLEEP_FUTEX); // wake a blocked GetChar/Sleep loop
 }
 
 function captureMouse({automatic=false}={}) {
   if(!running)return false;
   manualCapture=!automatic;hybridMouse=false;curCanvas.focus({preventScroll:true});releaseInput();speaker.resume();
+  const requestedCanvas=curCanvas;
   const failed=error=>{
+    if(!running||curCanvas!==requestedCanvas)return;
+    hybridMouse=true;manualCapture=false;
     console.warn('Mouse capture failed:',error.name,error.message);
-    setStatus('Mouse capture unavailable. Click the preview and use Capture mouse to retry.');
+    setStatus('Mouse capture unavailable. Hybrid mouse is active; click the game to play.');
+    mouseStateChanged();
   };
   try{curCanvas.requestPointerLock()?.catch(failed);}
   catch(error){failed(error);}
@@ -164,28 +170,35 @@ function releaseMouse() {
   if(isMouseCaptured())document.exitPointerLock();
 }
 function attachInput(target) {
+  const mouseDown=e=>{
+    if(!running||target!==curCanvas||![0,2].includes(e.button))return;
+    if(((captureWanted&&!hybridMouse)||e.shiftKey)&&!isMouseCaptured()){
+      captureMouse({automatic:!e.shiftKey});e.preventDefault();return;
+    }
+    setMousePos(target,e.clientX,e.clientY);
+    setButton(e.button===2?CTRL.MS_RB:CTRL.MS_LB,true);
+    speaker.resume();target.focus({preventScroll:true});e.preventDefault();
+  };
+  // Mouse events report each button in a chord. Pointerdown/up only report the
+  // first press and final release. Pointer lock also forbids setPointerCapture.
+  target.addEventListener('mousedown',mouseDown);
   // Pointer Events cover mouse, touch, and pen in one API where supported.
   if (window.PointerEvent) {
     target.addEventListener("pointermove", (e) => { setMousePos(target, e.clientX, e.clientY); });
     target.addEventListener("pointerdown", (e) => {
-      if(((captureWanted&&!hybridMouse)||e.shiftKey) && e.pointerType!=='touch' && document.pointerLockElement!==target){
-        captureMouse({automatic:!e.shiftKey});
-        e.preventDefault();return;
-      }
-      target.setPointerCapture?.(e.pointerId);
+      if(e.pointerType==='mouse'||!running||target!==curCanvas)return;
+      if(!document.pointerLockElement)try{target.setPointerCapture?.(e.pointerId);}catch{}
       setMousePos(target, e.clientX, e.clientY);
       setButton(e.button === 2 ? CTRL.MS_RB : CTRL.MS_LB, true);
       speaker.resume();
       target.focus?.();
       e.preventDefault();
     });
-    target.addEventListener("pointerup", (e) => { setButton(e.button === 2 ? CTRL.MS_RB : CTRL.MS_LB, false); e.preventDefault(); });
-    target.addEventListener("pointercancel", () => { setButton(CTRL.MS_LB, false); setButton(CTRL.MS_RB, false); });
+    target.addEventListener("pointerup", (e) => { if(e.pointerType==='mouse')return;setButton(e.button === 2 ? CTRL.MS_RB : CTRL.MS_LB, false); e.preventDefault(); });
+    target.addEventListener("pointercancel", releaseInput);
   } else {
     // Fallback for older browsers: explicit mouse + touch.
     target.addEventListener("mousemove", (e) => setMousePos(target, e.clientX, e.clientY));
-    target.addEventListener("mousedown", (e) => { setMousePos(target, e.clientX, e.clientY); setButton(e.button === 2 ? CTRL.MS_RB : CTRL.MS_LB, true); speaker.resume(); });
-    target.addEventListener("mouseup", (e) => setButton(e.button === 2 ? CTRL.MS_RB : CTRL.MS_LB, false));
     const touch = (e, down) => {
       if (e.touches && e.touches[0]) setMousePos(target, e.touches[0].clientX, e.touches[0].clientY);
       if (down !== null) setButton(CTRL.MS_LB, down);
@@ -199,6 +212,10 @@ function attachInput(target) {
   target.addEventListener("contextmenu", (e) => e.preventDefault());
   target.style.touchAction = "none"; // stop the page scrolling/zooming on canvas touches
 }
+// Release even when an uncaptured press is dragged outside the canvas.
+document.addEventListener('mouseup',e=>{
+  if(e.button===0||e.button===2)setButton(e.button===2?CTRL.MS_RB:CTRL.MS_LB,false);
+},true);
 attachInput(canvas);
 
 // ---- sound pump: drain worker's SND ring into WebAudio ----
