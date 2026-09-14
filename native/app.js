@@ -85,10 +85,11 @@ function keyToChar(e) {
   return 0;
 }
 
-let captureWanted=false;
+let captureWanted=false, hybridMouse=false, wasMouseLocked=false, hybridTracking=false;
 const scanKeys={KeyW:0x11,KeyA:0x1e,KeyS:0x1f,KeyD:0x20,KeyR:0x13,KeyF:0x21,KeyJ:0x24,KeyL:0x26,KeyI:0x17,KeyK:0x25};
 const hasInputFocus=()=>document.activeElement===curCanvas || document.pointerLockElement===curCanvas;
 function releaseInput(){
+  hybridTracking=false;
   if(!ctrl)return;
   for(let i=0;i<128;i++)Atomics.store(ctrl,KEY_STATE_BASE+i,0);
   for(const i of [CTRL.MS_DX,CTRL.MS_DY,CTRL.MS_LB,CTRL.MS_RB])Atomics.store(ctrl,i,0);
@@ -96,17 +97,28 @@ function releaseInput(){
 }
 addEventListener('keydown',e=>{
   if(!running||!hasInputFocus())return;
-  if(e.code==='Escape'&&document.pointerLockElement===curCanvas){document.exitPointerLock();releaseInput();return;}
+  if(e.code==='Escape'&&document.pointerLockElement===curCanvas){hybridMouse=true;document.exitPointerLock();releaseInput();return;}
   const sc=scanKeys[e.code];if(sc!==undefined)Atomics.store(ctrl,KEY_STATE_BASE+sc,1);
   const c=keyToChar(e);if(c){if(!e.repeat || sc===undefined)pushKey(c);e.preventDefault();}
 });
 addEventListener('keyup',e=>{const sc=scanKeys[e.code];if(ctrl&&sc!==undefined)Atomics.store(ctrl,KEY_STATE_BASE+sc,0);});
 addEventListener('blur',()=>{releaseInput();if(document.pointerLockElement===curCanvas)document.exitPointerLock();});
 document.addEventListener('visibilitychange',()=>{if(document.hidden){releaseInput();if(document.pointerLockElement===curCanvas)document.exitPointerLock();}});
-document.addEventListener('pointerlockchange',()=>{releaseInput();document.body.classList.toggle('mouse-locked',!!document.pointerLockElement);});
+document.addEventListener('pointerlockchange',()=>{
+  const locked=document.pointerLockElement===curCanvas;
+  if(wasMouseLocked&&!locked)hybridMouse=true;
+  wasMouseLocked=locked;releaseInput();
+  document.body.classList.toggle('mouse-locked',!!document.pointerLockElement);
+});
 document.addEventListener('pointerdown',e=>{if(e.target!==curCanvas)releaseInput();},true);
 document.addEventListener('mousemove',e=>{
-  if(!running||document.pointerLockElement!==curCanvas)return;
+  if(!running)return;
+  if(document.pointerLockElement!==curCanvas){
+    if(!captureWanted||!hybridMouse||!hasInputFocus()||e.target!==curCanvas){hybridTracking=false;return;}
+    const r=curCanvas.getBoundingClientRect();
+    if(e.clientX<r.left||e.clientX>=r.right||e.clientY<r.top||e.clientY>=r.bottom){hybridTracking=false;return;}
+    if(!hybridTracking){hybridTracking=true;return;}
+  }
   Atomics.add(ctrl,CTRL.MS_DX,Math.round(e.movementX));Atomics.add(ctrl,CTRL.MS_DY,Math.round(e.movementY));
 });
 
@@ -128,14 +140,20 @@ function setButton(which, down) {
   Atomics.notify(ctrl, CTRL.SLEEP_FUTEX); // wake a blocked GetChar/Sleep loop
 }
 
+function captureMouse() {
+  if(!running||!captureWanted)return false;
+  hybridMouse=false;curCanvas.focus();releaseInput();
+  try{curCanvas.requestPointerLock()?.catch(()=>setStatus('Mouse capture unavailable. Use the Capture mouse button to retry.'));}
+  catch{setStatus('Mouse capture unavailable.');}
+  return true;
+}
 function attachInput(target) {
   // Pointer Events cover mouse, touch, and pen in one API where supported.
   if (window.PointerEvent) {
     target.addEventListener("pointermove", (e) => { setMousePos(target, e.clientX, e.clientY); });
     target.addEventListener("pointerdown", (e) => {
-      if(captureWanted && e.pointerType!=='touch' && document.pointerLockElement!==target){
-        target.focus();releaseInput();
-        try{target.requestPointerLock()?.catch(()=>setStatus('Click the screen to retry mouse capture.'));}catch{setStatus('Mouse capture unavailable.');}
+      if(captureWanted && (!hybridMouse||e.shiftKey) && e.pointerType!=='touch' && document.pointerLockElement!==target){
+        captureMouse();
         e.preventDefault();return;
       }
       target.setPointerCapture?.(e.pointerId);
@@ -215,20 +233,15 @@ async function run(source=editor.value) {
   curCanvas = fresh;
   reattachCanvas(fresh);
   mainFb = new Framebuffer(fresh.getContext("2d"), 640, 480, SCALE, new Uint8Array(fbSAB));
-  // present + an HONEST fps counter: count only frames where the framebuffer
-  // actually changed (real animation frames), capped at the display refresh - so a
-  // static screen reads 0, not a misleading 60. This is the *visible* native fps.
-  let _ph = 0, _rf = 0, _t0 = performance.now();
-  const fbBytes = new Uint8Array(fbSAB);
+  // The worker already signals frame boundaries. Reading that sequence avoids a
+  // full-frame hash on every browser refresh, and skips uploads while it sleeps.
+  let lastFrame=0,rateFrames=0,rateStart=performance.now();
   const present = () => {
     if (!running) return;
-    mainFb.present();
-    // full-coverage change detection: a single changed pixel must register, so
-    // sparse-update demos (Bounce, RandDemo) are counted honestly, not skipped.
-    let h = 0; for (let i = 0; i < fbBytes.length; i++) h = (h * 33 + fbBytes[i]) | 0;
-    if (h !== _ph) { _rf++; _ph = h; }
+    const frame=Atomics.load(ctrl,CTRL.FRAME)>>>0;
+    if(frame!==lastFrame){mainFb.present();rateFrames+=(frame-lastFrame)>>>0;lastFrame=frame;}
     const now = performance.now();
-    if (now - _t0 >= 1000) { window.__nativeFps = _rf; setStatus("running · " + _rf + " fps (native)"); _rf = 0; _t0 = now; }
+    if(now-rateStart>=1000){window.__nativeFps=Math.round(rateFrames*1000/(now-rateStart));setStatus('running · '+window.__nativeFps+' fps (native)');rateFrames=0;rateStart=now;}
     rafId = requestAnimationFrame(present);
   };
 
@@ -237,7 +250,7 @@ async function run(source=editor.value) {
     const m = e.data;
     if(m.type === 'inputMode'){
       captureWanted=!!m.capture;releaseInput();
-      if(captureWanted)setStatus('Click the screen to capture the mouse. Esc releases.');
+      if(captureWanted)setStatus(hybridMouse?'Hybrid mouse. Use Capture mouse or Shift+click to capture again.':'Click the screen to capture the mouse. Esc releases.');
       else if(document.pointerLockElement===curCanvas)document.exitPointerLock();
     }
     else if (m.type === "text") appendConsole(m.text);
@@ -292,4 +305,4 @@ if (!self.crossOriginIsolated) {
 }
 // Expose run/stop so the host page (the overlay opener) can drive the editor:
 // run the default demo when the window opens, stop it when the window closes.
-window.__holycEditor = { run, stop, isRunning: () => running, runIn };
+window.__holycEditor = { run, stop, isRunning: () => running, runIn, captureMouse, releaseMouse:()=>{if(document.pointerLockElement===curCanvas){hybridMouse=true;releaseInput();}} };

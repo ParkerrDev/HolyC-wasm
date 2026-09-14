@@ -26,6 +26,7 @@ function scanChar() {
   return Atomics.load(ctrl, KB_BASE + (tail % KB_RING));
 }
 function getChar() {
+  presentMaybe(true); // show pending graphics before blocking for keyboard input
   // blocking: wait until a char is available, then consume it
   while (Atomics.load(ctrl, CTRL.RUNNING) === 1) {
     const head = Atomics.load(ctrl, CTRL.KB_HEAD);
