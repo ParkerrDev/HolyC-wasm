@@ -85,7 +85,9 @@ function keyToChar(e) {
   return 0;
 }
 
-let captureWanted=false, hybridMouse=false, wasMouseLocked=false, hybridTracking=false;
+let captureWanted=false, manualCapture=false, hybridMouse=false, wasMouseLocked=false, hybridTracking=false;
+const isMouseCaptured=()=>document.pointerLockElement===curCanvas;
+const mouseStateChanged=()=>window.dispatchEvent(new Event('game-mouse-change'));
 const scanKeys={KeyW:0x11,KeyA:0x1e,KeyS:0x1f,KeyD:0x20,KeyR:0x13,KeyF:0x21,KeyJ:0x24,KeyL:0x26,KeyI:0x17,KeyK:0x25};
 const hasInputFocus=()=>document.activeElement===curCanvas || document.pointerLockElement===curCanvas;
 function releaseInput(){
@@ -97,7 +99,7 @@ function releaseInput(){
 }
 addEventListener('keydown',e=>{
   if(!running||!hasInputFocus())return;
-  if(e.code==='Escape'&&document.pointerLockElement===curCanvas){hybridMouse=true;document.exitPointerLock();releaseInput();return;}
+  if(e.code==='Escape'&&isMouseCaptured()){releaseMouse();return;}
   const sc=scanKeys[e.code];if(sc!==undefined)Atomics.store(ctrl,KEY_STATE_BASE+sc,1);
   const c=keyToChar(e);if(c){if(!e.repeat || sc===undefined)pushKey(c);e.preventDefault();}
 });
@@ -106,9 +108,10 @@ addEventListener('blur',()=>{releaseInput();if(document.pointerLockElement===cur
 document.addEventListener('visibilitychange',()=>{if(document.hidden){releaseInput();if(document.pointerLockElement===curCanvas)document.exitPointerLock();}});
 document.addEventListener('pointerlockchange',()=>{
   const locked=document.pointerLockElement===curCanvas;
-  if(wasMouseLocked&&!locked)hybridMouse=true;
+  if(wasMouseLocked&&!locked){hybridMouse=true;manualCapture=false;}
   wasMouseLocked=locked;releaseInput();
   document.body.classList.toggle('mouse-locked',!!document.pointerLockElement);
+  mouseStateChanged();
 });
 document.addEventListener('pointerdown',e=>{if(e.target!==curCanvas)releaseInput();},true);
 document.addEventListener('mousemove',e=>{
@@ -120,6 +123,11 @@ document.addEventListener('mousemove',e=>{
     if(!hybridTracking){hybridTracking=true;return;}
   }
   Atomics.add(ctrl,CTRL.MS_DX,Math.round(e.movementX));Atomics.add(ctrl,CTRL.MS_DY,Math.round(e.movementY));
+  if(isMouseCaptured()&&!captureWanted){
+    const r=curCanvas.getBoundingClientRect();
+    Atomics.store(ctrl,CTRL.MS_X,Math.max(0,Math.min(639,Atomics.load(ctrl,CTRL.MS_X)+Math.round(e.movementX*640/r.width))));
+    Atomics.store(ctrl,CTRL.MS_Y,Math.max(0,Math.min(479,Atomics.load(ctrl,CTRL.MS_Y)+Math.round(e.movementY*480/r.height))));
+  }
 });
 
 // ---- pointer (mouse + touch + pen) -> control SAB ----
@@ -127,7 +135,7 @@ document.addEventListener('mousemove',e=>{
 // (re)attach via attachInput()). Touch and mouse both map to the single
 // TempleOS mouse cursor + left button, so finger taps act like clicks.
 function setMousePos(target, clientX, clientY) {
-  if (!ctrl || captureWanted) return;
+  if (!ctrl || captureWanted || isMouseCaptured()) return;
   const r = target.getBoundingClientRect();
   const x = Math.round((clientX - r.left) * (640 / r.width));
   const y = Math.round((clientY - r.top) * (480 / r.height));
@@ -140,20 +148,28 @@ function setButton(which, down) {
   Atomics.notify(ctrl, CTRL.SLEEP_FUTEX); // wake a blocked GetChar/Sleep loop
 }
 
-function captureMouse() {
-  if(!running||!captureWanted)return false;
-  hybridMouse=false;curCanvas.focus();releaseInput();
-  try{curCanvas.requestPointerLock()?.catch(()=>setStatus('Mouse capture unavailable. Use the Capture mouse button to retry.'));}
-  catch{setStatus('Mouse capture unavailable.');}
+function captureMouse({automatic=false}={}) {
+  if(!running)return false;
+  manualCapture=!automatic;hybridMouse=false;curCanvas.focus({preventScroll:true});releaseInput();speaker.resume();
+  const failed=error=>{
+    console.warn('Mouse capture failed:',error.name,error.message);
+    setStatus('Mouse capture unavailable. Click the preview and use Capture mouse to retry.');
+  };
+  try{curCanvas.requestPointerLock()?.catch(failed);}
+  catch(error){failed(error);}
   return true;
+}
+function releaseMouse() {
+  hybridMouse=true;manualCapture=false;releaseInput();
+  if(isMouseCaptured())document.exitPointerLock();
 }
 function attachInput(target) {
   // Pointer Events cover mouse, touch, and pen in one API where supported.
   if (window.PointerEvent) {
     target.addEventListener("pointermove", (e) => { setMousePos(target, e.clientX, e.clientY); });
     target.addEventListener("pointerdown", (e) => {
-      if(captureWanted && (!hybridMouse||e.shiftKey) && e.pointerType!=='touch' && document.pointerLockElement!==target){
-        captureMouse();
+      if(((captureWanted&&!hybridMouse)||e.shiftKey) && e.pointerType!=='touch' && document.pointerLockElement!==target){
+        captureMouse({automatic:!e.shiftKey});
         e.preventDefault();return;
       }
       target.setPointerCapture?.(e.pointerId);
@@ -204,16 +220,17 @@ function pumpSound() {
 // ---- run / stop ----
 function stop() {
   cancelAnimationFrame(rafId);rafId=0;
-  releaseInput();captureWanted=false;if(document.pointerLockElement===curCanvas)document.exitPointerLock();
+  releaseInput();captureWanted=false;manualCapture=false;if(document.pointerLockElement===curCanvas)document.exitPointerLock();
   if (ctrl) { Atomics.store(ctrl, CTRL.RUNNING, 0); Atomics.notify(ctrl, CTRL.SLEEP_FUTEX); }
   if (worker) { worker.terminate(); worker = null; }
   if (sndTimer) { clearInterval(sndTimer); sndTimer = null; }
   running = false;
+  mouseStateChanged();
   speaker.tone(0);
   $("runBtn").textContent = "▶ Run";
 }
 
-async function run(source=editor.value) {
+async function run(source=editor.value,project={}) {
   if (running) { stop(); return; }
   clearConsole();
   speaker.resume();
@@ -251,18 +268,19 @@ async function run(source=editor.value) {
     if(m.type === 'inputMode'){
       captureWanted=!!m.capture;releaseInput();
       if(captureWanted)setStatus(hybridMouse?'Hybrid mouse. Use Capture mouse or Shift+click to capture again.':'Click the screen to capture the mouse. Esc releases.');
-      else if(document.pointerLockElement===curCanvas)document.exitPointerLock();
+      else if(!manualCapture&&isMouseCaptured())document.exitPointerLock();
     }
     else if (m.type === "text") appendConsole(m.text);
     else if (m.type === "compiled") setStatus(`compiled ${m.size} bytes` + (m.warnings && m.warnings.length ? `, ${m.warnings.length} warnings` : ""));
     else if (m.type === "done") { if (mainFb) mainFb.present(); setStatus("done"); stop(); }  // present the FINAL frame (fast finite demos finish before the first rAF)
-    else if (m.type === "error") { if (mainFb) mainFb.present(); appendConsole("\n[error] " + m.error + "\n"); setStatus("error"); stop(); }
+    else if (m.type === "error") { if (mainFb) mainFb.present(); appendConsole("\n[error] " + m.error + "\n"); setStatus(m.nativeGame?'HolyC-WASM could not run this source. See Console for the native compatibility error.':'error'); stop(); }
   };
 
   running = true;
+  mouseStateChanged();
   $("runBtn").textContent = "■ Stop";
   setStatus("running…");
-  worker.postMessage({ type: "run", source, controlSAB: sab, fbSAB });
+  worker.postMessage({ type: "run", source, controlSAB: sab, fbSAB, ...project });
   rafId = requestAnimationFrame(present);
 
   sndTimer = setInterval(pumpSound, 16);
@@ -279,14 +297,14 @@ $("runBtn").addEventListener("click", () => { if (!running) curCanvas = $("scree
 
 // Run a source snapshot in the game popup or editor preview. Keeping the textarea
 // separate lets the user edit another file or prepare the next run while playing.
-function runIn(canvasEl, source, {preserveEditor=false}={}) {
+function runIn(canvasEl, source, {preserveEditor=false,...project}={}) {
   if (running) stop();
   curCanvas = canvasEl;
   if(!preserveEditor){
     editor.value = source;
     editor.dispatchEvent(new Event("input"));
   }
-  return run(source);
+  return run(source,project);
 }
 $("stopBtn")?.addEventListener("click", stop);  // optional second button; the overlay uses just runBtn
 
@@ -305,4 +323,4 @@ if (!self.crossOriginIsolated) {
 }
 // Expose run/stop so the host page (the overlay opener) can drive the editor:
 // run the default demo when the window opens, stop it when the window closes.
-window.__holycEditor = { run, stop, isRunning: () => running, runIn, captureMouse, releaseMouse:()=>{if(document.pointerLockElement===curCanvas){hybridMouse=true;releaseInput();}} };
+window.__holycEditor = { run, stop, isRunning: () => running, runIn, captureMouse, releaseMouse, isMouseCaptured };

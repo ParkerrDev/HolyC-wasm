@@ -7,6 +7,7 @@
 // go straight to an OffscreenCanvas; sound commands are pushed to a ring the
 // main thread drains into WebAudio; keyboard/mouse come in through the same SAB.
 import { compileHolyC } from "../src/compiler.js";
+import { compileNativeProject } from "./project.js";
 import { createHost } from "../src/runtime/host.js";
 import { Framebuffer } from "../src/runtime/graphics.js";
 import { CTRL, KB_BASE, KB_RING, SND_BASE, SND_RING, SND_TONE, SND_NOTE, KEY_STATE_BASE } from "../src/runtime/protocol.js";
@@ -102,7 +103,9 @@ self.onmessage = async (e) => {
 
     let host;
     try {
-      const { bytes, warnings, globals } = compileHolyC(source, { filename: "program.HC", lenient: true, resilient: true });
+      const { bytes, warnings, globals } = msg.nativeGame
+        ? compileNativeProject({source,filename:msg.filename,files:msg.files})
+        : compileHolyC(source, { filename: "program.HC", lenient: true, resilient: true });
       self.postMessage({ type: "compiled", size: bytes.length, warnings });
 
       host = createHost({
@@ -163,7 +166,7 @@ self.onmessage = async (e) => {
     } catch (err) {
       flush();
       Atomics.store(ctrl, CTRL.DONE, 1);
-      self.postMessage({ type: "error", error: String(err && err.stack || err) });
+      self.postMessage({ type: "error", error: String(err && err.stack || err), nativeGame:!!msg.nativeGame });
     }
   }
 };

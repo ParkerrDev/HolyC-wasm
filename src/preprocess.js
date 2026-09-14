@@ -16,13 +16,14 @@ function isDirectiveHash(tokens, idx) {
 }
 
 export function preprocess(tokens, opts = {}) {
-  const defines = new Map(); // name -> {params:null|[...], body:[tokens]}
+  const project = opts.projectIncludes ? opts.includeContext || {defines:new Map(),included:new Set()} : null;
+  const defines = project?.defines || new Map(); // name -> {params:null|[...], body:[tokens]}
   // seed with builtin defines
-  for (const [k, v] of Object.entries(opts.defines || {})) {
+  for (const [k, v] of Object.entries(opts.includeContext ? {} : opts.defines || {})) {
     defines.set(k, { params: null, body: lex(String(v)).slice(0, -1) });
   }
   const includeResolver = opts.includeResolver || (() => null);
-  const includedOnce = new Set();
+  const includedOnce = project?.included || new Set();
 
   // First pass: collect directives + produce a stream with directives removed,
   // honoring conditional compilation.
@@ -117,12 +118,16 @@ export function preprocess(tokens, opts = {}) {
         const arg = lineToks[1];
         if (arg && arg.type === "str") {
           const path = arg.text;
-          const resolved = includeResolver(path);
-          if (resolved != null && !includedOnce.has(path)) {
-            includedOnce.add(path);
-            const subToks = lex(resolved, path);
+          const resolved = includeResolver(path, opts.filename);
+          if(project && resolved==null)throw new Error(`${opts.filename}: include not found: ${path}`);
+          const filename = typeof resolved==='object' && resolved ? resolved.filename : path;
+          const source = typeof resolved==='object' && resolved ? resolved.source : resolved;
+          if (resolved != null && !includedOnce.has(filename)) {
+            if(project && includedOnce.size>=512)throw new Error('Too many files in native project.');
+            includedOnce.add(filename);
+            const subToks = lex(source, filename);
             // recursively preprocess included file with shared defines
-            const sub = preprocessWithDefines(subToks, defines, opts);
+            const sub = project ? preprocess(subToks,{...opts,filename,includeContext:project}) : preprocessWithDefines(subToks, defines, opts);
             out.push(...sub.filter((t) => t.type !== "eof"));
           }
         }
