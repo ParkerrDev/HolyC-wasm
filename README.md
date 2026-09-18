@@ -2,23 +2,20 @@
 
 > Part of the TempleOS-web family:
 > [TempleOS-web](https://github.com/ParkerrDev/TempleOS-Web) (the site, assembles this repo at build time) ·
-> [hemu-wasm](https://github.com/ParkerrDev/Hemu-wasm) (the emulator, compiled BY this compiler) ·
+> [HEMU](https://github.com/ParkerrDev/HEMU) (the emulator: plain HolyC, compiled BY this compiler) ·
 > [TerryADavis-archive-transcriber](https://github.com/ParkerrDev/TerryADavis-archive-transcriber).
-> `native/` is the in-browser HolyC editor app (it imports `src/` directly).
 
 ## Current checkout
 
-This split repository tracks `src/` and `native/`. The older CLI, npm scripts and test tables below describe the pre-split layout. The supported checks here are:
+This split repository tracks `src/` only: the compiler (`compiler.js`, `preprocess.js`, `parser.js`, `codegen.js`, `wasm/emitter.js`) and the browser runtime it targets (`src/runtime/`). The older CLI, npm scripts and test tables below describe the pre-split layout. The supported checks here are:
 
 ```sh
 node src/wasm/emitter.selftest.js
 node src/atomic.selftest.mjs
-node src/runtime/host.selftest.mjs
+node src/import.selftest.mjs
 ```
 
-Run consumer integration checks in the sibling Hemu-wasm and HolyC-fmt checkouts. The host accepts diskRead, diskWrite and palette callbacks; compiled emulator artifacts must ship with this matching runtime.
-
-The native runner supports opt-in relative mouse input through the HolyC globals `I64 BrowserMouseCapture`, `I64 BrowserMouseDX`, `I64 BrowserMouseDY`, and `U8 BrowserKeys[128]`. Set capture to 1 while the game needs it and to 0 when returning to menus. The worker accumulates mouse deltas until the program consumes and clears them, and copies held movement keys by set-1 scancode. Capture requires a click on the game canvas; Esc releases it. HolyCraft exercises this protocol in `TempleOS-Web/tools/holycraft-input.test.mjs`.
+Its consumers live in their own repos: the HEMU emulator's WASM host, the HolyC editor app and the emulator harnesses are in TempleOS-Web (`engine/`, `editor/`, `tools/hemu/`), the formatter is HolyC-fmt. In strict mode a program's `import` prototypes become real WASM imports - that is how HEMU declares its host contract (`HEMU/src/host.HC`); a host implements it on top of `createHost()` (TempleOS-Web's `engine/host.js` is the reference). The preprocessor threads one defines map through `#include`s, so a header's `#define`s stay in force after the include, as in TempleOS.
 
 
 This is a **from-scratch compiler for HolyC** (Terry A. Davis's C dialect, the

@@ -17,9 +17,11 @@ function isDirectiveHash(tokens, idx) {
 
 export function preprocess(tokens, opts = {}) {
   const project = opts.projectIncludes ? opts.includeContext || {defines:new Map(),included:new Set()} : null;
-  const defines = project?.defines || new Map(); // name -> {params:null|[...], body:[tokens]}
-  // seed with builtin defines
-  for (const [k, v] of Object.entries(opts.includeContext ? {} : opts.defines || {})) {
+  // One defines map per compilation, threaded into every #include (opts._defines): a header's #defines
+  // stay in force after the include returns, as in C and TempleOS. Project mode shares project.defines
+  // the same way. Builtin defines are seeded only when the map is created.
+  const defines = project?.defines || opts._defines || new Map(); // name -> {params:null|[...], body:[tokens]}
+  for (const [k, v] of Object.entries(opts.includeContext || opts._defines ? {} : opts.defines || {})) {
     defines.set(k, { params: null, body: lex(String(v)).slice(0, -1) });
   }
   const includeResolver = opts.includeResolver || (() => null);
@@ -126,8 +128,8 @@ export function preprocess(tokens, opts = {}) {
             if(project && includedOnce.size>=512)throw new Error('Too many files in native project.');
             includedOnce.add(filename);
             const subToks = lex(source, filename);
-            // recursively preprocess included file with shared defines
-            const sub = project ? preprocess(subToks,{...opts,filename,includeContext:project}) : preprocessWithDefines(subToks, defines, opts);
+            // recursively preprocess the included file with the SAME defines map (and its own filename for diagnostics)
+            const sub = project ? preprocess(subToks,{...opts,filename,includeContext:project}) : preprocess(subToks, { ...opts, filename, _defines: defines });
             out.push(...sub.filter((t) => t.type !== "eof"));
           }
         }
@@ -157,14 +159,6 @@ export function preprocess(tokens, opts = {}) {
   return expanded;
 }
 
-// Helper: preprocess a token list sharing an existing defines map (for includes)
-function preprocessWithDefines(tokens, defines, opts) {
-  // Reuse the main routine but with pre-seeded defines: cheap re-impl by copying.
-  const saved = opts.defines;
-  // We can't easily thread the same map; just run a fresh preprocess and merge.
-  const result = preprocess(tokens, { ...opts });
-  return result;
-}
 
 function expandMacros(tokens, defines) {
   const out = [];

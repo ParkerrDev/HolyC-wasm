@@ -24,13 +24,6 @@ export function createHost(opts = {}) {
     timeMs: opts.timeMs || (() => Date.now()),
     onFlip: opts.onFlip || null,
     onTick: opts.onTick || null,           // called before scan/sleep/yield (e.g. mouse mirror)
-    present: opts.present || null,         // (addr,w,h,u8) => void - raw framebuffer blit (hemu)
-    snapLoad: opts.snapLoad || null,       // (memBase,u8) => void - load a RAM snapshot (hemu)
-    diskRead: opts.diskRead || null,       // (lba,count,u8,dst) => void - stage disk sectors into guest mem (hemu ATA)
-    palette: opts.palette || null,       // (index, RGB24) VGA DAC update
-    diskWrite: opts.diskWrite || null,     // Persist guest ATA writes through the same host adapter.
-    hostIn: opts.hostIn || null,           // (port) => int
-    hostOut: opts.hostOut || null,         // (port,val) => void
   };
 
   function mem() { return state.mem; }
@@ -70,36 +63,9 @@ export function createHost(opts = {}) {
       const a = Number(addr);
       state.gfx?.sprite?.(Number(x), Number(y), W, H, u8().subarray(a, a + W * H), Number(scale) || 1);
     },
-    // Blit a raw 8-bit indexed framebuffer (w*h palette-index bytes at addr) - used
-    // by hemu to present its guest VGA/linear framebuffer to a canvas.
-    __present(addr, w, h) { state.present?.(Number(addr), Number(w), Number(h), u8()); },
-    __snap_load(base) { state.snapLoad?.(Number(base), u8()); },
-    __host_disk(lba, count, buf) { state.diskRead?.(Number(lba), Number(count), u8(), Number(buf)); },
-    __host_palette(index,rgb) {state.palette?.(Number(index),Number(rgb));},
-    __host_disk_wr(lba, count, buf) { state.diskWrite?.(Number(lba), Number(count), u8(), Number(buf)); },
-    __host_in(port) { return BigInt(state.hostIn ? state.hostIn(Number(port)) | 0 : 0); },
-    __host_out(port, val) { state.hostOut?.(Number(port), Number(val)); },
-    // hemu input/pacing hooks - default stubs; real runners (snap-run, web/hemu.html) override env.*
-    __host_msx() { return 0n; }, __host_msy() { return 0n; }, __host_msb() { return 0n; },
-    __host_key() { return -1n; }, __host_budget() { return 1000000n; }, __host_prof(_rip) {},
-    __host_dt() { return 16n; },
-    // JIT hooks - default stubs (no JIT). A JIT-aware runner overrides __jit_compile/__jit_run and
-    // uses the offsets from __jit_state. With these no-ops, hemu's g_jit_on stays 0 and nothing changes.
-    __jit_state(_r, _f, _p) { return 0n; }, __jit_compile(_rip) { return 0n; }, __jit_run(rip) { return rip; }, __jit_x87(_a, _b, _c) {}, __jit_dispatch(_b) { return 0n; }, __ap_run(_rip, _bud) { return 0n; }, __jit_chain(_a, _b) {}, __jit_seg(_a, _b, _c) {},
-    // CMOS RTC fields from the host wall clock, so the guest's Now() tracks real date/time
-    // (not the snapshot's frozen clock). idx = CMOS register the guest selected via OUT 0x70.
-    __host_time(idx) {
-      const d = new Date(); idx = Number(idx);
-      if (idx === 0) return BigInt(d.getSeconds());
-      if (idx === 2) return BigInt(d.getMinutes());
-      if (idx === 4) return BigInt(d.getHours());
-      if (idx === 6) return BigInt(d.getDay());           // 0=Sun..6=Sat
-      if (idx === 7) return BigInt(d.getDate());          // day of month 1..31
-      if (idx === 8) return BigInt(d.getMonth() + 1);     // month 1..12
-      if (idx === 9) return BigInt(d.getFullYear() - 2000); // kernel adds 2000
-      return 0n;
-    },
-    __host_wheel() { return 0n; },   // cumulative mouse-wheel position -> ms.pos.z (browser overrides)
+    // HEMU's host imports (snapshot/present/disk/palette/input/pacing + the optional JIT hooks) are not
+    // part of this runtime: HEMU/src/host.HC declares them and hemu/host.js (createHemuHost) supplies
+    // them on top of this env.
 
     __snd(freq) { state.snd?.tone(freq); },
     __play_note(freq, ms) {

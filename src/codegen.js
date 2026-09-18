@@ -106,6 +106,7 @@ class Codegen {
     this.collectClasses();
     this.collectConsts();
     this.collectGlobals();
+    this.collectSourceImports();
     this.collectFunctions();
 
     // reserve __rt_init and __main
@@ -131,8 +132,9 @@ class Codegen {
     this.m.exportFunc("__rt_init", this.rtInit.index);
     this.m.exportGlobal("__sp", this.spGlobal);
     this.m.exportGlobal("__core", this.coreGlobal);   // SMP: host sets each worker's core index here
-    // export functions a runtime JIT needs to call (hemu's RdMem/WrMem handle MMIO + the 2^40 alias).
-    for (const nm of ["RdMem", "WrMem", "Step", "RasterHLE", ...(this.opts.exports || [])]) { const fn = this.functions.get(nm); if (fn && fn.slot) this.m.exportFunc(nm, fn.slot.index); }
+    // functions the host calls back into (a runtime JIT's memory/step hooks, guest-execution entry points,
+    // test probes): named by the caller via opts.exports - the compiler has no built-in list.
+    for (const nm of new Set(this.opts.exports || [])) { const fn = this.functions.get(nm); if (fn && fn.slot) this.m.exportFunc(nm, fn.slot.index); }
 
     const bytes = this.m.emit();
     return { bytes, warnings: this.warnings, dataEnd: this.cursor, globals: this.globals };
@@ -315,6 +317,27 @@ class Codegen {
         continue;
       }
       this.registerFuncSig(d, d);
+    }
+  }
+  // Source-declared host imports. A body-less function declared with the `import` storage class -
+  //   import U0 __present(U8 *fb, I64 w, I64 h);
+  // - becomes a WASM import from "env" in strict mode: that is how a program states its own host
+  // contract (HEMU/src/host.HC) instead of the compiler carrying a table for it. Lenient mode keeps
+  // stubbing such prototypes (kernel code pasted into the editor must not fail to link on a stray
+  // `import`). Names the runtime already imports (HOST_IMPORTS) and names that also have a body in
+  // this program are left to those. Must run before any function slot is allocated: WASM numbers
+  // imported functions ahead of defined ones.
+  collectSourceImports() {
+    if (this.lenient) return;
+    const defined = new Set();
+    for (const d of this.program.decls) if (d.kind === "FuncDecl" && d.body) defined.add(d.name);
+    for (const d of this.program.decls) {
+      if (d.kind !== "FuncDecl" || d.body || !d.storage?.includes("import")) continue;
+      if (this.imports[d.name] || defined.has(d.name)) continue;
+      const params = d.params.map((p) => ({ type: this.resolveType(p.type), name: p.name, default: p.default }));
+      const sig = this.wasmSig(params, this.resolveType(d.retType));
+      const idx = this.m.importFunc("env", d.name, sig.params, sig.results);
+      this.imports[d.name] = { index: idx, sig };
     }
   }
   registerFuncSig(d, bodyNode) {
