@@ -23,6 +23,7 @@ import {
   COLOR_NAMES, GR_WIDTH, GR_HEIGHT,
 } from "./abi.js";
 import { foldConstInt, foldDim } from "./fold.js";
+import { usesGoto, Gotos } from "./goto.js";
 
 const PINNED_GLOBALS = { ms: MS_ADDR };
 
@@ -447,6 +448,7 @@ class FnCtx {
     if (fn.node && fn.node.body) this.findAddrTaken(fn.node.body, this.addrTaken);
     this.assignParams();
     if (fn.node && fn.node.body) this.collectLocals(fn.node.body);
+    this.gotos = fn.node && fn.node.body && usesGoto(fn.node.body) ? new Gotos(this, fn.node.body, fn.name === "__main") : null;
   }
 
   // ---- diagnostics ----
@@ -589,6 +591,7 @@ class FnCtx {
 
   // ================================================== statements
   genStmt(s) {
+    if (this.gotos && this.gotos.lowers(s)) { this.gotos.region(s); return; }
     switch (s.kind) {
       case "Block": for (const st of this.flattenTry(s.stmts)) this.genStmt(st); return;
       case "Empty": return;
@@ -602,19 +605,24 @@ class FnCtx {
       case "For": this.genFor(s); return;
       case "Switch": this.genSwitch(s); return;
       case "Return": this.genReturn(s); return;
-      case "Break": { const L = this.loops[this.loops.length - 1]; if (!L) { if (this.cg.lenient) { this.warnOnce("break outside loop/switch; ignored"); return; } this.err(s, "break outside loop"); } this.f.br(this.rel(L.brk)); return; }
-      case "Continue": { const L = this.loops[this.loops.length - 1]; if (!L) { if (this.cg.lenient) { this.warnOnce("continue outside loop; ignored"); return; } this.err(s, "continue outside loop"); } this.f.br(this.rel(L.cont)); return; }
+      case "Break": { const L = this.loops[this.loops.length - 1]; if (!L) { if (this.cg.lenient) { this.warnOnce("break outside loop/switch; ignored"); return; } this.err(s, "break outside loop"); } this.loopJump(L.cfg, L.brk); return; }
+      case "Continue": { const L = this.loops[this.loops.length - 1]; if (!L) { if (this.cg.lenient) { this.warnOnce("continue outside loop; ignored"); return; } this.err(s, "continue outside loop"); } this.loopJump(L.cfg, L.cont); return; }
       case "Throw": this.genThrow(s); return;
       case "TryCatch": this.genTryCatch(s); return;
       case "Try": this.genTryCatch({ body: s.body, handler: null, line: s.line }); return;
       case "Catch": this.genStmt(s.body); return; // lone catch: just run it
-      case "Label": return; // labels handled structurally; bare labels are no-ops
+      case "Label":
+        if (this.fn.name === "__main") this.err(s, "No global labels");
+        this.cg.warn(`Unused label '${s.name}'`);
+        return;
       case "AsmBlock": this.warnOnce("inline asm{} is not supported (x86-64); emitting trap"); this.f.unreachable(); return;
-      case "Goto": this.warnOnce("goto is not supported; ignored"); return;
+      case "Goto": this.gotos.goto(s); return;
       case "ClassDecl": return; // local class decl: types only
       default: this.err(s, "unsupported statement " + s.kind);
     }
   }
+
+  loopJump(cfg, to) { if (cfg) this.gotos.jump(to); else this.f.br(this.rel(to)); }
 
   warnOnce(msg) { if (!this._warned) this._warned = new Set(); if (!this._warned.has(msg)) { this._warned.add(msg); this.cg.warn(msg); } }
 
@@ -765,9 +773,32 @@ class FnCtx {
   }
 
   genSwitch(s) {
+    const { labels, segs } = this.switchPlan(s);
+    if (labels.length === 0) return;
+    const disc = this.switchDisc(s);
+    const brk = this.pushCtrl(); this.f.block();   // break target (outermost)
+    // open one block per segment, innermost = seg0
+    const segMarks = [];
+    for (let i = segs.length - 1; i >= 0; i--) { segMarks[i] = this.pushCtrl(); this.f.block(); }
+    const defLabel = labels.find((l) => l.isDefault);
+    this.switchDispatch(disc, labels, (i) => segMarks[i], defLabel ? segMarks[defLabel.segIdx] : brk);
+    // segment bodies
+    this.loops.push({ brk, cont: brk }); // break works; continue maps to break (no loop)
+    for (let i = 0; i < segs.length; i++) {
+      this.f.end(); this.popCtrl(); // close segMark[i]
+      for (const st of segs[i]) this.genStmt(st);
+    }
+    this.loops.pop();
+    this.f.end(); this.popCtrl(); // brk
+  }
+
+  // The cases of a switch with the segment each one enters, the statements of
+  // each segment, and the statements before the first case.
+  switchPlan(s) {
     // Resolve labels with HolyC null-case auto-numbering & ranges.
     const labels = [];   // {values:[{lo,hi}], isDefault, segIdx}
     const segs = [];     // arrays of statements
+    const pre = [];
     let cur = [];
     let prev = -1n;
     const pushSeg = () => { segs.push(cur); cur = []; };
@@ -791,24 +822,22 @@ class FnCtx {
       } else if (it.type === "start" || it.type === "end") {
         // sub-switch markers: treated as plain fall-through points (limited)
       } else if (it.type === "stmt") {
-        if (!started) { /* statements before first label: rare; ignore */ }
-        else cur.push(it.stmt);
+        if (started) cur.push(it.stmt); else pre.push(it.stmt);
       }
     }
     if (started) pushSeg();
+    return { labels, segs, pre };
+  }
 
-    if (labels.length === 0) { for (const st of segs.flat()) this.genStmt(st); return; }
-
+  switchDisc(s) {
     const disc = this.scratchI64();
     this.genExprCoerce(s.disc, T.I64); this.f.local_set(disc);
+    return disc;
+  }
 
-    const brk = this.pushCtrl(); this.f.block();   // break target (outermost)
-    // open one block per segment, innermost = seg0
-    const segMarks = [];
-    for (let i = segs.length - 1; i >= 0; i--) { segMarks[i] = this.pushCtrl(); this.f.block(); }
-    // dispatch (inside innermost = seg0 block)
-    const defLabel = labels.find((l) => l.isDefault);
-    const defDst = defLabel ? segMarks[defLabel.segIdx] : brk;
+  // Branch to the marker of the case that holds the value in local disc, or
+  // to defDst. segMark(i) is the marker of segment i.
+  switchDispatch(disc, labels, segMark, defDst) {
     // Fast path: a dense block of constant integer cases compiles to an O(1) br_table (jump table)
     // instead of an O(n) compare chain - critical for big dispatchers like the CPU opcode switch.
     const cst = labels.filter((l) => !l.isDefault);
@@ -824,7 +853,7 @@ class FnCtx {
       const table = new Array(N).fill(dflt);
       for (const l of cst) {
         const a = Number(l.lo - blo), b = Number((l.hi != null ? l.hi : l.lo) - blo);
-        const d = this.rel(segMarks[l.segIdx]);
+        const d = this.rel(segMark(l.segIdx));
         for (let v = a; v <= b; v++) table[v] = d;
       }
       this.f.local_get(disc); this.f.i64_const(blo); this.f.op("i64_lt_s"); this.f.br_if(this.rel(defDst));
@@ -848,18 +877,10 @@ class FnCtx {
           this.f.local_get(disc).i64_const(lab.hi).op("i64_le_s");
           this.f.op("i32_and");
         }
-        this.f.br_if(this.rel(segMarks[lab.segIdx]));
+        this.f.br_if(this.rel(segMark(lab.segIdx)));
       }
       this.f.br(this.rel(defDst));
     }
-    // segment bodies
-    this.loops.push({ brk, cont: brk }); // break works; continue maps to break (no loop)
-    for (let i = 0; i < segs.length; i++) {
-      this.f.end(); this.popCtrl(); // close segMark[i]
-      for (const st of segs[i]) this.genStmt(st);
-    }
-    this.loops.pop();
-    this.f.end(); this.popCtrl(); // brk
   }
 
   // ================================================== conditions

@@ -3,21 +3,33 @@
 // with NAME.err must fail to compile, with that text in the message.
 //   node tests/run.mjs [NAME...]
 import { readdirSync, readFileSync, existsSync } from "node:fs";
+import { Worker, isMainThread, parentPort, workerData } from "node:worker_threads";
 import { compileHolyC } from "../src/compiler.js";
 import { createHost } from "../src/runtime/host.js";
+
+if (!isMainThread) {
+  let out = "";
+  const host = createHost({ ansi: false, onText: (s) => { out += s; } });
+  const { instance } = await WebAssembly.instantiate(workerData, { env: host.env });
+  host.attach(instance);
+  try { instance.exports.__main(); } catch (e) { out += `[trap ${e.message}]\n`; }
+  parentPort.postMessage(out);
+  process.exit(0);
+}
 
 const DIR = new URL("./v503/", import.meta.url).pathname;
 const want = new Set(process.argv.slice(2));
 const names = readdirSync(DIR).filter((f) => f.endsWith(".HC")).map((f) => f.slice(0, -3))
   .filter((n) => !want.size || want.has(n)).sort();
 
-async function run(bytes) {
-  let out = "";
-  const host = createHost({ ansi: false, onText: (s) => { out += s; } });
-  const { instance } = await WebAssembly.instantiate(bytes, { env: host.env });
-  host.attach(instance);
-  try { instance.exports.__main(); } catch (e) { out += `[trap ${e.message}]\n`; }
-  return out;
+// Runs the program in a worker, so one that never ends fails after 10 s.
+function run(bytes) {
+  return new Promise((done) => {
+    const w = new Worker(new URL(import.meta.url), { workerData: bytes });
+    const t = setTimeout(() => { w.terminate(); done("[timeout]\n"); }, 10000);
+    w.on("message", (out) => { clearTimeout(t); done(out); });
+    w.on("error", (e) => { clearTimeout(t); done(`[error ${e.message}]\n`); });
+  });
 }
 
 function compile(name) {
