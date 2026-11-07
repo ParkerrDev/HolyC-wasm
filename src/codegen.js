@@ -521,6 +521,7 @@ class FnCtx {
         if (n.kind === "Ident") { set.add(n.name); return; }
         if (n.kind === "Member") { n = n.base; continue; }
         if (n.kind === "Index") { n = n.base; continue; }
+        if (n.kind === "Cast" && n.postfix) { n = n.operand; continue; }
         if (n.kind === "Unary" && n.op === "*") { return; } // deref: root is a pointer value, not addressable local
         return;
       }
@@ -923,10 +924,53 @@ class FnCtx {
       case "Call": return this.genCall(node);
       case "Index": return this.genLoadLValue(node);
       case "Member": return this.genLoadLValue(node);
-      case "Cast": { const t = this.genExpr(node.operand); return this.coerce(t, this.cg.resolveType(node.type)); }
+      case "Cast": {
+        if (node.postfix) return this.genPostfixCast(node);
+        const t = this.genExpr(node.operand); return this.coerce(t, this.cg.resolveType(node.type));
+      }
       case "Sizeof": { let sz = node.type ? this.cg.typeSize(this.cg.resolveType(node.type)) : this.cg.typeSize(this.peekType(node.expr)); if (!Number.isFinite(sz)) sz = 8; this.f.i64_const(sz); return T.I64; }
       default: this.err(node, "unsupported expression " + node.kind);
     }
+  }
+
+  // A postfix cast of a value in memory reads that memory again as the new
+  // type. Any other value keeps its bits and only changes type.
+  genPostfixCast(node) {
+    if (this.inMemory(node.operand)) return this.genLoadLValue(node);
+    const to = this.cg.resolveType(node.type);
+    const from = this.cg.resolveType(this.genExpr(node.operand));
+    if (isVoid(from)) { if (!isVoid(to)) this.pushZero(to); return to; }
+    if (isVoid(to)) { this.f.drop(); return to; }
+    this.reinterpret(from, to);
+    return to;
+  }
+  inMemory(node) {
+    switch (node.kind) {
+      case "Ident": {
+        const L = this.locals.get(node.name);
+        if (L) return L.kind !== "wlocal";
+        return this.cg.globals.has(node.name);
+      }
+      case "Index": case "Member": return true;
+      case "Unary": return node.op === "*";
+      case "Cast": return !!node.postfix && this.inMemory(node.operand);
+    }
+    return false;
+  }
+  reinterpret(from, to) {
+    if (isFloat(from) && !isFloat(to)) this.f.op("i64_reinterpret_f64");
+    else if (!isFloat(from) && isFloat(to)) this.f.op("f64_reinterpret_i64");
+  }
+  pushZero(t) { if (isFloat(t)) this.f.f64_const(0); else this.f.i64_const(0); }
+  // The wasm local an assignment or ++ writes, through any postfix casts,
+  // with the type the operation uses.
+  wlocalTarget(node) {
+    let type = null;
+    while (node.kind === "Cast" && node.postfix) { type ??= this.cg.resolveType(node.type); node = node.operand; }
+    if (node.kind !== "Ident") return null;
+    const L = this.locals.get(node.name);
+    if (!L || L.kind !== "wlocal") return null;
+    return { L, type: type ?? this.cg.resolveType(L.type), own: this.cg.resolveType(L.type) };
   }
 
   // Static type of an expression without emitting code (best-effort).
@@ -1072,6 +1116,9 @@ class FnCtx {
       case "Unary": if (node.op === "*") { const t = this.genExpr(node.operand); return isPtr(t) || isArray(t) ? elemType(t) : T.I64; } break;
       case "Index": return this.genIndexAddr(node);
       case "Member": return this.genMemberAddr(node);
+      case "Cast":
+        if (node.postfix && this.inMemory(node.operand)) { this.genAddr(node.operand); return this.cg.resolveType(node.type); }
+        break;
     }
     if (this.cg.lenient) {
       // Not an lvalue (e.g. result of an expression used as a write target in
@@ -1163,19 +1210,18 @@ class FnCtx {
 
   genAssign(node) {
     const op = node.op;
-    // target is Ident wlocal?
-    if (node.target.kind === "Ident") {
-      const L = this.locals.get(node.target.name);
-      if (L && L.kind === "wlocal") {
-        const t = this.cg.resolveType(L.type);
-        if (op === "=") { this.genExprCoerce(node.value, t); this.f.local_tee(L.windex); return t; }
-        // compound: local = (local OP value), with correct types throughout
-        const base = op.slice(0, -1);
-        const vt = this.combineToValue(base, () => this.f.local_get(L.windex), t, node.value);
-        this.coerce(vt, t);
-        this.f.local_tee(L.windex);
-        return t;
+    const wl = this.wlocalTarget(node.target);
+    if (wl) {
+      const { L, type: t, own } = wl;
+      if (op === "=") this.genExprCoerce(node.value, t);
+      else {
+        const pushLeft = () => { this.f.local_get(L.windex); this.reinterpret(own, t); };
+        this.coerce(this.combineToValue(op.slice(0, -1), pushLeft, t, node.value), t);
       }
+      this.reinterpret(t, own);
+      this.f.local_tee(L.windex);
+      this.reinterpret(own, t);
+      return t;
     }
     // memory lvalue
     const t = this.cg.resolveType(this.genAddr(node.target)); // pushes addr (i64)
@@ -1388,19 +1434,17 @@ class FnCtx {
 
   genIncDec(target, op, prefix) {
     const delta = op === "++" ? 1 : -1;
-    if (target.kind === "Ident") {
-      const L = this.locals.get(target.name);
-      if (L && L.kind === "wlocal") {
-        const t = this.cg.resolveType(L.type);
-        if (isFloat(t)) {
-          if (prefix) { this.f.local_get(L.windex).f64_const(delta).op("f64_add").local_tee(L.windex); }
-          else { this.f.local_get(L.windex); this.f.local_get(L.windex).f64_const(delta).op("f64_add").local_set(L.windex); }
-        } else {
-          if (prefix) { this.f.local_get(L.windex).i64_const(delta).op("i64_add").local_tee(L.windex); }
-          else { this.f.local_get(L.windex); this.f.local_get(L.windex).i64_const(delta).op("i64_add").local_set(L.windex); }
-        }
-        return t;
-      }
+    const wl = this.wlocalTarget(target);
+    if (wl) {
+      const { L, type: t, own } = wl;
+      const step = () => {
+        this.f.local_get(L.windex); this.reinterpret(own, t);
+        if (isFloat(t)) this.f.f64_const(delta).op("f64_add"); else this.f.i64_const(delta).op("i64_add");
+        this.reinterpret(t, own);
+      };
+      if (prefix) { step(); this.f.local_tee(L.windex); this.reinterpret(own, t); }
+      else { this.f.local_get(L.windex); this.reinterpret(own, t); step(); this.f.local_set(L.windex); }
+      return t;
     }
     // memory lvalue
     const t = this.cg.resolveType(this.genAddr(target));

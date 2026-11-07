@@ -591,7 +591,12 @@ export class Parser {
     let e = this.parsePrimary();
     while (true) {
       const t = this.cur();
-      if (this.isP("(")) {
+      if (this.isP("(") && this.isType(1)) {
+        this.next();
+        const type = this.parseTypeRef();
+        this.eatP(")");
+        e = mk("Cast", { type, operand: e, postfix: true }, t);
+      } else if (this.isP("(")) {
         this.next();
         const args = [];
         if (!this.isP(")")) {

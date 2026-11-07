@@ -1,0 +1,55 @@
+// Compiles and runs each program in tests/v503 and compares what it prints
+// with NAME.out, the output TempleOS V5.03 gave for the same file. A program
+// with NAME.err must fail to compile, with that text in the message.
+//   node tests/run.mjs [NAME...]
+import { readdirSync, readFileSync, existsSync } from "node:fs";
+import { compileHolyC } from "../src/compiler.js";
+import { createHost } from "../src/runtime/host.js";
+
+const DIR = new URL("./v503/", import.meta.url).pathname;
+const want = new Set(process.argv.slice(2));
+const names = readdirSync(DIR).filter((f) => f.endsWith(".HC")).map((f) => f.slice(0, -3))
+  .filter((n) => !want.size || want.has(n)).sort();
+
+async function run(bytes) {
+  let out = "";
+  const host = createHost({ ansi: false, onText: (s) => { out += s; } });
+  const { instance } = await WebAssembly.instantiate(bytes, { env: host.env });
+  host.attach(instance);
+  try { instance.exports.__main(); } catch (e) { out += `[trap ${e.message}]\n`; }
+  return out;
+}
+
+function compile(name) {
+  const src = readFileSync(DIR + name + ".HC", "latin1");
+  return compileHolyC(src, { filename: name + ".HC", lenient: false });
+}
+
+async function check(name) {
+  const errFile = DIR + name + ".err";
+  if (existsSync(errFile)) {
+    const msg = readFileSync(errFile, "latin1").trim();
+    try { compile(name); } catch (e) {
+      return String(e.message).includes(msg) ? null : `wrong error: ${e.message}`;
+    }
+    return `compiled, expected error: ${msg}`;
+  }
+  let r;
+  try { r = compile(name); } catch (e) { return `compile error: ${e.message}`; }
+  const got = await run(r.bytes);
+  const exp = readFileSync(DIR + name + ".out", "latin1");
+  if (got === exp) return null;
+  const g = got.split("\n"), x = exp.split("\n");
+  let i = 0;
+  while (i < g.length && g[i] === x[i]) i++;
+  return `line ${i + 1}: got ${JSON.stringify(g[i])}, V5.03 ${JSON.stringify(x[i])}`;
+}
+
+let failed = 0;
+for (const n of names) {
+  const why = await check(n);
+  if (why) failed++;
+  console.log(`${why ? "FAIL" : "ok  "} ${n}${why ? ": " + why : ""}`);
+}
+console.log(`${names.length - failed} passed, ${failed} failed`);
+process.exit(failed ? 1 : 0);
