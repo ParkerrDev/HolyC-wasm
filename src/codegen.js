@@ -1097,7 +1097,7 @@ class FnCtx {
     // open one block per segment, innermost = seg0
     const segMarks = [];
     for (let i = segs.length - 1; i >= 0; i--) { segMarks[i] = this.pushCtrl(); this.f.block(); }
-    const defLabel = labels.find((l) => l.isDefault);
+    const defLabel = labels.filter(l=>l.isDefault).at(-1);
     this.switchDispatch(disc, labels, (i) => segMarks[i], defLabel ? segMarks[defLabel.segIdx] : brk);
     // segment bodies
     this.loops.push({ brk, cont: brk }); // break works; continue maps to break (no loop)
@@ -1130,9 +1130,13 @@ class FnCtx {
           let hi = it.hi ? this.cg.fold(it.hi,this.locals) : null;
           // Non-constant case value: keep the AST node for a runtime compare.
           const loExpr = (lo == null && it.lo) ? it.lo : null;
-          if (lo == null && !loExpr) { lo = prev + 1n; }        // empty `case:` auto-number
+          // I64_MIN is the native parser's initial-case sentinel.
+          if (lo==null && !loExpr) lo=prev===-(1n<<63n)?0n:prev+1n;
           if (it.hi && hi == null) hi = lo;                      // unfoldable range hi -> single
           if (!it.hi) hi = lo;
+          if (lo!=null) lo=BigInt.asIntN(64,lo);
+          if (hi!=null) hi=BigInt.asIntN(64,hi);
+          if (lo!=null && hi!=null && lo>hi) [lo,hi]=[hi,lo];
           if (lo != null) prev = (hi != null ? hi : lo);
           labels.push({ isDefault: false, lo, hi, loExpr, segIdx: segs.length });
         }
@@ -1141,6 +1145,18 @@ class FnCtx {
       }
     }
     if (started) pushSeg();
+    const cases=labels.filter(label=>!label.isDefault);
+    if (!cases.length) this.err(s,"switch range error");
+    const constants=cases.filter(label=>label.lo!=null && label.hi!=null)
+      .sort((a,b)=>a.lo<b.lo?-1:a.lo>b.lo?1:0);
+    for (let i=1;i<constants.length;i++)
+      if (constants[i].lo<=constants[i-1].hi) this.err(s,"Duplicate case");
+    if (constants.length===cases.length) {
+      let low=constants[0].lo;
+      // V5.03 pads small positive tables down to zero before its span check.
+      if (low>0n && low<=16n) low=0n;
+      if (constants.at(-1).hi-low+1n>65535n) this.err(s,"switch range error");
+    }
     return { labels, segs, pre };
   }
 

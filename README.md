@@ -58,6 +58,18 @@ Their caller-owned argument blocks are reentrant and released after normal
 returns or caught exceptions. A variadic WASM import/export has one hidden
 final I64 parameter pointing to the count followed by contiguous I64 arguments.
 This calling convention does not reproduce the native x86 machine stack.
+Compile-known switch labels use signed 64-bit values. Reversed ranges are
+normalized before empty-case numbering; duplicate/overlapping cases, empty
+case sets and native-invalid table spans reject. Repeated `default` labels
+select the last, including in functions lowered for `goto`. The SwitchBounds
+and negative Switch fixtures record the original compiler's boundary behavior.
+Case expressions requiring execution at declaration time remain incomplete:
+a global changed by an earlier top-level statement is not faithfully captured
+by the current initial-value folding/runtime comparison path. Such programs
+still need native execution through TempleOS/HEMU. The independently recorded
+`tests/probes/SwitchCapture.HC` preserves a concrete witness outside the passing
+compiler fixture set.
+
 Subswitch `start:` prefixes run on case dispatch, while fall-through skips a
 case's repeated prefixes. A grouped `break` reaches its `end:`; nested groups
 and ordinary loop breaks retain their own targets. Original V5.03 rejects a

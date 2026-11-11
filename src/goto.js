@@ -132,7 +132,7 @@ export class Gotos {
       case "Switch": {
         const { labels, segs, pre } = c.switchPlan(s);
         const x = this.block(), blocks = segs.map(() => this.block());
-        const def = labels.find((l) => l.isDefault);
+        const def = labels.filter(l=>l.isDefault).at(-1);
         this.open(R).term = labels.length
           ? { kind: "switch", s, labels, blocks, dflt: def ? blocks[def.segIdx] : x }
           : { kind: "jmp", to: x };
