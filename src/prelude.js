@@ -10,6 +10,7 @@ import {GR_TYPES_SRC,GR_SRC} from "./gr-prelude.js";
 import {TASK_TYPES_SRC,TASK_SRC} from "./task-prelude.js";
 import {TASK_MESSAGE_SRC} from "./task-message.js";
 import {TASK_INTERFACE,TASK_SCHEDULE_SRC} from "./task-schedule.js";
+import {DOC_TYPES_SRC,WINDOW_SRC} from "./window-prelude.js";
 import {KBD_SRC} from "./kbd-prelude.js";
 import {FONT} from "./runtime/font.js";
 import {STR_SRC} from "./str-prelude.js";
@@ -175,6 +176,7 @@ U8 gr_scrn_bitmap[GR_WIDTH*GR_HEIGHT];
 I64 gr_scrn_r[16];
 
 ${TASK_TYPES_SRC}
+${DOC_TYPES_SRC}
 CTask fs_storage;
 CTask *Fs;
 CTask *sys_winmgr_task;
@@ -185,7 +187,9 @@ CKbdStateGlbls kbd;
 #define GR_PEN_BRUSHES_NUM 64
 #define COLOR_INVALID 16
 class CGr {
-  CDC *dc;
+  CDC *dc,*dc2;
+  U8 *win_uncovered_bitmap;
+  I64 highest_uncovered;
   U64 to_8_bits[256],to_8_colors[256];
   U16 *win_z_buf;
   CDC *pen_brushes[GR_PEN_BRUSHES_NUM],
@@ -673,6 +677,7 @@ ${TASK_SRC}
 ${TASK_MESSAGE_SRC}
 ${TASK_SCHEDULE_SRC}
 ${KBD_SRC}
+${WINDOW_SRC}
 
 public I64 DistSqrI64(I64 x1,I64 y1,I64 x2,I64 y2)
 {
@@ -792,7 +797,6 @@ U0 Refresh()
   __gr_update(gr.dc->body,gr.dc->width_internal,0,0,gr.dc->width,gr.dc->height);
   __gr_flip;
 }
-U0 WinBorder(I64 on=1) {}
 U0 DocClear() {}
 U0 Free(U8 *p) { __free(p); }
 I64 MSize(U8 *p) { return __msize(p); }
@@ -839,6 +843,11 @@ U0 __hcrt_init()
   Fs->pix_height=__gr_height;
   Fs->pix_right=Fs->pix_width-1;
   Fs->pix_bottom=Fs->pix_height-1;
+  Fs->win_width=(Fs->pix_width+FONT_WIDTH-1)/FONT_WIDTH;
+  Fs->win_height=(Fs->pix_height+FONT_HEIGHT-1)/FONT_HEIGHT;
+  Fs->win_right=Fs->win_width-1;
+  Fs->win_bottom=Fs->win_height-1;
+  Fs->display_flags=1<<DISPLAYf_SHOW|1<<DISPLAYf_NO_BORDER;
   Fs->next_task=Fs->last_task=sys_winmgr_task=Fs;
   sys_focus_task=Fs;
   Fs->next_child_task=Fs->last_child_task=

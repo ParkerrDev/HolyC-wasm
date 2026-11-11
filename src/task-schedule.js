@@ -82,14 +82,7 @@ CTask *TaskHostNew(CTask *parent,U8 *name,I64 stk_size)
     task->win_right=TEXT_COLS-2;
     task->win_top=13;
     task->win_bottom=TEXT_ROWS-2;
-    task->win_width=task->win_right-task->win_left+1;
-    task->win_height=task->win_bottom-task->win_top+1;
-    task->pix_left=task->win_left*FONT_WIDTH;
-    task->pix_top=task->win_top*FONT_HEIGHT;
-    task->pix_width=task->win_width*FONT_WIDTH;
-    task->pix_height=task->win_height*FONT_HEIGHT;
-    task->pix_right=task->pix_left+task->pix_width-1;
-    task->pix_bottom=task->pix_top+task->pix_height-1;
+    WinDerivedValsUpdate(task);
     for (i=0;i<TASK_NAME_LEN-1 && name[i];i++)
       task->task_name[i]=name[i];
     StrCpy(task->task_title,task->task_name);

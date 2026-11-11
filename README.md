@@ -213,6 +213,23 @@ input-filter task creation and macro recording are not implemented. The
 `Messages` and `Queue` fixtures compare independent native behavior, while
 `test:messages` checks failed allocation, poisoned freed nodes and cleanup.
 
+Native window geometry (`WinHorz`, `WinVert`, `WinBorder`, `WinMax`, scrolling
+and hit testing), ordering/focus and the text-cell occlusion map follow V5.03.
+The initial root describes the existing full-screen borderless canvas, preserving
+legacy display bounds. `CDoc`, entry/bin/settings records have their native
+layouts; `DocPut`, `DocDisplay`, `DocBorder` and cursor/scroll flags operate on
+valid documents. They do not create, clear, parse or render DolDoc documents.
+
+`WinHostDraw(task,layer)` invokes a registered draw callback with a fresh alias,
+owned by the target task, and releases the alias even when the callback throws.
+This is the measured window-manager callback boundary; an automatic manager,
+its persistent surfaces/occlusion allocations and settings lifecycle are still
+pending. `WindowGeometry` tests 2,252 state captures plus 34,200 edge points.
+`test:window` checks native document layouts/state, 1,280 ordering/focus cases,
+6,144,000 occlusion cells and repeated draw/exception ownership. The native draw
+probe supplies the isolated alias/callback adapter; it does not claim that the
+browser currently executes the full original window manager.
+
 ## Cooperative task backend
 
 Reachable `Spawn`, `Kill`, `Exit`, `GetMsg`, `GetKey` or access to `kbd` requires
@@ -258,8 +275,8 @@ Suspended JSPI continuations cannot be serialized: `snapshot()` explicitly
 rejects task sessions. HEMU's guest-machine snapshots remain the portable
 TempleOS full-state path, and HEMU builds do not acquire the JSPI requirement.
 Hosts without JSPI still need a genuine alternative continuation backend.
-Window-manager draw dispatch and native settings/document state are subsequent
-work. Legacy `ScanChar`, `GetChar`
+Automatic window-manager dispatch and native settings/document allocation
+remain subsequent work. Legacy `ScanChar`, `GetChar`
 and `KeyGet` adapters are retained until existing browser consumers migrate;
 do not treat their old signatures as native input parity.
 
