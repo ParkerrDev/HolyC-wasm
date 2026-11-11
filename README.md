@@ -1363,6 +1363,32 @@ also remain host traps; the 606 callback cleanup cases use actual HolyC throws i
 the KeyDev echo chain, while the separate diagnostic-observer tests cover the
 new structured host device.
 
+### Extracting string tokens
+
+LexExtStr uses the native finite-token algorithm to transfer the current string
+out of CCmpCtrl and join following string tokens. It preserves embedded zero
+bytes, the returned length including the terminator, non-string next-token state,
+lex_next=FALSE backslash/put-back behavior and nested define streams. A NULL size
+output is untouched; a non-NULL output is assigned only on success. Prompt and
+document streams reject before ownership transfer. It requires an otherwise
+valid initialized control and its owned current token buffer.
+
+Detached and newly joined strings are freed if Lex, allocation or a HolyC echo
+callback throws. The control retains any token it still owns and can be destroyed
+normally. Already-consumed bytes and delivered echo are not rolled back; recreate
+the control for a fresh retry. This deliberately fixes the original detached
+string leak on echo failure, proven with actual V5.03 heap spans. Native allocator
+failure injection and general host JavaScript-trap cleanup are not claimed.
+
+`npm run test:lex-ext` checks 611 original/copied/staged native byte/state cases,
+five allocation-stable lifetimes, 74 real allocation failures, 1,318 throwing
+echo positions across root/child tasks, unchanged-state capability rejection,
+and original-source leak negative controls. Malformed/unsupported next tokens
+retain the existing Compiler/LexCaps categories and release detached ownership.
+`node tests/lex-ext-oracle.mjs` and `node tests/lex-ext-leak-oracle.mjs` repeat
+source/library/wrapper/capture/output-bound native evidence. No globals, host imports, expression evaluator,
+compiler symbol graph or document-output placeholder is added.
+
 ### Document metadata and flag parsing
 
 A reachable `doldoc` reference initializes the real native document metadata in

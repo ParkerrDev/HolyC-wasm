@@ -11,6 +11,7 @@ import {GR_TYPES_SRC,GR_SRC} from "./gr-prelude.js";
 import {HASH_TYPES_SRC,HASH_SRC} from "./hash-prelude.js";
 import {QUE_VECT_TYPES_SRC,QUE_VECT_SRC} from "./que-vector.js";
 import {LEX_TOKEN_DATA_SRC,LEX_TOKEN_DIAG_SRC,LEX_TOKEN_SRC} from "./lex-token.js";
+import {LEX_EXT_SRC} from "./lex-ext.js";
 import {LEX_REPORT_SRC} from "./lex-report.js";
 import {LEX_REM_SRC} from "./lex-rem.js";
 import {LEX_STRING_SRC} from "./lex-string.js";
@@ -764,6 +765,7 @@ ${LEX_REPORT_SRC}
 ${LEX_TOKEN_DATA_SRC}
 ${LEX_TOKEN_DIAG_SRC}
 ${LEX_TOKEN_SRC}
+${LEX_EXT_SRC}
 ${DOC_INIT_SRC}
 ${DOC_NAV_SRC}
 ${docEntrySrc}

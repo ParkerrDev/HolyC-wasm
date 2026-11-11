@@ -365,3 +365,38 @@ and stage unpublished owned entries safely on failure; it cannot special-case
 DocClear by silently bypassing dollar-command parsing. DocNew also installs
 EdLeftClickLink, which calls real Ed/PopUpEd. Those editor capabilities remain
 open and may not be replaced with a no-op link callback.
+
+## String-token extraction for command parsing
+
+A73 supplies the actual Compiler/LexLib.HC LexExtStr algorithm over finite Lex.
+PrsDollarCmd uses it for tag/auxiliary/define/macro/link strings. The helper takes
+ownership of cur_str, combines adjacent TK_STR bytes including embedded NUL,
+leaves the native next-token/include/put-back state, and publishes _size only
+on success. lex_next=FALSE preserves the original immediate-backslash rule;
+it does not mean an invented whitespace-tolerant continuation policy. Controls
+whose first token is not TK_STR preserve the native direct-transfer behavior.
+
+Prompt/document/missing streams reject before a string-token transfer. A cleanup
+catch frees detached and pending concatenation buffers on allocation or actual
+HolyC callback failure, while consumed source/echo remains consumed. A source-
+bound original-native echo witness measures one leaked detached allocation in
+stock and zero in the staged helper. Native allocator OOM is not injected; host
+failure and callback ownership gates are separate and cover root/child tasks.
+The old function is a meaningful negative control for one echo leak and two
+lost buffers on a failed join allocation. Existing structured lexical error
+categories/host-diagnostic limits remain unchanged.
+
+The three-way native valid proof contains 611 cases, including all 256 escaped
+byte values, embedded NUL, empty/long strings, comments, newline flags, NULL size
+output, backslash continuation, token transfer and nested defines. Five host
+lifetimes, 74 allocation failures and 1,318 throwing echo positions pass, along
+with unchanged-control rejection and malformed/unsupported next-token cleanup.
+Normal and NOFOLD address lowering agree. No new globals/imports are introduced;
+A72/A73 produce byte-identical complete HEMU 253af3d and four current browser-game
+artifacts. This supplies string ownership, not LexExpression or document output.
+
+Before a larger command-parser layer, the recorded I32(-23)/U16(12) signed
+quotient/remainder mismatch will be reduced across mixed integer types/operators
+and corrected in general lowering if bounded. The existing page-modulo widening
+is not evidence that the primitive is correct. Then PrsDollarCmd/DocPutS/DocPrint
+and real editor invocation resume along the dependency chain above.
