@@ -997,7 +997,7 @@ DocEntryDel/Size/Copy, DocUndoDel, DocEntryNewTag, DocRemSoftNewLines and
 DocInsEntry. It uses native CDoc/entry/bin layouts and real RawPrint diagnostics.
 These utilities operate on correctly initialized, caller-owned document queues;
 they do not construct or render a document. The metadata initializer and flag
-parser are described below. DocNew, DocRst, DocRecalc, native DocClear, full DolDoc
+parser are described below. DocNew, DocRst, native DocClear, full DolDoc
 output and the window manager remain unsupported in this profile. In particular, the inherited default-console
 `DocClear()` no-op is a **legacy compatibility gap**, not native support; the
 KeyDev profile excludes it and rejects DocClear during strict compilation.
@@ -1405,9 +1405,9 @@ that module before user effects; a fresh instance succeeds. Native allocator
 failure injection is not claimed. `node tests/doc-init-oracle.mjs` repeats the
 source/wrapper/library/layout/capture/output-bound native proof.
 
-DocNew, DocRst, DocRecalc, native DocClear, full document output and the window
+DocNew, DocRst, native DocClear, full document output and the window
 manager remain separate unfinished dependencies. In particular, DocRst calls
-DocTop, which needs DocFormFwd and actual DocRecalc; DocNew also installs the real
+DocTop, which needs DocFormFwd and the normal layout below; DocNew also installs the real
 EdLeftClickLink callback. The initializer does not fabricate those operations.
 
 ### Document base entries and form navigation
@@ -1425,14 +1425,14 @@ wrapper, capture and output-bound stock/ported V5.03 proof. Native MHeapCtrl
 confirms allocation ownership; it is not exposed as a fabricated host heap ABI.
 The shortened entry must not be accessed as though it owned every full-record
 field. Native entry-type/queue preconditions and the existing allocator-span
-difference remain. DocTop/Rst/New/Recalc, link editing and native DocClear remain
+difference remain. DocTop/Rst/New, link editing and native DocClear remain
 unavailable; the explicit KeyDev profile has no substitute clearing routine.
 
 ### Document layout helpers
 
 The explicit KeyDev profile supplies native DocSplitTag, DocWordWrapAdd/Del,
 DocRecalcXY, DocTmpAttr, DocCharDist, DocDelToNum/Entry and DocEntryLink. These
-operate on valid native document records; they do not supply DocRecalc, reset,
+operate on valid native document records; the helpers themselves do not supply reset,
 clear, screen rendering or editor services. DocEntryLink returns an owned string
 copy without opening anything. Pure arithmetic reachability stays device-free.
 
@@ -1453,3 +1453,27 @@ A measured compiler gap remains: I32 -23 divided/reduced by U16 12 gives native
 SmallUnsignedPromotion probe records both. The layout helper explicitly widens
 only the modulo divisor, preserving native results without changing the broader
 compiler rule or the native unsigned header/footer expressions.
+
+### Normal document layout
+
+The explicit KeyDev profile now supplies `DocRecalc(doc,RECALCt_NORMAL)` for
+valid caller-owned document queues in the finite subset described in
+[the document dependency map](docs/DocInit.md#normal-document-layout).
+It performs real settings/coordinates, wrapping, cursor commands, CL deletion,
+entry-limit trimming and window-size updates. It does not render the screen,
+find a cursor, run callbacks, highlight source text or open an editor. Unsupported
+modes and capabilities reject before document mutation; clear/trim recursion
+has additional conservative settings bounds so it cannot expose an unsupported
+mode after deleting entries.
+
+`npm run test:doc-recalc` checks 5,026 full document states against stock V5.03,
+a copied original function and the staged pass compiled by V5.03, plus native
+foreign-task ownership. Five host lifetimes, 94 rejection cases, 136 actual
+allocation failures, pending Break collisions and a cleanup-negative control
+verify ownership and locks. Successful prior wrap/deletion work survives an OOM;
+this is not whole-operation rollback. `node tests/doc-recalc-oracle.mjs` repeats
+the source/wrapper/capture/output-bound native proof;
+`node tests/doc-recalc-bounds-oracle.mjs` checks the staged rejection contract
+under V5.03. Native allocation-failure
+injection and native IRQ/CLI equivalence are not claimed. DocTop/Rst/New,
+DocPrint/DocClear and the actual editor/window-manager lifecycle remain open.

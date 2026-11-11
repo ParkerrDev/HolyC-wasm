@@ -232,3 +232,72 @@ expressions. Widening all header/footer expressions was rejected: an adversarial
 U16 65535 fixture exposes different native unsigned subtraction behavior. The
 full coordinate proof includes that case. Direct-expression parity remains an
 open compiler boundary, separately recorded from the passing helper contract.
+
+## Normal document layout
+
+A71 makes actual normal `DocRecalc` available in the explicit KeyDev profile.
+The implementation is the normal/full-refresh path of the V5.03 function, with
+real DocWordWrapAdd/Del, DocRecalcXY, DocTmpAttr, deletion, window geometry and
+locking. It updates every accepted entry's settings, coordinates, page and
+attributes; handles tabs, margins, page breaks, colors, cursor/PMT commands,
+wrap flags and CL commands; trims entries and recalculates when required.
+The native old_cur_col self-assignment is retained. The reduced pass uses a
+checked switch: preserving the original unchecked switch after removing the
+high-numbered rendering cases would jump beyond its native table for buttons.
+
+The accepted inputs are valid native queues, correctly sized entries and owned
+strings, a valid window task, and flags exactly RECALCt_NORMAL (zero). Data,
+checkbox/list/macro/menu/hex/tree/sprite/bin/song/HTML/error entries, dynamic tags
+or defines, data refresh, tree/list flags, binary content, borders, scrolling
+text and remallocating data are rejected. Source TEXT highlighting remains
+unavailable. A private read-only classifier applies the exact native
+FILEMASK_SRC masks to the final pathname component; it does not provide a
+substitute general FilesFindMatch API or touch a filesystem. Empty source-named
+documents retain the native highlight flag. Matching results are covered across
+CP437 byte values, case, path separators, compressed extensions and empty names.
+
+Page lengths must be nonzero and larger than header plus footer throughout the
+pass. Documents containing active CL commands or a custom max_entries bound
+also require the smallest possible page length to exceed the largest header
+plus largest footer, and cannot combine TEXT with any active enabling highlight
+command or source-name highlighting. Those conservative bounds protect later
+recursive passes after prefix deletion: a removed page/highlight command must
+not expose an unsupported operation after the first pass has already mutated
+the document. A custom max_entries permits at most 1,024 retained HOLD/FILTER_SKIP entries,
+conservatively counting each active held TEXT byte as a possible wrapped entry;
+negative limits are rejected. These are explicit finite
+input bounds, not claims that every native normal-layout document is supported.
+Native corrupted-queue/pointer repair is not supplied.
+
+Validation occurs before taking a new document lock and is repeated after
+acquisition. An existing foreign lock is waited on with real Yield; inherited
+locks remain owned by their caller. Completed native joins, splits or deletions
+remain after an allocation failure; pending unpublished allocations are cleaned
+up by the existing staged helpers. A new cleanup path releases only locks taken
+by this call, including a pending Break raised during unlock, and restores the
+prior failure-only marker and exception chain. It does not roll back all prior
+layout mutations. The host tests inject actual allocator failure and an actual
+task break; original-native OOM injection is not claimed. Geometry is read
+without yielding in the cooperative backend; no native CLI/IRQ equivalence or
+physical interrupt-state emulation is asserted.
+
+The source-bound three-way native proof covers 256 mixed layouts, 480 accepted
+control cases, 64 CL/hold/filter cases, 4,208 empty/name states, eight trimming
+states and ten nested/waiting/pending-break lock states: 5,026 canonical states.
+A separate original-native MHeapCtrl proof checks every wrap allocation belongs
+to the document's foreign mem_task. Host tests cover five lifetimes, 94
+pre-mutation rejection cases (including recursive exposure), 136 actual
+allocation failures with ownership/retry checks, and five pending Break/OOM
+collisions. A separate source-bound staged-native proof exercises the same 94
+rejections and verifies unchanged heap spans; it deliberately does not invoke
+unsupported modes through stock DocRecalc. Host instrumentation additionally
+proves no allocation calls during rejection. Removing cleanup from the same pass makes the allocation gate fail
+with its lock held. The normal and unfolded compiler modes are checked.
+
+The shared small-unsigned promotion gap remains: only the modulo divisor in
+page adjustment is widened to I64, matching the measured native expression.
+No numeric redesign is hidden in this checkpoint. The next dependency is actual
+DocTop/Bottom/Rst over this normal layout, followed by the real constructor,
+DocPrint/DocPutS command path and editor invocation. None are added as stand-ins;
+KeyDev DocClear remains unavailable and the separate console legacy no-op remains
+explicitly documented.

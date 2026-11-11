@@ -9,7 +9,7 @@ const plain=compile('I64 Answer(){return 42;}',{exports:['Answer']});
 assert.deepEqual(plain.requiredCapabilities,[]);
 assert(!WebAssembly.Module.imports(new WebAssembly.Module(plain.bytes)).some(x=>['__task_require','__gr_update_mono','__time_ms_checked'].includes(x.name)));
 assert.throws(()=>compile('DocEntryDel(NULL,NULL);'),/DocEntryDel/);
-for(const missing of ['DocInit','DocNew','DocRst','DocRecalc','DocClear'])
+for(const missing of ['DocInit','DocNew','DocRst','DocClear'])
   assert.throws(()=>compile(missing+';',{runtimeProfile:'keydev'}),/undefined|untyped/i,missing);
 const pure=compile('I64 Editable(){CDocEntry e; e.type=DOCT_TEXT;e.de_flags=0;return IsEditableText(&e);}',
   {runtimeProfile:'keydev',exports:['Editable']});
