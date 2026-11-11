@@ -191,7 +191,7 @@ compares unsigned bytes and returns -1, 0 or 1, including equal empty ranges.
 draws an outline. `DCFill` defaults to `TRANSPARENT`. These native semantics can
 expose assumptions in programs written for the previous browser approximations.
 The runtime is still a single-window host: task-owned heaps, window occlusion,
-transformed/thick borders, 3D lines/curves, sprites and variadic `GrPrint` remain
+polygon/fill APIs, sprites and variadic `GrPrint` remain
 unsupported. The old empty `GrFloodFill` implementation was removed, so strict
 compilation rejects that missing API instead of reporting success for a no-op.
 
@@ -254,7 +254,7 @@ algorithm, plus native 2D ellipse/polygon/Bézier/B-spline wrappers and
 128 combinations of transform, symmetry, mirror selection, depth, draw
 suppression and four raster operations against V5.03 in QEMU. It checks exact
 bitmap/depth hashes, extents, collision counts and restored context state.
-These additions do not implement the remaining 3D line/polygon/sprite APIs.
+Polygon/fill and sprite APIs still require further work.
 
 Integer token boundaries also follow V5.03: any initial decimal digit can
 precede `x`/`b`, and that digit starts the accumulator (`1xA` is 26, `2b101`
@@ -283,4 +283,13 @@ provides transformed/symmetric points without pen thickness. `Span.HC` checks
 256 span combinations and transformed points against original V5.03 in QEMU;
 the host display test verifies immediate bitmap/display agreement for depth
 spans. The task adapter includes the native `scroll_z` field for this path.
-The remaining pen-brush/thick-line/polygon/sprite work is still separate.
+Polygon/fill and sprite work is still separate.
+
+The original 64 pen sizes (normal, collision, even and odd brushes), circle
+limits, thick 3D points/lines, transformed curves and native `GrBorder` are now
+available. `Pen.HC` checks every brush bitmap and limit table; `Thick.HC` checks
+1,040 native outputs across thickness 0–65, raster operations, depth, transforms,
+symmetry, mirror selection, curves and borders. Runtime initializer metadata
+tracks referenced global fields, so programs that use only unrelated graphics
+fields do not allocate these tables. Taking the address of the whole graphics
+object conservatively retains all its field dependencies.

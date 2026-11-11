@@ -14,6 +14,8 @@ import {FONT} from "./runtime/font.js";
 export const RUNTIME_INITIALIZERS=[
   {name:"__hcrt_init",always:true},
   {name:"__hgr_init",globals:["gr","__gr_font"]},
+  {name:"__hgr_pen_init",fields:["gr.pen_brushes","gr.collision_pen_brushes",
+    "gr.even_pen_brushes","gr.odd_pen_brushes","gr.circle_lo","gr.circle_hi"]},
 ];
 
 export const PRELUDE_SRC = String.raw`
@@ -178,10 +180,18 @@ CTask *Fs;
 CTask *sys_winmgr_task;
 
 //==================== gr global ====================
+#define GR_PEN_BRUSHES_NUM 64
+#define COLOR_INVALID 16
 class CGr {
   CDC *dc;
   U64 to_8_bits[256],to_8_colors[256];
   U16 *win_z_buf;
+  CDC *pen_brushes[GR_PEN_BRUSHES_NUM],
+      *collision_pen_brushes[GR_PEN_BRUSHES_NUM],
+      *even_pen_brushes[GR_PEN_BRUSHES_NUM],
+      *odd_pen_brushes[GR_PEN_BRUSHES_NUM];
+  I8 circle_lo[GR_PEN_BRUSHES_NUM][GR_PEN_BRUSHES_NUM],
+     circle_hi[GR_PEN_BRUSHES_NUM][GR_PEN_BRUSHES_NUM];
 };
 CGr gr;
 U64 *__gr_font;
@@ -334,6 +344,23 @@ F64 Round(F64 x)
 F64 Trunc(F64 x)
 {
   return __trunc(x);
+}
+
+public U0 R2P(F64 *_mag=NULL,F64 *_arg=NULL,F64 x,F64 y)
+{//Rect to polar
+//Returns angle in range (-π,π]
+  if (_arg)
+    *_arg=Arg(x,y);
+  if (_mag)
+    *_mag=Sqrt(x*x+y*y);
+}
+
+public U0 P2R(F64 *_x=NULL,F64 *_y=NULL,F64 mag,F64 arg)
+{//Polar to Rect
+  if (_x)
+    *_x=mag*Cos(arg);
+  if (_y)
+    *_y=mag*Sin(arg);
 }
 
 F64 Arg(F64 x,F64 y)
@@ -717,14 +744,13 @@ public I64 GrPrint(CDC *dc=gr.dc,I64 x,I64 y,U8 *s)
 }
 
 public U0 GrBorder(CDC *dc=gr.dc,I64 x1,I64 y1,I64 x2,I64 y2,
-        I64 step=1,I64 start=0)
-{
-  if (dc->thick!=1 || dc->flags&(DCF_TRANSFORMATION|DCF_SYMMETRY))
-    throw('Graphics',TRUE);
-  GrLine(dc,x1,y1,x2,y1,step,start);
-  GrLine(dc,x2,y1,x2,y2,step,start);
-  GrLine(dc,x2,y2,x1,y2,step,start);
-  GrLine(dc,x1,y2,x1,y1,step,start);
+	I64 step=1,I64 start=0)
+{//2D. Transformation with thick.
+//Can be used with ROPF_DITHER+WHITE<<16+BLACK for dotted rect.
+  GrLine3(dc,x1,y1,0,x2,y1,0,step,start);
+  GrLine3(dc,x2,y1,0,x2,y2,0,step,start);
+  GrLine3(dc,x2,y2,0,x1,y2,0,step,start);
+  GrLine3(dc,x1,y2,0,x1,y1,0,step,start);
 }
 
 U0 GrSprite(CDC *dc,I64 x,I64 y,U8 *image,I64 w,I64 h,I64 scale=1)

@@ -44,6 +44,10 @@ U0 Onscreen()
   GrHLine(gr.dc,-2,500,100,-2,9);
   GrVLine(gr.dc,150,520,100,2,20);
   GrPlot3B(gr.dc,300,200,2);
+  gr.dc->thick=5;
+  GrPlot3(gr.dc,620,10,3);
+  GrLine3(gr.dc,-10,440,3,639,455,5);
+  gr.dc->thick=1;
   gr.dc->depth_buf=NULL;
   Free(db);
   DCDel(img);

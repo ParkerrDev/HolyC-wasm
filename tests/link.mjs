@@ -114,4 +114,18 @@ U0 Change() { option=9; }
   assert.equal(instance.exports.Read(),12n);
   assert(![...result.globals.keys()].some(name=>name.startsWith('#default:')));
 }
+
+// Brush tables are a dependency of the fields that expose them. Unrelated
+// graphics reads stay allocation-free; escaping the whole object is conservative.
+{
+  const plain=await run('I64 Width() { return gr.dc->width; }',{exports:['Width']});
+  assert.equal(plain.instance.exports.Width(),640n);
+  assert(!imports(plain.module).includes('__malloc'),
+    'reading screen dimensions must not require brush allocation');
+  const direct=await run('I64 Pen() { return gr.pen_brushes[9]->width; }',{exports:['Pen']});
+  assert.equal(direct.instance.exports.Pen(),9n);
+  const alias=await run('CGr *alias=&gr; I64 Pen() { return alias->pen_brushes[7]->width; }',
+    {exports:['Pen']});
+  assert.equal(alias.instance.exports.Pen(),7n);
+}
 console.log('Linkage: unused imports/code/data omitted; eager diagnostics, initializer order, callbacks, exports and relocated calls preserved.');

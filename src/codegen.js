@@ -527,12 +527,13 @@ class Codegen {
   }
 
   reachable() {
-    const functions=new Set(),globals=new Set(),bodies=new Set(),hooks=new Set();
+    const functions=new Set(),globals=new Set(),fields=new Set(),bodies=new Set(),hooks=new Set();
     const visitBody=body=>{
       if (!body || bodies.has(body)) return;
       bodies.add(body);
       for (const index of body.references) visitFunction(index);
       for (const name of body.globalUses || []) visitGlobal(name);
+      for (const name of body.fieldUses || []) fields.add(name);
     };
     const visitFunction=index=>{
       if (functions.has(index)) return;
@@ -559,7 +560,9 @@ class Codegen {
       changed=false;
       for (const hook of this.opts.runtimeInitializers || []) {
         if (hooks.has(hook.name)) continue;
-        if (!hook.always && !hook.globals.some(name=>globals.has(name))) continue;
+        if (!hook.always && !(hook.globals||[]).some(name=>globals.has(name)) &&
+            !(hook.fields||[]).some(name=>fields.has(name) || fields.has(name.split('.')[0]+'.*')))
+          continue;
         const fn=this.functions.get(hook.name);
         if (!fn) throw new CodegenError("Missing runtime initializer: "+hook.name);
         hooks.add(hook.name);
@@ -1285,7 +1288,10 @@ class FnCtx {
     if (G) {
       (this.f.globalUses??=new Set()).add(node.name);
       const t = G.type;
-      if (isAggregate(t)) { this.f.i64_const(G.addr); return t; }
+      if (isAggregate(t)) {
+        (this.f.fieldUses??=new Set()).add(node.name+'.*');
+        this.f.i64_const(G.addr);return t;
+      }
       this.f.i64_const(G.addr); this.f.op("i32_wrap_i64"); this.emitLoad(t); return t;
     }
     if (node.name in this.cg.constEnv) { this.f.i64_const(this.cg.constEnv[node.name]); return T.I64; }
@@ -1338,6 +1344,14 @@ class FnCtx {
   }
 
   genAddr(node) {
+    const names=[];
+    let root=node;
+    while (root.kind==="Member" && !root.arrow || root.kind==="Index") {
+      if (root.kind==="Member") names.unshift(root.name);
+      root=root.base;
+    }
+    if (root.kind==="Ident" && !this.locals.has(root.name) && this.cg.globals.has(root.name))
+      (this.f.fieldUses??=new Set()).add(root.name+'.'+(names.join('.')||'*'));
     if (!NOFOLD) { const ac = this.addrConst(node); if (ac) { this.f.i64_const(ac.addr); return ac.type; } }
     switch (node.kind) {
       case "Ident": {
