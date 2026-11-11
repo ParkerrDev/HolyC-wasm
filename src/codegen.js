@@ -24,6 +24,7 @@ import {
 } from "./abi.js";
 import { foldConstInt, foldDim } from "./fold.js";
 import { usesGoto, Gotos } from "./goto.js";
+import { FLOAT_MUL_I64 } from "./float-convert.js";
 
 const PINNED_GLOBALS = { ms: MS_ADDR };
 
@@ -1971,6 +1972,19 @@ class FnCtx {
 
   // ================================================== coercion / load / store
   genExprCoerce(node, wantType) {
+    if (node.kind==="Binary" && node.op==="*" &&
+        isInt(this.cg.resolveType(wantType)) &&
+        isFloat(this.cg.resolveType(this.peekType(node.left))) &&
+        isFloat(this.cg.resolveType(this.peekType(node.right)))) {
+      const fn=this.cg.functions.get(FLOAT_MUL_I64);
+      if (fn) {
+        this.genExprCoerce(node.left,T.F64);
+        this.genExprCoerce(node.right,T.F64);
+        this.f.call(fn.index);
+        this.narrowInt(this.cg.resolveType(wantType));
+        return wantType;
+      }
+    }
     const t = this.genExpr(node);
     return this.coerce(t, wantType);
   }

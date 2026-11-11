@@ -18,6 +18,8 @@
     "test:link": "node tests/link.mjs",
     "test:graphics": "node tests/graphics.mjs",
     "test:composites": "node tests/composites.mjs",
+    "test:sprite": "node tests/sprite.mjs",
+    "test:numeric-runtime": "node tests/numeric-runtime.mjs",
     "test:browser-games": "node tests/browser-games.mjs",
     "test:float-scale": "node tests/oracle-scale.mjs",
     "test:core": "node tests/core.mjs"

@@ -10,6 +10,7 @@ import { preprocess } from "./preprocess.js";
 import { parse } from "./parser.js";
 import { compile as codegen } from "./codegen.js";
 import { PRELUDE_SRC, RUNTIME_INITIALIZERS } from "./prelude.js";
+import { FLOAT_CONVERT_SRC,FLOAT_MUL_I64 } from "./float-convert.js";
 
 export function compileHolyC(source, opts = {}) {
   const userName = opts.filename || "<holyc>";
@@ -28,6 +29,9 @@ export function compileHolyC(source, opts = {}) {
     filename: userName,
   });
   const ast = parse(pp, userName, { resilient: opts.resilient });
+  const helper=parse(lex(FLOAT_CONVERT_SRC,"<compiler>")).decls[0];
+  helper.name=FLOAT_MUL_I64;
+  ast.decls.unshift(helper);ast.items.unshift(helper);
   const { bytes, warnings, dataEnd, globals } = codegen(ast, {...opts,runtimeInitializers:opts.noPrelude?[]:RUNTIME_INITIALIZERS});
   return { bytes, warnings, dataEnd, globals, ast, diagnostics: ast.diagnostics || [] };
 }

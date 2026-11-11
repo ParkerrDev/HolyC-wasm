@@ -10,7 +10,7 @@ import {GR_TYPES_SRC,GR_SRC} from "./gr-prelude.js";
 import {FONT} from "./runtime/font.js";
 import {STR_SRC} from "./str-prelude.js";
 import {GR_COMPOSITES_SRC} from "./gr-composites.js";
-import {SPRITE_TYPES_SRC} from "./gr-sprite.js";
+import {SPRITE_TYPES_SRC,SPRITE_SRC} from "./gr-sprite.js";
 
 // Runtime initialization is a dependency of the globals it establishes. The
 // compiler uses the same reachability graph for these hooks and ordinary calls.
@@ -666,6 +666,7 @@ ${GR_SRC}
 ${GR_PRIMITIVES_SRC}
 ${STR_SRC}
 ${GR_COMPOSITES_SRC}
+${SPRITE_SRC}
 
 public I64 DistSqrI64(I64 x1,I64 y1,I64 x2,I64 y2)
 {

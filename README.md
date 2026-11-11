@@ -73,7 +73,7 @@ Pass a complete source file as a `Uint8Array`, `ArrayBuffer` or Latin-1 byte
 string. DolDoc `$IB` inserts a private copy of the named binary record and `$IS`
 inserts its length. Text-only editor views must append the original binary tail
 before compilation. Missing records and truncated payloads are errors. Binary
-data extraction is supported; rendering TempleOS sprites remains a runtime gap.
+data extraction and native Sprite3 rendering are supported.
 CP437 identifier bytes map to their Unicode names, and Greek Unicode character
 literals use CP437 values. Other Unicode characters outside CP437 are rejected.
 Cursor and nonbreaking-space document controls and continued source lines are
@@ -81,7 +81,8 @@ read without truncating the rest of the program.
 
 `DolDoc.HC` embeds binary record 1 from TempleOS-Web's pinned TinkerOS Rocket.HC;
 its native test checks every payload byte, separate literal allocations and
-write isolation. It does not claim that the browser can draw the sprite yet.
+write isolation. SpriteDocument then compares drawing that same bitmap asset
+against original V5.03, including clipping, depth, transforms and symmetry.
 
 ## Native oracle
 
@@ -128,7 +129,7 @@ with the same incorrect compiler behavior. QEMU/KVM exposed the mismatch.
 ## Compatibility limits
 
 The browser runtime implements a subset of TempleOS APIs. Many stock programs
-still need native graphics, task, file and DolDoc sprite support. The compiler
+still need task/window lifecycle, file services and other native APIs. The compiler
 also has unsupported assembly, runtime-generated declarations and other gaps.
 WebAssembly F64 arithmetic does not reproduce the full x87 extended-precision
 environment. Passing a compiler fixture does not prove a game's rendering,
@@ -198,7 +199,9 @@ The runtime now uses the 408-byte V5.03 `CDC` layout and native HolyC algorithms
 for bitmap allocation, aliases, pens, matrices, depth buffers, pixel reads
 and writes, filled polygons, bitmap blits, thick/transformed lines and curves,
 circle outlines, flood fills and glyphs.
-Aliases own their context/matrix and share their source bitmap. The QEMU-backed
+Aliases own their context/matrix and borrow the source bitmap and depth buffer.
+Replacing an alias depth buffer gives it its own allocation. Alias deletion
+keeps borrowed buffers alive; this corrects a native V5.03 double-free hazard. The QEMU-backed
 `Graphics` fixture checks colors, raster operations, both dithers, clipping,
 fonts, extent tracking and depth behavior against the original OS. `MemCmp`
 compares unsigned bytes and returns -1, 0 or 1, including equal empty ranges.
@@ -206,8 +209,8 @@ compares unsigned bytes and returns -1, 0 or 1, including equal empty ranges.
 `GrBorder` takes two endpoint coordinates, not a width and height. `GrCircle`
 draws an outline. `DCFill` defaults to `TRANSPARENT`. These native semantics can
 expose assumptions in programs written for the previous browser approximations.
-The runtime is still a single-window host: task-owned heaps, window occlusion
-and sprites remain unsupported. Native `GrFloodFill` and
+The runtime is still a single-window host: task-owned heaps and window
+occlusion remain unsupported. Native `GrFloodFill` and
 `GrFloodFill3` use the original iterative scanline algorithm, including its
 28 MiB scratch allocation. The scratch is freed after each fill and reused on
 subsequent fills. The `Flood` fixture compares 512 combinations of depth,
@@ -258,8 +261,8 @@ code size queries for functions are not implemented.
 matrices, 2D/3D symmetry, reflection, ellipse/polygon tracing and quadratic/cubic
 Bézier and B-spline callbacks. `GraphicsMath.HC` compares matrix values, point
 sequences, callback cancellation and degenerate symmetry behavior with the
-original compiler in QEMU. The drawing primitives share this math; sprite
-decoding still requires further runtime work.
+original compiler in QEMU. The drawing primitives and sprite renderer share
+this math.
 
 The native numeric lexer permits an empty exponent (`1e` or `1e-` means 1.0)
 and consumes only a minus sign there. Consequently `1e+2` is the expression
@@ -272,7 +275,6 @@ algorithm, plus native 2D ellipse/polygon/Bézier/B-spline wrappers and
 128 combinations of transform, symmetry, mirror selection, depth, draw
 suppression and four raster operations against V5.03 in QEMU. It checks exact
 bitmap/depth hashes, extents, collision counts and restored context state.
-Flood filling and sprite APIs still require further work.
 
 Integer token boundaries also follow V5.03: any initial decimal digit can
 precede `x`/`b`, and that digit starts the accumulator (`1xA` is 26, `2b101`
@@ -301,7 +303,6 @@ provides transformed/symmetric points without pen thickness. `Span.HC` checks
 256 span combinations and transformed points against original V5.03 in QEMU;
 the host display test verifies immediate bitmap/display agreement for depth
 spans. The task adapter includes the native `scroll_z` field for this path.
-Flood filling and sprite work is still separate.
 
 The original 64 pen sizes (normal, collision, even and odd brushes), circle
 limits, thick 3D points/lines, transformed curves and native `GrBorder` are now
@@ -345,8 +346,8 @@ input bits, including 64 random large values. `Text` compares 64 formatted
 bitmap/extent records. `test:format` fails each of 20 internal allocations and
 checks recovery, zero leaks and explicit OS-format errors.
 `tests/probes/FloatIntermediate.HC` retains a known separate arithmetic gap:
-V5.03 keeps some x87 intermediates wider than F64, while WASM narrows each F64
-operation. Five of its 64 `(Rand-0.5)*1e12` results differ by one ULP before
+V5.03 keeps some x87 intermediates wider than F64; general F64 expression
+evaluation still narrows intermediate results in WASM. Five of its 64 `(Rand-0.5)*1e12` results differ by one ULP before
 formatting. The runtime does not claim full extended-precision parity.
 
 Anonymous unions inside classes preserve native packed offsets and expose their
@@ -355,8 +356,8 @@ enclosing union's current maximum size; subsequent ordinary members still
 overlay its original base. This is measured V5.03 behavior, not C union layout.
 `AnonymousUnion` verifies nested groups, inheritance, scalar overlays and writes.
 `SpriteLayout` checks the native sprite and mesh records, including CSprite's
-45-byte size and embedded payload offsets. These declarations prepare the
-sprite renderer; they do not implement Sprite3 rendering by themselves.
+45-byte size and embedded payload offsets. The sprite renderer reads these
+native packed records directly.
 
 `GrArrow3`, `GrTextBox3`, `GrTextDiamond3` and `Gr3Mesh` use the native drawing
 algorithms, including transforms, symmetry, depth and lighting callbacks.
@@ -376,3 +377,27 @@ uses `Gs->num` or an explicit host adapter. `CoreOverride` checks native user
 function semantics; `test:core` checks four configured host core IDs. The
 unresolved native probe remains in `tests/probes/HostCoreBare.HC` as evidence of
 that API boundary.
+
+Sprite3 supports all 29 drawing/control element types, single-element mode,
+transformed wrappers, extents, Sprite2DC and DC2Sprite. Sprite compares 1,920
+native drawing cases plus element sizes, type masks, bitmap conversion and
+context state. SpriteDocument exercises the embedded Rocket bitmap asset in
+32 more cases. These APIs expect valid native sprite streams and caller-owned
+storage; they are not bounded decoders for untrusted uploads. Unknown element
+types throw Graphics instead of allowing a non-advancing walk.
+
+`test:sprite` fails 52 allocation positions and exercises nested transform and
+lighting exceptions, spline cancellation/throws, aliases and retries. Context
+creation and transformed curves release their allocations on errors; sprite
+wrappers restore the caller's drawing state after a failed draw. These cleanup
+corrections improve failure behavior relative to the original native routines.
+
+Direct conversion of an F64-by-F64 product to an integer now preserves x87's
+64-bit significand rounding before truncation. The helper is pure HolyC over
+integer limbs and is linked only when used, including without the prelude.
+`FloatProduct` compares 1,380 input pairs through local/global stores, return
+values and arguments with QEMU, including invalid values and boundary cases.
+It also checks that an explicit intermediate F64 variable still rounds to F64.
+This fixes a measured one-pixel planar-symmetry difference; it does not establish
+full x87 expression precision, altered control-word behavior, or mixed
+integer/F64 extended-precision arithmetic.
