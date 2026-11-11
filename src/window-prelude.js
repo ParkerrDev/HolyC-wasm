@@ -529,4 +529,34 @@ U0 WinHostDraw(CTask *task,CDC *layer)
     DCDel(dc);
   DCDel(dc);
 }
+//V5.03 DolDoc locking; Break delivery belongs to the task runtime.
+#define DOClf_LOCKED 0
+#define DOCf_BREAK_UNLOCKED 22
+
+public Bool DocLock(CDoc *doc)
+{//Make this task have exclusive access to this doc.
+  if (!Bt(&doc->locked_flags,DOClf_LOCKED) || doc->owning_task!=Fs) {
+    while (LBts(&doc->locked_flags,DOClf_LOCKED))
+      Yield;
+    if (doc->owning_task!=Fs)
+      LBEqu(&doc->flags,DOCf_BREAK_UNLOCKED,BreakLock(Fs));
+    doc->owning_task=Fs;
+    return TRUE;
+  } else
+    return FALSE;
+}
+
+public Bool DocUnlock(CDoc *doc)
+{//Release exclusive lock on access to doc.
+  Bool unlock_break;
+  if (Bt(&doc->locked_flags,DOClf_LOCKED) && doc->owning_task==Fs) {
+    doc->owning_task=0;
+    unlock_break=Bt(&doc->flags,DOCf_BREAK_UNLOCKED);
+    LBtr(&doc->locked_flags,DOClf_LOCKED);
+    if (unlock_break)
+      BreakUnlock(Fs);
+    return TRUE;
+  } else
+    return FALSE;
+}
 `;
