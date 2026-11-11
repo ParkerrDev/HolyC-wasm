@@ -28,7 +28,8 @@
     "test:tasks-browser": "node tests/tasks-browser.mjs",
     "test:keyboard": "node tests/keyboard.mjs && node tests/key-protocol.mjs",
     "test:window": "node tests/window.mjs",
-    "test:char": "node tests/char.mjs"
+    "test:char": "node tests/char.mjs",
+    "test:fifo": "node tests/fifo.mjs"
   },
   "license": "MIT",
   "author": "Built with Claude Code"

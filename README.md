@@ -230,6 +230,17 @@ pending. `WindowGeometry` tests 2,252 state captures plus 34,200 edge points.
 probe supplies the isolated alias/callback adapter; it does not claim that the
 browser currently executes the full original window manager.
 
+`CFifoU8`/`CFifoI64` and their New/Del/Ins/Rem/Peek/Flush/Cnt functions use
+native layouts and mask arithmetic. A power-of-two buffer has `size-1` usable
+slots; the runtime does not round or reinterpret the caller's mask. Empty reads
+leave their output value unchanged. Constructors release their header if buffer
+allocation throws. The operations are uninterrupted in the cooperative
+single-core backend; they are not a general cross-worker synchronization API.
+`Fifo` compares 45,056 paired operation sequences against V5.03, including wrap,
+full/empty and non-power-of-two masks. `FifoFocus` checks native keyboard queue
+retention/delivery, and `test:fifo` fails each constructor allocation and verifies
+lazy keyboard ownership, reset and cleanup.
+
 ## Cooperative task backend
 
 Reachable `Spawn`, `Kill`, `Exit`, `GetMsg`, `GetKey`, `GetChar`, `PressAKey`
@@ -310,8 +321,10 @@ The host's `onControlAlt(sc,index,inIrq)` must explicitly handle native Ctrl-Alt
 system actions; without an adapter those actions throw. The index is 0–25 for
 registered letter actions and -1 for Ctrl-Alt-Delete. `onKeyboardLeds(sc)` is an
 optional physical-indicator notification. Hardware ports, macro recording,
-raw-cursor editing and a focus-less pending scan FIFO are not implemented by
-this host bridge.
+raw-cursor editing are not implemented by this host bridge. Native scan codes
+wait in the bounded `kbd.scan_code_fifo` while no task has focus; `KbdMsgsQue()`
+delivers them when focus returns. Its lazy storage belongs to the session, not
+the interrupted child, and reset discards pending old scan codes.
 
 For a worker, `src/runtime/protocol.js` appends a bounded native packet ring to
 `makeControlSAB()` while preserving every legacy offset. `keyPacketPush(ctrl,

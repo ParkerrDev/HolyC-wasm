@@ -216,28 +216,42 @@ U0 KbdHostInit()
   kbd_last_raw=0;
 }
 
+I64 KbdMsgsQue()
+{//Deliver queued native scan codes when a focus task exists.
+  I64 ch,sc,res=MSG_NULL;
+  CTask *task=sys_focus_task;
+  if (task && kbd.scan_code_fifo)
+    while (FifoI64Rem(kbd.scan_code_fifo,&sc)) {
+      ch=ScanCode2Char(sc);
+      if (sc&SCF_KEY_UP)
+	res=MSG_KEY_UP;
+      else
+	res=MSG_KEY_DOWN;
+      TaskMsg(task,NULL,res,ch,sc,0);
+    }
+  return res;
+}
+
 U0 KbdHostByte(U8 raw_byte)
 {//Decode one set-1 byte and post its native key message.
-  I64 code;
+  if (!kbd.scan_code_fifo)
+    kbd.scan_code_fifo=FifoI64New(0x1000,TaskHostRoot);
   kbd.timestamp=GetTSC;
   KbdBuildSC(raw_byte,FALSE,&kbd_last_raw,&kbd.scan_code);
   if (Btr(&kbd.scan_code,SCf_NEW_KEY)) {
     kbd.new_key_timestamp=kbd.timestamp;
     Btr(&kbd.scan_code,32+SCf_NEW_KEY);
+    FifoI64Ins(kbd.scan_code_fifo,kbd.scan_code);
     kbd.cnt++;
     if (!(kbd.scan_code&SCF_KEY_UP)) {
       kbd.last_down_scan_code=kbd.scan_code;
       Bts(kbd.down_bitmap,kbd.scan_code.u8[0]);
       Bts(kbd.down_bitmap2,kbd.scan_code.u8[4]);
-      code=MSG_KEY_DOWN;
     } else {
       Btr(kbd.down_bitmap,kbd.scan_code.u8[0]);
       Btr(kbd.down_bitmap2,kbd.scan_code.u8[4]);
-      code=MSG_KEY_UP;
     }
-    if (TaskValidate(sys_focus_task))
-      TaskMsg(sys_focus_task,NULL,code,ScanCode2Char(kbd.scan_code),
-	    kbd.scan_code,0);
+    KbdMsgsQue;
   }
 }
 
@@ -245,6 +259,7 @@ U0 KbdHostReset()
 {//Release held physical keys after focus loss or a lost input packet.
   I64 i;
   kbd_last_raw=0;
+  if (kbd.scan_code_fifo) FifoI64Flush(kbd.scan_code_fifo);
   for (i=0;i<256;i++)
     if (Bt(kbd.down_bitmap2,i)) {
       if (i&0x80) KbdHostByte(0xE0);

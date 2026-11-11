@@ -11,6 +11,7 @@ import {TASK_TYPES_SRC,TASK_SRC} from "./task-prelude.js";
 import {TASK_MESSAGE_SRC} from "./task-message.js";
 import {TASK_INTERFACE,TASK_SCHEDULE_SRC} from "./task-schedule.js";
 import {DOC_TYPES_SRC,WINDOW_SRC} from "./window-prelude.js";
+import {FIFO_TYPES_SRC,FIFO_SRC} from "./fifo-prelude.js";
 import {KBD_SRC} from "./kbd-prelude.js";
 import {FONT} from "./runtime/font.js";
 import {STR_SRC} from "./str-prelude.js";
@@ -175,6 +176,7 @@ CDC gr_dc_storage;
 U8 gr_scrn_bitmap[GR_WIDTH*GR_HEIGHT];
 I64 gr_scrn_r[16];
 
+${FIFO_TYPES_SRC}
 ${TASK_TYPES_SRC}
 ${DOC_TYPES_SRC}
 CTask fs_storage;
@@ -674,6 +676,7 @@ ${SPRITE_SRC}
 ${TASK_SRC}
 ${TASK_MESSAGE_SRC}
 ${TASK_SCHEDULE_SRC}
+${FIFO_SRC}
 ${KBD_SRC}
 ${WINDOW_SRC}
 
