@@ -5,14 +5,15 @@
 //   - Browser worker (real OffscreenCanvas graphics, SAB sleep/input, sound ring)
 // Pass in adapters; sensible no-op defaults are used otherwise.
 import { format, readCStr, bytesToLatin1 } from "./console.js";
-import { HEAP_BASE, MS_ADDR, MS } from "../abi.js";
+import { MS_ADDR, MS } from "../abi.js";
+import {Heap,LegacyHeap,HOST_HEAP_ABI} from "./heap.js";
+export {HOST_HEAP_ABI} from "./heap.js";
 
 export const MS_FIELDS = MS; // re-export for callers
 
 export function createHost(opts = {}) {
   const state = {
     mem: null,            // WebAssembly.Memory (set after instantiate)
-    heapPtr: HEAP_BASE,
     out: opts.onText || ((s) => process.stdout.write(s)),
     ansi: opts.ansi !== false,
     gfx: opts.gfx || null,        // {plot,line,rect,circle,text,fill,flip,width,height}
@@ -25,6 +26,14 @@ export function createHost(opts = {}) {
     onFlip: opts.onFlip || null,
     onTick: opts.onTick || null,           // called before scan/sleep/yield (e.g. mouse mirror)
   };
+
+  const heapAbi=opts.heapAbi??HOST_HEAP_ABI;
+  if (heapAbi!==0 && heapAbi!==HOST_HEAP_ABI)
+    throw new Error("Unsupported HolyC heap ABI: "+heapAbi);
+  const heap=heapAbi===0?new LegacyHeap(()=>state.mem):new Heap(()=>state.mem);
+  Object.defineProperty(state,"heapAbi",{enumerable:true,value:heapAbi});
+  Object.defineProperty(state,"heapPtr",{enumerable:true,
+    get:()=>heap.cursor,set:value=>{heap.cursor=value;}});
 
   function mem() { return state.mem; }
   function u8() { return new Uint8Array(state.mem.buffer); }
@@ -79,20 +88,8 @@ export function createHost(opts = {}) {
     __get_char(echo, scan) { if (state.onTick) state.onTick(); return BigInt(state.getChar(Number(echo), Number(scan)) | 0); },
     __time_ms() { return state.timeMs(); },
 
-    __malloc(size) {
-      const sz = Number(size);
-      const aligned = (state.heapPtr + 15) & ~15;
-      state.heapPtr = aligned + sz;
-      // grow memory if needed
-      const need = state.heapPtr;
-      const have = state.mem.buffer.byteLength;
-      if (need > have) {
-        const pages = Math.ceil((need - have) / 65536);
-        try { state.mem.grow(pages); } catch (e) { /* OOM */ return 0n; }
-      }
-      return BigInt(aligned);
-    },
-    __free(_p) { /* bump allocator: no-op */ },
+    __malloc:size=>heap.malloc(size),
+    __free:ptr=>heap.free(ptr),
 
     __sin: (x) => Math.sin(x), __cos: (x) => Math.cos(x), __tan: (x) => Math.tan(x),
     __asin: (x) => Math.asin(x), __acos: (x) => Math.acos(x), __atan: (x) => Math.atan(x),

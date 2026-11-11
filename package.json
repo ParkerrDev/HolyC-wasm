@@ -11,6 +11,7 @@
     "test:strict": "node tests/strict.mjs",
     "test:callback": "node tests/callback.mjs",
     "test:exception": "node tests/exception.mjs",
+    "test:heap": "node tests/heap.mjs",
     "test:float-scale": "node tests/oracle-scale.mjs"
   },
   "license": "MIT",

@@ -1643,6 +1643,23 @@ class FnCtx {
       return type.retType;
     }
     if (callee.kind === "Ident") {
+      if (callee.name==="__memfill" || callee.name==="__memcopy") {
+        if (node.args.length!==3 || node.args.some(arg=>!arg))
+          this.err(node,"memory intrinsic needs three arguments");
+        const locals=node.args.map(()=>this.newWLocal(VT.i64));
+        for (let i=2;i>=0;i--) {
+          this.genExprCoerce(node.args[i],T.I64);
+          this.f.local_set(locals[i]);
+        }
+        for (let i=0;i<3;i++) if (i!==1 || callee.name==="__memcopy") {
+          this.f.local_get(locals[i]).i64_const(0xFFFFFFFF).op("i64_gt_u");
+          this.pushCtrl();this.f.if_().unreachable().end();this.popCtrl();
+        }
+        locals.forEach(local=>this.f.local_get(local).op("i32_wrap_i64"));
+        if (callee.name==="__memfill") this.f.memory_fill();
+        else this.f.memory_copy();
+        return T.U0;
+      }
       const unaryMath={__floor:"f64_floor",__ceil:"f64_ceil",__round:"f64_nearest",
         __trunc:"f64_trunc",__sqrt:"f64_sqrt",__abs:"f64_abs",__ctz:"i64_ctz",__clz:"i64_clz"};
       if (callee.name in unaryMath) {

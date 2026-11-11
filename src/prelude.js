@@ -645,8 +645,19 @@ U0 Refresh() { __gr_flip(); }
 U0 WinBorder(I64 on=1) {}
 U0 DocClear() {}
 U0 Free(U8 *p) { __free(p); }
-U8 *MAlloc(I64 size) { return __malloc(size); }
-U8 *CAlloc(I64 size) { U8 *p=__malloc(size); return p; }
+U8 *MAlloc(I64 size)
+{
+  U8 *res=__malloc(size);
+  if (!res) throw('OutMem',TRUE);
+  return res;
+}
+
+U8 *CAlloc(I64 size)
+{
+  U8 *res=MAlloc(size);
+  MemSet(res,0,size);
+  return res;
+}
 
 //==================== runtime init (called by __rt_init) ====================
 U0 __hcrt_init() {
@@ -658,8 +669,21 @@ U0 __hcrt_init() {
   gr_dc_storage.thick = 1;
 }
 
-U0 MemSet(U8 *d, I64 b, I64 n) { I64 i; for (i=0;i<n;i++) d[i]=b; }
-U0 MemCpy(U8 *d, U8 *s, I64 n) { I64 i; for (i=0;i<n;i++) d[i]=s[i]; }
+U8 *MemSet(U8 *dst,I64 val,I64 cnt)
+{//Returns the byte following the filled range, as REP_STOSB does.
+  __memfill(dst,val,cnt);
+  return dst+cnt;
+}
+
+U8 *MemCpy(U8 *dst,U8 *src,I64 cnt)
+{//Native REP_MOVSB copies forward, including overlapping ranges.
+  I64 i;
+  if (src<dst<src+cnt)
+    for (i=0;i<cnt;i++) dst[i]=src[i];
+  else
+    __memcopy(dst,src,cnt);
+  return dst+cnt;
+}
 I64 StrLen(U8 *s) { I64 n=0; while (s[n]) n++; return n; }
 U0 StrCpy(U8 *d, U8 *s) { I64 i=0; while (s[i]) { d[i]=s[i]; i++; } d[i]=0; }
 I64 StrCmp(U8 *a, U8 *b) {

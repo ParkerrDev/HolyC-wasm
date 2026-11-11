@@ -148,3 +148,24 @@ exception only when `Fs->catch_except` is true; otherwise it propagates outward.
 `WebAssembly.Exception` with the exported `__exception_tag` and I64 code.
 Native AdamLog and machine return-address logging are not reproduced. Ordinary
 WASM traps and unrelated JavaScript exceptions are not HolyC exceptions.
+
+`Free` returns allocations to a coalescing heap; `CAlloc` clears reused storage.
+The allocator keeps its headers, free list and shared-memory lock in linear
+memory, so a complete RAM snapshot restores allocation state. `MAlloc` throws
+`'OutMem'` on failure. `MemSet` and `MemCpy` return the pointer after the written
+range, as native V5.03 does; overlapping `MemCpy` copies forward byte by byte.
+Nonoverlapping copies and fills use WASM bulk-memory instructions.
+
+Full snapshots that embed compiled WASM must also record `host.state.heapAbi`.
+The current `HOST_HEAP_ABI` is 1. Restore that mode with
+`createHost({heapAbi:1})`, restore linear memory, then assign the saved
+`host.state.heapPtr`; the setter checks the cursor against the RAM metadata.
+Pre-ABI-1 snapshots need `createHost({heapAbi:0})`, which retains their original
+bump allocator and no-op `Free`. An omitted option selects the current ABI;
+snapshot loaders must choose the old mode explicitly when metadata is absent.
+Do not switch an existing heap between modes. Heap addresses, native internal
+header layout and separate task-owned heaps are not reproduced.
+
+`npm run test:heap` checks allocation lifetime, splitting/coalescing, cleared
+reuse, failed growth, full-memory restoration, legacy restoration and four
+workers allocating/freeing the same growing shared memory.
