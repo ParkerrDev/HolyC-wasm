@@ -1,0 +1,66 @@
+{
+  "backend": {
+    "engine": "qemu",
+    "accelerator": "kvm",
+    "version": "QEMU emulator version 11.1.2"
+  },
+  "evidence": "/home/aphunt/Dev/GitHub/TempleOS/wt/HolyC-wasm-A1/tests/.oracle/qemu-draybcpx",
+  "cases": [
+    {
+      "name": "assign",
+      "source": "sys_font_std=17;\n",
+      "out": "&LexExcept PrsExpression2 PrsExpression PrsStmt $LTRED$$BK,1$ERROR:$FG$$BK,0$ Invalid lval at \"INT:11\" $LK,\"C:/ORACLE/F0001.HC,0001\",A=\"FL:C:/ORACLE/F0001.HC,1\"$ sys_font_std=17;\n&LexExcept PrsExpression PrsStmt &LexStmt2Bin $LTRED$$BK,1$ERROR:$FG$$BK,0$ Compiler Parse Error at \"INT:11\" $LK,\"C:/ORACLE/F0001.HC,0001\",A=\"FL:C:/ORACLE/F0001.HC,1\"$ sys_font_std=17;\n",
+      "except": "Compiler",
+      "sourceSha256": "6bd121eaca56ee1b25bfaf91e39d3e6f86131aa30226b794e46759877026260d",
+      "outputSha256": "4bb94931c3ce654867d67f074acd895642ea15a05ea72c2b3b656af9568072dc"
+    },
+    {
+      "name": "compound",
+      "source": "sys_font_cyrillic+=1;\n",
+      "out": "&LexExcept PrsExpression2 PrsExpression PrsStmt $LTRED$$BK,1$ERROR:$FG$$BK,0$ Invalid lval at \"INT:1\" $LK,\"C:/ORACLE/F0002.HC,0001\",A=\"FL:C:/ORACLE/F0002.HC,1\"$ sys_font_cyrillic+=1;\n&LexExcept PrsExpression PrsStmt &LexStmt2Bin $LTRED$$BK,1$ERROR:$FG$$BK,0$ Compiler Parse Error at \"INT:1\" $LK,\"C:/ORACLE/F0002.HC,0001\",A=\"FL:C:/ORACLE/F0002.HC,1\"$ sys_font_cyrillic+=1;\n",
+      "except": "Compiler",
+      "sourceSha256": "75cffa2d061b8ba0cdd48a80c27da8f21cf2a06fa8fb9513dc57607da28f711c",
+      "outputSha256": "b35fad62db0162191c552fb9a66d0dc0c6dabb92ca19235d12943217fcd49258"
+    },
+    {
+      "name": "postfix",
+      "source": "sys_font_cyrillic++;\n",
+      "out": "&LexExcept PrsStmt &LexStmt2Bin &ExeCmdLine $LTRED$$BK,1$ERROR:$FG$$BK,0$ Missing ';' at\"T:105\" $LK,\"C:/ORACLE/F0003.HC,0001\",A=\"FL:C:/ORACLE/F0003.HC,1\"$ sys_font_cyrillic++;\n",
+      "except": "Compiler",
+      "sourceSha256": "51f1a05380181baf3b2b048394158648deb359a2aa1df087087f866622b25c30",
+      "outputSha256": "7517afd904415e2f463344078d4459bf4fc6943731d324558d641143e7aa0311"
+    },
+    {
+      "name": "cast-assign",
+      "source": "sys_font_std(U64)=17;\n",
+      "out": "&LexExcept PrsExpression2 PrsExpression PrsStmt $LTRED$$BK,1$ERROR:$FG$$BK,0$ Invalid lval at \"INT:11\" $LK,\"C:/ORACLE/F0004.HC,0001\",A=\"FL:C:/ORACLE/F0004.HC,1\"$ sys_font_std(U64)=17;\n&LexExcept PrsExpression PrsStmt &LexStmt2Bin $LTRED$$BK,1$ERROR:$FG$$BK,0$ Compiler Parse Error at \"INT:11\" $LK,\"C:/ORACLE/F0004.HC,0001\",A=\"FL:C:/ORACLE/F0004.HC,1\"$ sys_font_std(U64)=17;\n",
+      "except": "Compiler",
+      "sourceSha256": "55c936636d8450f8703bd293d090743eb93781561598986308cdf823321e6383",
+      "outputSha256": "8e017befd71cbd7aa2f9847ab23ded622f086f3aeb525ab23b3ba55044fc0beb"
+    },
+    {
+      "name": "index",
+      "source": "\"%d\\n\",sys_font_std[0];\n",
+      "out": "&LexExcept PrsStmt &LexStmt2Bin &ExeCmdLine $LTRED$$BK,1$ERROR:$FG$$BK,0$ Missing ';' at\"[\" $LK,\"C:/ORACLE/F0005.HC,0001\",A=\"FL:C:/ORACLE/F0005.HC,1\"$ \"%d\\n\",sys_font_std[0];\n",
+      "except": "Compiler",
+      "sourceSha256": "5ec0c15f2bc48e92508e6ad14e790f2758a8822a8f59a1c82c5b53d25326199e",
+      "outputSha256": "d52c23525cc6cbba1e05dfab74db4f5a5966c2f83ff7c1548dd87b9248f69f35"
+    },
+    {
+      "name": "sizeof",
+      "source": "\"%d\\n\",sizeof(sys_font_std);\n",
+      "out": "&LexExcept PrsSizeOf PrsUnaryTerm PrsExpression2 $LTRED$$BK,1$ERROR:$FG$$BK,0$ Size not defined at \"sys_font_std\" $LK,\"C:/ORACLE/F0006.HC,0001\",A=\"FL:C:/ORACLE/F0006.HC,1\"$ \"%d\\n\",sizeof(sys_font_std);\n&LexExcept PrsExpression PrsFunCall PrsStmt $LTRED$$BK,1$ERROR:$FG$$BK,0$ Compiler Parse Error at \"sys_font_std\" $LK,\"C:/ORACLE/F0006.HC,0001\",A=\"FL:C:/ORACLE/F0006.HC,1\"$ \"%d\\n\",sizeof(sys_font_std);\n",
+      "except": "Compiler",
+      "sourceSha256": "70c362735367fd0c974b99a283fe48f272e0ccf22c840c6dd5a0315dae2d5afb",
+      "outputSha256": "f7f7f0d05dbe7a7a83fb666cd43997b5a498c61cf37571a10b8c36653bfcf93c"
+    },
+    {
+      "name": "scalar-index",
+      "source": "I64 addr=0;\n\"%d\\n\",addr[1];\n",
+      "out": "&LexExcept PrsUnaryModifier PrsExpression2 PrsExpression $LTRED$$BK,1$ERROR:$FG$$BK,0$ Not array or ptr \"INT:1\" $LK,\"C:/ORACLE/F0007.HC,0002\",A=\"FL:C:/ORACLE/F0007.HC,2\"$ \"%d\\n\",addr[1];\n&LexExcept PrsExpression PrsFunCall PrsStmt $LTRED$$BK,1$ERROR:$FG$$BK,0$ Compiler Parse Error at \"INT:1\" $LK,\"C:/ORACLE/F0007.HC,0002\",A=\"FL:C:/ORACLE/F0007.HC,2\"$ \"%d\\n\",addr[1];\n",
+      "except": "Compiler",
+      "sourceSha256": "44014e305fffafc09f92094084e2b7b5f10d1925572122a70940e818b2c0c22b",
+      "outputSha256": "53bc35c0759bdd9907f712ebcf2228fc947d0ff36796caf4366a8549ea928e67"
+    }
+  ]
+}

@@ -36,6 +36,7 @@
     "test:break": "node tests/break.mjs",
     "test:fifo": "node tests/fifo.mjs",
     "test:global-binding": "node tests/global-binding.mjs && NOFOLD=1 node tests/global-binding.mjs",
+    "test:font-address": "node tests/font-address.mjs && NOFOLD=1 node tests/font-address.mjs",
     "test:raw": "node tests/raw.mjs && node tests/raw-lifetime.mjs",
     "test:files": "node tests/files.mjs && node tests/files-fault.mjs && node tests/files-limit.mjs"
   },

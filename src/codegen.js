@@ -43,6 +43,8 @@ class Codegen {
       fields:api.fields?.map(name=>{const [root,...path]=name.split(".");return [binding(root),...path].join(".");})});
     this.opts={...opts,runtimeInitializers:opts.runtimeInitializers?.map(bind),
       runtimeInterfaces:opts.runtimeInterfaces?.map(bind)};
+    this.runtimeAddresses=new Map((opts.runtimeAddresses||[])
+      .map(({name,storage})=>[binding(name),binding(storage)]));
     this.m = new Module();
     this.classes = new Map();   // name -> ClassDecl node
     this.classLayouts = new Map(); // name -> {size, align, fields:Map}
@@ -361,6 +363,9 @@ class Codegen {
   }
 
   layoutQuery(node,locals) {
+    if ((node.globalType || !locals?.has(node.name)) &&
+        this.globals.get(node.name)?.kind==="exportedAddress")
+      this.errAt(node,"Size not defined: "+node.name);
     let type=node.globalType || locals?.get(node.name)?.type || this.globals.get(node.name)?.type ||
       BASE_TYPES[node.name] || (this.classes.has(node.name)?{kind:"classref",name:node.name}:null);
     if (!type) throw new CodegenError(`${node.filename}:${node.line}: Invalid class or variable in ${node.kind}: ${node.name}`);
@@ -432,6 +437,15 @@ class Codegen {
   declareGlobal(d) {
     if (d.forwardGlobal || this.globals.has(d.name)) return;
     const ty = this.resolveType(d.type);
+    const storage=this.runtimeAddresses.get(d.name);
+    if (storage) {
+      const backing=this.globals.get(storage);
+      if (!backing || d.filename!=="<prelude>" || d.init)
+        this.errAt(d,"Invalid runtime address binding: "+d.name);
+      this.globals.set(d.name,{kind:"exportedAddress",addr:backing.addr,
+        type:ty,init:null,node:d,storage});
+      return;
+    }
     let addr;
     const runtimeName=d.sourceName??d.name;
     if (d.storage?.some(s=>s==="extern" || s==="_extern")) addr=0;
@@ -601,6 +615,8 @@ class Codegen {
     const visitGlobal=name=>{
       if (globals.has(name)) return;
       globals.add(name);
+      const storage=this.globals.get(name)?.storage;
+      if (storage) visitGlobal(storage);
       visitBody(this.globalInitializers.get(name));
     };
     visitFunction(this.mainFn.index);
@@ -1263,12 +1279,17 @@ class FnCtx {
     this.reinterpret(from, to);
     return to;
   }
+  exportedAddress(node) {
+    if (node.kind!=="Ident" || this.localBinding(node)) return null;
+    const global=this.cg.globals.get(node.name);
+    return global?.kind==="exportedAddress"?global:null;
+  }
   inMemory(node) {
     switch (node.kind) {
       case "Ident": {
         const L = this.localBinding(node);
         if (L) return L.kind !== "wlocal";
-        return this.cg.globals.has(node.name);
+        return this.cg.globals.has(node.name) && !this.exportedAddress(node);
       }
       case "Index": case "Member": return true;
       case "Unary": return node.op === "*";
@@ -1315,6 +1336,7 @@ class FnCtx {
       case "Logical": case "Chain": return T.I64;
       case "Unary": {
         if (node.op === "&") {
+          if (this.exportedAddress(node.operand)) return T.I64;
           if (node.operand.kind==="Ident" && !this.localBinding(node.operand) &&
               !this.cg.globals.has(node.operand.name)) {
             const fn=this.cg.functions.get(node.operand.name);
@@ -1379,6 +1401,7 @@ class FnCtx {
     if (G) {
       (this.f.globalUses??=new Set()).add(node.name);
       const t = this.cg.resolveType(node.globalType??G.type);
+      if (G.kind==="exportedAddress") {this.f.i64_const(G.addr);return t;}
       if (isAggregate(t)) {
         (this.f.fieldUses??=new Set()).add(node.name+'.*');
         this.f.i64_const(G.addr);return t;
@@ -1409,7 +1432,7 @@ class FnCtx {
       if (node.kind === "Ident") {
         if (this.localBinding(node)) return null;
         const G = this.cg.globals.get(node.name);
-        if (!G) return null;
+        if (!G || G.kind==="exportedAddress") return null;
         (this.f.globalUses??=new Set()).add(node.name);
         return {addr:Number(G.addr),type:this.cg.resolveType(node.globalType??G.type)};
       }
@@ -1436,6 +1459,7 @@ class FnCtx {
   }
 
   genAddr(node) {
+    if (this.exportedAddress(node)) this.err(node,"Invalid lval: exported address");
     const names=[];
     let root=node;
     while (root.kind==="Member" && !root.arrow || root.kind==="Index") {
@@ -1486,7 +1510,8 @@ class FnCtx {
     let elemT;
     if (isArray(bt)) { this.genAddr(node.base); elemT = bt.of; }
     else if (isPtr(bt)) { this.genExpr(node.base); elemT = bt.to; }
-    else { // fallback treat as i64*
+    else {
+      if (!this.cg.lenient) this.err(node,"Not array or ptr");
       this.genExpr(node.base); elemT = T.I64;
     }
     const esz = this.cg.typeSize(elemT);
@@ -1824,6 +1849,7 @@ class FnCtx {
 
   genUnary(node) {
     if (node.op === "&") {
+      if (this.exportedAddress(node.operand)) return this.genIdent(node.operand);
       // address-of; function name -> id constant
       if (node.operand.kind === "Ident") {
         const fn = this.cg.functions.get(node.operand.name);
@@ -1866,6 +1892,9 @@ class FnCtx {
   }
 
   genIncDec(target, op, prefix) {
+    // V5.03 discards prefix flags on a bare exported address: no dereference
+    // is generated, so neither the symbol nor its returned value changes.
+    if (prefix && this.exportedAddress(target)) return this.genIdent(target);
     const delta = op === "++" ? 1 : -1;
     const wl = this.wlocalTarget(target);
     if (wl) {

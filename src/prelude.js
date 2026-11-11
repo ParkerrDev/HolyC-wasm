@@ -38,6 +38,11 @@ export const RUNTIME_INITIALIZERS=[
     "gr.even_pen_brushes","gr.odd_pen_brushes","gr.circle_lo","gr.circle_hi"]},
 ];
 export const RUNTIME_INTERFACES=[TASK_INTERFACE];
+// Live V5.03 exports these storage addresses as untyped, nonassignable symbols.
+export const RUNTIME_ADDRESSES=[
+  {name:"sys_font_std",storage:"__sys_font_std"},
+  {name:"sys_font_cyrillic",storage:"__sys_font_cyrillic"},
+];
 
 export const PRELUDE_SRC = String.raw`
 //==================== constants ====================
@@ -214,7 +219,8 @@ class CGr {
 };
 CGr gr;
 U64 *__gr_font;
-U8 sys_font_std[2048]={${Array.from(FONT).join(",")}};
+U8 __sys_font_std[2048]={${Array.from(FONT).join(",")}};
+I64 sys_font_std;
 
 //==================== math (host-backed) ====================
 I64 ToI64(F64 d)

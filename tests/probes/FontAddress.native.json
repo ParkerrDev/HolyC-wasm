@@ -1,0 +1,11 @@
+{
+  "backend": {
+    "engine": "qemu",
+    "accelerator": "kvm",
+    "version": "QEMU emulator version 11.1.2"
+  },
+  "evidence": "/home/aphunt/Dev/GitHub/TempleOS/wt/HolyC-wasm-A1/tests/.oracle/qemu-draybcpx",
+  "except": "",
+  "sourceSha256": "c089f3d2e222bb554645ab5a7a9e53219a42deb4ee3b2751a2cf3c41749d33f5",
+  "outputSha256": "699c39a76ae44cc92136459971d387aba8d10b611c52873a45e4d53ab21f9ca9"
+}

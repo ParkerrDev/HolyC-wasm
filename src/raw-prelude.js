@@ -1,5 +1,5 @@
 export const RAW_SRC=String.raw`
-U64 sys_font_cyrillic[256]= {
+U64 __sys_font_cyrillic[256]= {
 0x0000000000000000,0x0000000000000000,
 0x000000FF00000000,0x000000FF00FF0000,
 0x1818181818181818,0x6C6C6C6C6C6C6C6C,
@@ -129,6 +129,7 @@ U64 sys_font_cyrillic[256]= {
 0x1C08090A0C0A0908,0x0609040A0A04120C,
 0x001414141E15151E,0xFFFFFFFFFFFFFFFF,
 };
+I64 sys_font_cyrillic;
 //V5.03 Kernel/Display raw graphics mode. Text-mode VGA is not provided.
 #define RWF_IN_DOLLAR 1
 #define RWF_LAST_DOLLAR 2

@@ -516,6 +516,18 @@ The native `Global*` fixtures and `test:global-binding` cover these boundaries,
 including a global used before a later same-named local declaration. Function
 and class redefinition semantics remain separate compatibility work.
 
+The live V5.03 `sys_font_std` and `sys_font_cyrillic` symbols are exported
+address values, backed here by the original font bytes. They are not array
+variables: use an explicit pointer cast to index glyphs. Address-of keeps the
+same value and arithmetic has byte stride; assignment, postfix increment and
+`sizeof` are invalid. Native prefix increment/decrement on a bare exported
+address are accepted but leave its value unchanged. Earlier declarations keep
+their binding when a user shadows either name. The returned globals map marks
+these entries `kind:"exportedAddress"`; their `addr` is the symbol value, not a
+mutable pointer cell. `test:font-address` checks native output and rejection
+fixtures with and without address folding. Strict compilation also rejects
+indexing ordinary integer values without a pointer cast.
+
 Argument defaults capture their values once at their declaration, as V5.03
 compilation does. Nonconstant defaults, including function calls and callback
 types, use private cells in WASM memory; calls read the captured value. The
