@@ -5,6 +5,7 @@ import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {recorded as keydevRecorded} from './keydev/cases.mjs';
 import {recorded as hashRecorded} from './hash/cases.mjs';
+import {recorded as docRecorded} from './doc-entry/cases.mjs';
 const root=new URL('../',import.meta.url).pathname;
 const web=resolve(process.env.TEMPLEOS_WEB||'../TempleOS-Web');
 const {chromium}=await import(pathToFileURL(web+'/node_modules/playwright-core/index.mjs'));
@@ -79,7 +80,7 @@ try {
   },directory);
   assert.deepEqual(volume,{rows:[{match:true,bytes:[0,255,10]},{match:true,bytes:[0,255,10]}],allocations:0});
   }
-  const scroll=keydevRecorded('KeyScroll');
+  for(const fixture of [keydevRecorded('KeyScroll'),docRecorded('DocEntryTask')]) {
   const keydev=await page.evaluate(async fixture=>{
     const {compileHolyC}=await import('/src/compiler.js');
     const {createTaskHost}=await import('/src/runtime/tasks.js');
@@ -89,10 +90,14 @@ try {
     if(result.warnings.length)throw new Error(result.warnings.join('\n'));
     const host=createTaskHost({gfx:new Framebuffer(null),ansi:false,onText:text=>output+=text});
     host.attach(new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env}));
-    await host.run();await host.dispose();
-    return {output,allocations:host.state.tasks[0].allocations};
-  },{source:scroll.wasmSource});
-  assert.deepEqual(keydev,{output:scroll.output,allocations:0});
+    await host.run();const heap=host.state.heapPtr,first=output;
+    output='';await host.run();
+    if(output!==first || host.state.heapPtr!==heap || host.state.tasks.length!==1)
+      throw new Error('KeyDev/document task lifetime did not stabilize');
+    await host.dispose();return {output,allocations:host.state.tasks[0].allocations};
+  },{source:fixture.wasmSource});
+  assert.deepEqual(keydev,{output:fixture.output,allocations:0});
+  }
   await page.evaluate(async()=>{
     const {compileHolyC}=await import('/src/compiler.js');
     const {createTaskHost}=await import('/src/runtime/tasks.js');
@@ -141,5 +146,5 @@ try {
   assert.equal(await page.evaluate(()=>window.keyOutput),'0\n28\n31\n0\n97\n97\n27\n');
   await page.evaluate(async()=>{keyHost.resetInput();await keyHost.stop();await keyRun;await keyHost.dispose();});
   assert.deepEqual(errors,[]);
-  console.log('Browser JSPI: original task lifecycle, cross-task exceptions, catchable breaks and character waits and native directory/byte-volume sessions match with no surviving child allocations; native task hash ownership, scoped KeyDev ScrollLock and raw canvas/GetKey behavior pass; real browser keys deliver Shift-Escape/Space, arrows and repeat through set-1 decoding.');
+  console.log('Browser JSPI: original task lifecycle, cross-task exceptions, catchable breaks and character waits and native directory/byte-volume sessions match with no surviving child allocations; native task hash/document ownership, scoped KeyDev ScrollLock and raw canvas/GetKey behavior pass; real browser keys deliver Shift-Escape/Space, arrows and repeat through set-1 decoding.');
 } finally {await browser.close();await new Promise(resolve=>server.close(resolve));}

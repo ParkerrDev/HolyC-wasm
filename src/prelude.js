@@ -15,6 +15,7 @@ import {DIR_TYPES_SRC,DIR_SRC} from "./dir-prelude.js";
 import {FILE_SRC} from "./file-prelude.js";
 import {TASK_INTERFACE,TASK_SCHEDULE_SRC} from "./task-schedule.js";
 import {DOC_TYPES_SRC,WINDOW_SRC} from "./window-prelude.js";
+import {DOC_ENTRY_TYPES_SRC} from "./doc-entry.js";
 import {FIFO_TYPES_SRC,FIFO_SRC} from "./fifo-prelude.js";
 import {KBD_SRC} from "./kbd-prelude.js";
 import {FONT} from "./runtime/font.js";
@@ -49,7 +50,7 @@ export const RUNTIME_ADDRESSES=[
   {name:"sys_font_cyrillic",storage:"__sys_font_cyrillic"},
 ];
 
-export function Prelude(outputSrc=CONSOLE_SRC) {return String.raw`
+export function Prelude(outputSrc=CONSOLE_SRC,docEntrySrc="",legacyDocClear=true) {return String.raw`
 //==================== constants ====================
 #define NULL 0
 #define TRUE 1
@@ -206,6 +207,7 @@ ${HASH_TYPES_SRC}
 ${TASK_TYPES_SRC}
 ${DIR_TYPES_SRC}
 ${DOC_TYPES_SRC}
+${DOC_ENTRY_TYPES_SRC}
 CTask fs_storage;
 CTask *Fs;
 CTask *sys_winmgr_task;
@@ -721,6 +723,7 @@ ${TASK_SCHEDULE_SRC}
 ${FIFO_SRC}
 ${KBD_SRC}
 ${WINDOW_SRC}
+${docEntrySrc}
 ${DIR_SRC}
 ${FILE_SRC}
 ${HASH_SRC}
@@ -843,7 +846,7 @@ U0 Refresh()
   __gr_update(gr.dc->body,gr.dc->width_internal,0,0,gr.dc->width,gr.dc->height);
   __gr_flip;
 }
-U0 DocClear() {}
+${legacyDocClear?"U0 DocClear() {}":""}
 U0 Free(U8 *p) { __free(p); }
 I64 MSize(U8 *p) { return __msize(p); }
 I64 MSize2(U8 *p) { return __msize2(p); }

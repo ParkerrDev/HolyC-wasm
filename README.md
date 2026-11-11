@@ -914,3 +914,54 @@ It compares relative ownership changes, not native/host allocator header sizes,
 and does not supply a fabricated native CHeapCtrl API. The browser task gate
 checks foreign-task allocation, inherited lookup, shadowing, child exit and root
 session disposal with the same original-native fixture.
+
+### Document entry ownership and insertion
+
+The explicit `keydev` profile provides DocBinFindNum/Tag/Del, IsEditableText,
+DocEntryDel/Size/Copy, DocUndoDel, DocEntryNewTag, DocRemSoftNewLines and
+DocInsEntry. It uses native CDoc/entry/bin layouts and real RawPrint diagnostics.
+These utilities operate on correctly initialized, caller-owned document queues;
+they do not construct or parse a document. DocInit, DocNew, DocRst, DocRecalc,
+DocClear, metadata defaults, full DolDoc output and the window manager remain
+unsupported in this profile. In particular, the inherited default-console
+`DocClear()` no-op is a **legacy compatibility gap**, not native support; the
+KeyDev profile excludes it and rejects DocClear during strict compilation.
+
+The entry API source is selected with KeyDev because its deletion/error paths
+require that real output chain. The strict compiler checks all defined bodies
+before linking, so an undefined RawPrint declaration cannot be hidden in an
+unused function. Within the profile, normal reachability still controls devices:
+a pure IsEditableText program needs neither continuations nor a raw framebuffer;
+a program reaching deletion/copy diagnostics requires the complete KeyDev device
+and continuation contract before it runs. The default console profile is unchanged.
+
+Copying allocates each field using `doc->mem_task`. The partial copy records only
+successfully acquired ownership. A pending bin remains detached, and consumes no
+bin ID, until every allocation succeeds. Failure releases owned intermediates
+without freeing borrowed source fields or changing destination queues/IDs.
+Insertion allocates a pending text split before mutating the input entry or old
+text, and releases only the lock acquired by that call. Successful native fields,
+queue order, settings and cursor behavior are preserved. Allocation-failure
+rollback is an intentional improvement over stock V5.03's partial-copy leaks.
+
+A copied bin retains the stock `use_cnt`, even when it exceeds one. A source
+count of two creates a distinct clone with count two; deleting its sole copied
+entry leaves the clone queued at count one. This native-compatible behavior is
+explicitly tested as `SharedCopy:2:1:1`, with the remaining reference deliberately
+released afterward. No claim is made that deleting one entry frees every cloned
+bin. Callers must honor the native flags, pointer layouts and ownership rules.
+DocEntrySize sums the backend's actual MSize2 allocation spans and excludes bin
+storage, as native does. Its byte result can differ from V5.03 because this
+runtime's heap header/alignment differs; exact native allocator-size parity is
+not claimed. MAllocIdent likewise copies the source allocation's usable bytes.
+
+`npm run test:doc-entry` checks 512 copy-field combinations, 2,592 insertion/
+soft-line/lock cases, shared-bin counts and foreign-task lifetime against original
+QEMU results. Proofs bind the fixture, helper prefix, complete ported source,
+constants, capture, original asset manifest and outputs; each native gate runs
+stock and renamed ported functions separately. The host gates cover 3,968 copy
+allocation failures, four split failures, 14 foreign-mem_task failures, immediate
+retry, real raw diagnostics, original-source preservation and task/session cleanup.
+`node tests/doc-entry-oracle.mjs` repeats native evidence; `--record` updates it.
+The Chromium task gate also runs the native foreign-task fixture twice and checks
+stable allocation lifetimes and complete disposal.

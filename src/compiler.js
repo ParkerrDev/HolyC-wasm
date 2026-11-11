@@ -11,13 +11,14 @@ import { parse } from "./parser.js";
 import { compile as codegen } from "./codegen.js";
 import { PRELUDE_SRC, Prelude, RUNTIME_INITIALIZERS, RUNTIME_INTERFACES, RUNTIME_ADDRESSES } from "./prelude.js";
 import {KEYDEV_SRC} from "./keydev-prelude.js";
+import {DOC_ENTRY_SRC} from "./doc-entry.js";
 import { FLOAT_CONVERT_SRC,FLOAT_MUL_I64 } from "./float-convert.js";
 
 export function compileHolyC(source, opts = {}) {
   if (![undefined,'console','keydev'].includes(opts.runtimeProfile))
     throw new Error('Unknown HolyC runtime profile: '+opts.runtimeProfile);
   const keydev=opts.runtimeProfile==='keydev';
-  const prelude=keydev?Prelude(KEYDEV_SRC):PRELUDE_SRC;
+  const prelude=keydev?Prelude(KEYDEV_SRC,DOC_ENTRY_SRC,false):PRELUDE_SRC;
   const hooks=keydev?[...RUNTIME_INITIALIZERS,
     {name:'KeyOutputHostInit',globals:['keydev']}]:RUNTIME_INITIALIZERS;
   const userName = opts.filename || "<holyc>";

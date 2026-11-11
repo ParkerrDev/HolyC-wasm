@@ -40,7 +40,8 @@
     "test:raw": "node tests/raw.mjs && node tests/raw-lifetime.mjs",
     "test:files": "node tests/files.mjs && node tests/files-fault.mjs && node tests/files-limit.mjs && node tests/file-api.mjs && node tests/file-fault.mjs && node tests/file-volume.mjs",
     "test:keydev": "node tests/keydev.mjs && node tests/keydev-fault.mjs",
-    "test:hash": "node tests/hash.mjs && node tests/hash-fault.mjs"
+    "test:hash": "node tests/hash.mjs && node tests/hash-fault.mjs",
+    "test:doc-entry": "node tests/doc-entry.mjs && node tests/doc-copy-fault.mjs && node tests/doc-insert-fault.mjs && node tests/doc-foreign-fault.mjs"
   },
   "license": "MIT",
   "author": "Built with Claude Code"
