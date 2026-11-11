@@ -18,6 +18,11 @@ export class LegacyHeap
   }
 
   free() {}
+
+  size(ptr) {
+    if (ptr===0n) return 0n;
+    throw new Error("Allocation sizes are unavailable in legacy bump-heap snapshots");
+  }
 }
 
 export class Heap
@@ -118,16 +123,30 @@ export class Heap
     } finally {this.leave();}
   }
 
+  size(ptr) {
+    ptr=Number(ptr);
+    if (ptr===0) return 0n;
+    this.enter();
+    try {
+      return BigInt(this.allocation(ptr).span-HEADER);
+    } finally {this.leave();}
+  }
+
+  allocation(ptr) {
+    const at=ptr-HEADER,end=this.read(HEAP_BASE+8);
+    let span;
+    if (!Number.isSafeInteger(at) || at%ALIGN || at<HEAP_BASE+CONTROL ||
+        at+HEADER>end || !this.used(at) || (span=this.span(at))<HEADER+ALIGN || at+span>end)
+      throw new Error("Invalid or already freed HolyC allocation");
+    return {at,span,end};
+  }
+
   free(ptr) {
     ptr=Number(ptr);
     if (ptr===0) return;
     this.enter();
     try {
-      let at=ptr-HEADER,span;
-      const end=this.read(HEAP_BASE+8);
-      if (!Number.isSafeInteger(at) || at%ALIGN || at<HEAP_BASE+CONTROL ||
-          at+HEADER>end || !this.used(at) || (span=this.span(at))<HEADER+ALIGN || at+span>end)
-        throw new Error("Invalid or already freed HolyC allocation");
+      let {at,span,end}=this.allocation(ptr);
       let previous=this.read(at+8);
       this.write(at,span);
       if (previous && !this.used(at-previous)) {

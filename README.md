@@ -33,6 +33,7 @@ npm run test:document     # Full DolDoc input, sprite integrity and CP437 transp
 npm run test:strict       # Unsupported assembly and unresolved callable symbols.
 npm run test:callback     # Imported callbacks and null pointer traps.
 npm run test:varargs      # Variadic ABI, nested calls and exception cleanup.
+npm run test:format       # Native formatting ownership and unavailable OS formats.
 npm run test:exception    # Cross-call unwinding and repeated stack cleanup.
 npm run test:oracle       # Boot V5.03 in QEMU and recheck the native results.
 npm run test:float-scale  # Reproduce the native Pow10I64 table in QEMU.
@@ -55,6 +56,10 @@ Their caller-owned argument blocks are reentrant and released after normal
 returns or caught exceptions. A variadic WASM import/export has one hidden
 final I64 parameter pointing to the count followed by contiguous I64 arguments.
 This calling convention does not reproduce the native x86 machine stack.
+Subswitch `start:` prefixes run on case dispatch, while fall-through skips a
+case's repeated prefixes. A grouped `break` reaches its `end:`; nested groups
+and ordinary loop breaks retain their own targets. Original V5.03 rejects a
+break from a try/catch to an enclosing loop, which this compiler now rejects too.
 Scalar-backed classes such as `U32 class CColorROPU32` retain their integer or
 F64 value operations and named fields. Layouts whose byte size differs from
 their underlying storage type remain unsupported in strict mode.
@@ -199,8 +204,8 @@ compares unsigned bytes and returns -1, 0 or 1, including equal empty ranges.
 `GrBorder` takes two endpoint coordinates, not a width and height. `GrCircle`
 draws an outline. `DCFill` defaults to `TRANSPARENT`. These native semantics can
 expose assumptions in programs written for the previous browser approximations.
-The runtime is still a single-window host: task-owned heaps, window occlusion,
-sprites and variadic `GrPrint` remain unsupported. Native `GrFloodFill` and
+The runtime is still a single-window host: task-owned heaps, window occlusion
+and sprites remain unsupported. Native `GrFloodFill` and
 `GrFloodFill3` use the original iterative scanline algorithm, including its
 28 MiB scratch allocation. The scratch is freed after each fill and reused on
 subsequent fills. The `Flood` fixture compares 512 combinations of depth,
@@ -311,3 +316,28 @@ triangle cases, 64 transformed polygon/rectangle cases and a reversed rectangle
 with V5.03, including depth, raster operations, dithering and window offsets.
 The 2D primitive functions now live with the 3D primitives in
 `gr-primitives.js`; bitmap and device-context operations stay in `gr-prelude.js`.
+
+## Native formatting
+
+`StrPrintJoin`, `StrPrint`, `MStrPrint`, `CatPrint`, callable `Print`, `GrPrint`
+and `GrPrint3` use the original V5.03 numeric, string, character, quoting and
+list-format algorithms. They include the native Pow10I64 table. `%n` means
+engineering notation. `%c` accepts a packed character word. `MSize` reports
+available allocation capacity; heap alignment/capacity need not match x86.
+
+File/document `%F`, date/time `%D`/`%T`, Define-table `%S`/`%Z` and symbol `%p`/`%P`
+formats raise `FmtHost`, since their OS services are unavailable. They do not
+produce placeholders. Temporary formatting buffers are freed on allocation,
+format and drawing errors. New compiled formatters need the `__msize` host
+import; old embedded snapshots keep working with heap ABI 0 or 1 as before.
+The string-literal Print shortcut still uses the legacy host formatter pending
+its migration to this shared implementation.
+
+`Format` compares 220 output records with original QEMU, using identical F64
+input bits, including 64 random large values. `Text` compares 64 formatted
+bitmap/extent records. `test:format` fails each of 20 internal allocations and
+checks recovery, zero leaks and explicit OS-format errors.
+`tests/probes/FloatIntermediate.HC` retains a known separate arithmetic gap:
+V5.03 keeps some x87 intermediates wider than F64, while WASM narrows each F64
+operation. Five of its 64 `(Rand-0.5)*1e12` results differ by one ULP before
+formatting. The runtime does not claim full extended-precision parity.

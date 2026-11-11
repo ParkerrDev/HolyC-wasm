@@ -50,6 +50,7 @@ U0 Onscreen()
   GrLine(gr.dc,-3,8,43,31);
   GrBlot(gr.dc,14,5,img);
   GrPutS(gr.dc,2,32,"AB\\tC\\nD");
+  GrPrint3(gr.dc,320,32,0,"%04d %.2f",123,0.125);
   GrPlot(gr.dc,639,479);
   GrPlot(gr.dc,640,480);
   db=DCDepthBufAlloc(gr.dc);

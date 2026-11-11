@@ -967,6 +967,8 @@ class FnCtx {
 
   genTryCatch(s) {
     const saved=this.newWLocal(VT.i64),tag=this.cg.exceptionTag();
+    const loops=this.loops;
+    this.loops=[];
     this.f.global_get(this.cg.spGlobal).local_set(saved);
     this.pushCtrl();this.f.try_();
     this.genStmt(s.body);
@@ -983,6 +985,7 @@ class FnCtx {
     this.f.global_get(this.cg.excGlobal).throw_(tag);
     if (caught) {this.f.end();this.popCtrl();}
     this.f.end();this.popCtrl();
+    this.loops=loops;
   }
 
   genSwitch(s) {
@@ -1032,8 +1035,6 @@ class FnCtx {
           if (lo != null) prev = (hi != null ? hi : lo);
           labels.push({ isDefault: false, lo, hi, loExpr, segIdx: segs.length });
         }
-      } else if (it.type === "start" || it.type === "end") {
-        // sub-switch markers: treated as plain fall-through points (limited)
       } else if (it.type === "stmt") {
         if (started) cur.push(it.stmt); else pre.push(it.stmt);
       }

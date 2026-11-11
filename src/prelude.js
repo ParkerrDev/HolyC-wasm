@@ -8,6 +8,7 @@ import {GR_PRIMITIVES_SRC} from "./gr-primitives.js";
 import {GR_MATH_SRC} from "./gr-math.js";
 import {GR_TYPES_SRC,GR_SRC} from "./gr-prelude.js";
 import {FONT} from "./runtime/font.js";
+import {STR_SRC} from "./str-prelude.js";
 
 // Runtime initialization is a dependency of the globals it establishes. The
 // compiler uses the same reachability graph for these hooks and ordinary calls.
@@ -660,6 +661,7 @@ U0 Play(U8 *notes, U8 *lyrics=NULL) {
 ${GR_MATH_SRC}
 ${GR_SRC}
 ${GR_PRIMITIVES_SRC}
+${STR_SRC}
 
 public I64 DistSqrI64(I64 x1,I64 y1,I64 x2,I64 y2)
 {
@@ -747,11 +749,6 @@ public I64 GrPutChar(CDC *dc=gr.dc,I64 x,I64 y,U8 ch)
   return res;
 }
 
-public I64 GrPrint(CDC *dc=gr.dc,I64 x,I64 y,U8 *s)
-{
-  return GrPutS(dc,x,y,s);
-}
-
 public U0 GrBorder(CDC *dc=gr.dc,I64 x1,I64 y1,I64 x2,I64 y2,
 	I64 step=1,I64 start=0)
 {//2D. Transformation with thick.
@@ -787,6 +784,7 @@ U0 Refresh()
 U0 WinBorder(I64 on=1) {}
 U0 DocClear() {}
 U0 Free(U8 *p) { __free(p); }
+I64 MSize(U8 *p) { return __msize(p); }
 U8 *MAlloc(I64 size,CTask *mem_task=NULL)
 {
   U8 *res;

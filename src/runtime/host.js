@@ -104,6 +104,7 @@ export function createHost(opts = {}) {
 
     __malloc:size=>heap.malloc(size),
     __free:ptr=>heap.free(ptr),
+    __msize:ptr=>heap.size(ptr),
 
     __sin: (x) => Math.sin(x), __cos: (x) => Math.cos(x), __tan: (x) => Math.tan(x),
     __asin: (x) => Math.asin(x), __acos: (x) => Math.acos(x), __atan: (x) => Math.atan(x),

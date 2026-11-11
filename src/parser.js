@@ -1,6 +1,7 @@
 // parser.js - recursive-descent + Pratt parser for HolyC.
 import { mk } from "./ast.js";
 import { BASE_TYPES, ptrTo, arrayOf, funcPtr } from "./types.js";
+import {subswitch} from "./subswitch.js";
 
 const STORAGE = new Set([
   "public", "extern", "import", "_extern", "static", "reg", "noreg",
@@ -32,6 +33,7 @@ export class Parser {
     this.classes = new Map(); // name -> ClassDecl
     this.globalNames=new Set();
     this.localNames=null;
+    this.switchId=0;
   }
 
   // --- token helpers ---
@@ -499,7 +501,7 @@ export class Parser {
       }
     }
     this.eatP("}");
-    return mk("Switch", { disc, items, noBounds }, t);
+    return subswitch(mk("Switch",{disc,items,noBounds},t),this.switchId++,message=>this.err(message,t));
   }
 
   // ====================================================================

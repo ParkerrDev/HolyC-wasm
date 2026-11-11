@@ -35,9 +35,9 @@ export class Gotos {
     const gotos = [];
     const walk = (s, tries) => {
       if (s.kind === "Label") {
-        if (global) ctx.err(s, "No global labels");
+        if (global && !s.internal) ctx.err(s, "No global labels");
         if (this.labels.has(s.name)) ctx.err(s, `Duplicate goto label '${s.name}'`);
-        this.labels.set(s.name, { tries, block: null, used: false });
+        this.labels.set(s.name, { tries, block: null, used: false,internal:s.internal });
       } else if (s.kind === "Goto") gotos.push({ s, tries });
       if (s.kind === "TryCatch") for (const k of stmtKids(s)) walk(k, [...tries, k]);
       else for (const k of stmtKids(s)) walk(k, tries);
@@ -49,7 +49,7 @@ export class Gotos {
       if (L.tries.some((t, i) => tries[i] !== t)) ctx.err(s, `goto into a try: '${s.label}'`);
       L.used = true;
     }
-    for (const [name, L] of this.labels) if (!L.used) ctx.cg.warn(`Unused label '${name}'`);
+    for (const [name, L] of this.labels) if (!L.used && !L.internal) ctx.cg.warn(`Unused label '${name}'`);
   }
 
   holds(s) {

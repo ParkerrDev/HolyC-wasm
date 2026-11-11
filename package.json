@@ -11,6 +11,7 @@
     "test:strict": "node tests/strict.mjs",
     "test:callback": "node tests/callback.mjs",
     "test:varargs": "node tests/varargs.mjs",
+    "test:format": "node tests/format.mjs",
     "test:exception": "node tests/exception.mjs",
     "test:heap": "node tests/heap.mjs",
     "test:link": "node tests/link.mjs",

@@ -75,6 +75,7 @@ export const HOST_IMPORTS = {
 
   __malloc:      { params: [I], results: [I] },
   __free:        { params: [I], results: [] },
+  __msize:       { params: [I], results: [I] },
 
   // transcendental math (wasm lacks these as opcodes)
   __sin:  { params: [F], results: [F] }, __cos:  { params: [F], results: [F] },

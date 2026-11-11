@@ -22,6 +22,7 @@ if (!isMainThread) {
   for (let i=0;i<300;i++) {
     const size=100+(i*37)%2000,ptr=host.env.__malloc(BigInt(size));
     assert.notEqual(ptr,0n);
+    assert.ok(host.env.__msize(ptr)>=BigInt(size));
     new Uint8Array(memory.buffer,Number(ptr),size).fill(id);
     blocks.push({ptr,size,value:id});
   }
@@ -86,6 +87,7 @@ if (!isMainThread) {
   new Uint8Array(restoredMemory.buffer).set(snapshot);
   const restored=attach(restoredMemory);
   restored.state.heapPtr=cursor;
+  assert.equal(restored.env.__msize(last),host.env.__msize(last),"allocation capacity restores with RAM");
   assert.equal(restored.env.__malloc(300n),hole,"restore the free list from RAM alone");
   filled(restoredMemory,last,400,91);
   for (const ptr of [first,hole,last]) restored.env.__free(ptr);
@@ -102,6 +104,8 @@ if (!isMainThread) {
   assert.equal(oldHost.state.heapPtr,HEAP_BASE+123);
   assert.equal(oldHost.env.__malloc(1n),BigInt(HEAP_BASE+128));
   assert.equal(oldHost.state.heapAbi,0);
+  assert.equal(oldHost.env.__msize(0n),0n);
+  assert.throws(()=>oldHost.env.__msize(BigInt(HEAP_BASE+128)),/legacy bump-heap/);
   assert.throws(()=>createHost({heapAbi:2}),/Unsupported HolyC heap ABI/);
 
   const limited=attach(new WebAssembly.Memory({initial:257,maximum:257}));
