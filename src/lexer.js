@@ -147,9 +147,13 @@ export function lex(src, filename = "<src>") {
       continue;
     }
     if (c === "/" && peek(1) === "*") {
-      adv(); adv();
-      while (i < n && !(peek() === "*" && peek(1) === "/")) adv();
-      if (i < n) { adv(); adv(); }
+      adv();adv();
+      let depth=1;
+      while (i<n && peek()!=="\0" && depth) {
+        if (peek()==="/" && peek(1)==="*") {adv();adv();depth++;}
+        else if (peek()==="*" && peek(1)==="/") {adv();adv();depth--;}
+        else adv();
+      }
       continue;
     }
 
