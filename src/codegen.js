@@ -10,7 +10,7 @@ const NOFOLD = typeof process !== "undefined" && process.env && process.env.NOFO
 //   - static data (globals + interned strings) from DATA_BASE upward
 //   - a shadow stack growing DOWN from STACK_TOP (global __sp), for addressable
 //     locals (those whose address is taken, number-union accessed, or aggregates)
-//   - a host bump-heap above HEAP_BASE for MAlloc
+//   - a runtime heap above HEAP_BASE for MAlloc
 import { Module, Func, VT, EMPTY_BLOCK } from "./wasm/emitter.js";
 import {
   T, BASE_TYPES, ptrTo, arrayOf, funcPtr, isFuncPtr, isInt, isFloat, isPtr, isArray, isVoid,
@@ -498,7 +498,7 @@ class FnCtx {
   }
 
   // ---- diagnostics ----
-  err(node, msg) { throw new CodegenError(`line ${node && node.line}: ${msg}`); }
+  err(node, msg) { throw new CodegenError(`${node?.filename??"<source>"}:${node?.line}: ${msg}`); }
 
   // ---- wasm locals ----
   newWLocal(vt) { const idx = this.nextWLocal++; this.wlocalTypes.push(vt); return idx; }
@@ -1085,7 +1085,7 @@ class FnCtx {
           }
           return ptrTo(this.peekType(node.operand));
         }
-        if (node.op === "*") { const t = this.peekType(node.operand); return isPtr(t) || isArray(t) ? elemType(t) : T.I64; }
+        if (node.op === "*") { const t = this.peekType(node.operand); return isFuncPtr(t)?t:isPtr(t) || isArray(t) ? elemType(t) : T.I64; }
         if (node.op === "!") return T.I64;
         if (node.op === "-") {
           const t = this.peekType(node.operand);
@@ -1319,17 +1319,22 @@ class FnCtx {
       this.reinterpret(own, t);
       return t;
     }
-    // memory lvalue
-    const t = this.cg.resolveType(this.genAddr(node.target)); // pushes addr (i64)
-    const addr = this.scratchI32();
+    //V5.03 OptPass012 fuses *ptr++=value into IC_ASSIGN_PP. Its pointer
+    //increment follows the store; index increments and compound stores do not.
+    const post=op==="=" && node.target.kind==="Unary" && node.target.op==="*" &&
+      node.target.operand.kind==="Postfix"?node.target.operand:null;
+    const target=post?{...node.target,operand:post.operand}:node.target;
+    const t = this.cg.resolveType(this.genAddr(target));
+    const addr = this.newWLocal(VT.i32);
     this.f.op("i32_wrap_i64").local_set(addr);
     if (op === "=") {
       this.f.local_get(addr);
       this.genExprCoerce(node.value, t);
       // duplicate value for result via scratch
-      const res = isFloat(t) ? this.scratchF64() : this.scratchI64();
+      const res = this.newWLocal(wasmValType(t));
       this.f.local_tee(res);
       this.emitStore(t);
+      if (post) this.dropIfValue(this.genIncDec(post.operand,post.op,false));
       this.f.local_get(res);
       return t;
     } else {
@@ -1351,9 +1356,13 @@ class FnCtx {
   combineToValue(base, pushLeft, leftType, valueNode) {
     const lr = this.cg.resolveType(leftType);
     const rPeek = this.cg.resolveType(this.peekType(valueNode));
+    const right=this.newWLocal(wasmValType(rPeek));
+    const rightType=this.genExpr(valueNode);
+    this.f.local_set(right);
+    const pushRight=type=>{this.f.local_get(right);this.coerce(rightType,type);};
     if ((base === "+" || base === "-") && isPtr(lr) && isInt(rPeek)) {
       pushLeft();
-      this.genExprCoerce(valueNode, T.I64);
+      pushRight(T.I64);
       const size = this.cg.typeSize(lr.to);
       if (size !== 1) this.f.i64_const(size).op("i64_mul");
       this.f.op(base === "+" ? "i64_add" : "i64_sub");
@@ -1363,13 +1372,13 @@ class FnCtx {
     if (floatArith) {
       pushLeft();
       if (!isFloat(lr)) this.f.op("f64_convert_i64_s");
-      this.genExprCoerce(valueNode, T.F64);
+      pushRight(T.F64);
       this.floatOp(base);
       return T.F64;
     }
     pushLeft();
     if (isFloat(lr)) this.floatToInt();
-    this.genExprCoerce(valueNode, T.I64);
+    pushRight(T.I64);
     this.intOp(base, isUnsigned(lr));
     return T.I64;
   }
@@ -1570,6 +1579,7 @@ class FnCtx {
     if (node.op === "*") {
       const t = this.genExpr(node.operand);
       const rt = this.cg.resolveType(t);
+      if (isFuncPtr(rt)) return rt;
       const et = isPtr(rt) || isArray(rt) ? elemType(rt) : T.I64;
       //V5.03 keeps function-pointer expressions in a register: unary *
       //reduces their pointer depth without loading the pointed-to cell.

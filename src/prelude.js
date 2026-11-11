@@ -4,6 +4,9 @@
 //
 // This mirrors how TempleOS builds most of Gr*/math/etc. in HolyC on top of a
 // few primitives, and it exercises the compiler on real HolyC code.
+import {GR_TYPES_SRC,GR_SRC} from "./gr-prelude.js";
+import {FONT} from "./runtime/font.js";
+
 export const PRELUDE_SRC = String.raw`
 //==================== constants ====================
 #define NULL 0
@@ -117,20 +120,17 @@ class CMouse {
 } ms;
 
 //==================== device context ====================
-// A lightweight CDC. The real TempleOS CDC is huge; we keep the fields demos use.
-class CDC {
-  I64 color;
-  I64 thick;
-  I64 x;
-  I64 y;
-  I64 flags;
-};
+${GR_TYPES_SRC}
 CDC gr_dc_storage;
+U8 gr_scrn_bitmap[GR_WIDTH*GR_HEIGHT];
+I64 gr_scrn_r[16];
 
 //==================== "Fs" task graphics fields ====================
 class CTask {
   I64 pix_width;
   I64 pix_height;
+  I64 pix_left,pix_right,pix_top,pix_bottom,scroll_x,scroll_y,win_z_num;
+  CTask *next_task;
   U0 (*draw_it)(CTask *task,CDC *dc);
   U0 (*task_end_cb)();
   I64 win_inhibit;
@@ -139,12 +139,17 @@ class CTask {
 };
 CTask fs_storage;
 CTask *Fs;
+CTask *sys_winmgr_task;
 
 //==================== gr global ====================
 class CGr {
   CDC *dc;
+  U64 to_8_bits[256],to_8_colors[256];
+  U16 *win_z_buf;
 };
 CGr gr;
+U64 *__gr_font;
+U8 sys_font_std[2048]={${Array.from(FONT).join(",")}};
 
 //==================== math (host-backed) ====================
 I64 ToI64(F64 d)
@@ -589,84 +594,148 @@ U0 Play(U8 *notes, U8 *lyrics=NULL) {
 }
 
 //==================== device-context / graphics ====================
-CDC *DCAlias(CTask *t=NULL) {
-  gr_dc_storage.color=WHITE;
-  gr_dc_storage.thick=1;
-  return &gr_dc_storage;
-}
-CDC *DCNew(I64 w=GR_WIDTH, I64 h=GR_HEIGHT) { return DCAlias(); }
-U0 DCDel(CDC *dc=NULL) {}
-U0 DCFill(CDC *dc=NULL, I64 color=BLACK) { __gr_fill(color); }
+${GR_SRC}
 
-U0 GrPlot(CDC *dc, I64 x, I64 y) {
-  I64 col=WHITE;
-  if (dc) col=dc->color;
-  __gr_plot(x,y,col&15);
+public I64 DistSqrI64(I64 x1,I64 y1,I64 x2,I64 y2)
+{
+  return SqrI64(x2-x1)+SqrI64(y2-y1);
 }
-U0 GrLine(CDC *dc, I64 x1, I64 y1, I64 x2, I64 y2, I64 thick=1) {
-  I64 col=WHITE;
-  if (dc) { col=dc->color; if (dc->thick>0) thick=dc->thick; }
-  __gr_line(x1,y1,x2,y2,col&15,thick);
+
+public U0 SwapU16(U16 *a,U16 *b)
+{
+  U16 tmp=*a;
+  *a=*b;*b=tmp;
 }
-U0 GrRect(CDC *dc, I64 x, I64 y, I64 w, I64 h) {
-  I64 col=WHITE;
-  if (dc) col=dc->color;
-  __gr_rect(x,y,w,h,col&15);
+
+public U32 *MemSetU32(U32 *dst,I64 val,I64 cnt)
+{
+  U32 *res=dst+cnt;
+  while (cnt-->0) *dst++=val;
+  return res;
 }
-U0 GrBorder(CDC *dc, I64 x, I64 y, I64 w, I64 h) {
-  I64 col=WHITE;
-  if (dc) col=dc->color;
-  __gr_line(x,y,x+w,y,col&15,1);
-  __gr_line(x+w,y,x+w,y+h,col&15,1);
-  __gr_line(x+w,y+h,x,y+h,col&15,1);
-  __gr_line(x,y+h,x,y,col&15,1);
+
+Bool IsPixCovered0(CTask *task,I64,I64)
+{//The host supplies one window; other task windows need a compositor.
+  if (task!=Fs) throw('Graphics',TRUE);
+  return FALSE;
 }
-U0 GrCircle(CDC *dc, I64 x, I64 y, I64 r) {
-  I64 col=WHITE;
-  if (dc) col=dc->color;
-  __gr_circle(x,y,r,col&15,1);
+
+U0 __gr_sync(CDC *dc,I64 x,I64 y,I64 w,I64 h)
+{//Publish a changed part of the screen bitmap to the host display.
+  if (dc->body!=gr.dc->body || dc->flags&DCF_DONT_DRAW) return;
+  if (dc->flags&DCF_SCRN_BITMAP) {
+    x+=dc->win_task->pix_left+dc->win_task->scroll_x;
+    y+=dc->win_task->pix_top+dc->win_task->scroll_y;
+  }
+  __gr_update(dc->body,dc->width_internal,x,y,w,h);
 }
-U0 GrPrint(CDC *dc, I64 x, I64 y, U8 *s) {
-  I64 col=WHITE;
-  if (dc) col=dc->color;
-  __gr_text(x,y,col&15,s);
+
+public I64 GrRect(CDC *dc=gr.dc,I64 x,I64 y,I64 w,I64 h)
+{
+  I64 res=__GrRect(dc,x,y,w,h);
+  if (res) __gr_sync(dc,x,y,w,h);
+  return res;
 }
-// Blit an 8-bit indexed sprite: one palette index (0..15) per pixel, 0xFF =
-// transparent. Like TempleOS DCBlot, the source carries its own colors, so dc
-// only matters for clipping (the framebuffer handles bounds). scale>1 upsizes
-// with nearest-neighbor (chunky-pixel look).
-U0 GrSprite(CDC *dc, I64 x, I64 y, U8 *image, I64 w, I64 h, I64 scale=1) {
-  __gr_sprite(x,y,w,h,image,scale);
+
+public I64 GrBlot(CDC *dc=gr.dc,I64 x,I64 y,CDC *img)
+{
+  I64 res=__GrBlot(dc,x,y,img);
+  if (res) __gr_sync(dc,x,y,img->width,img->height);
+  return res;
 }
-U0 GrFloodFill(CDC *dc, I64 x, I64 y) {}
+
+public I64 GrPutChar(CDC *dc=gr.dc,I64 x,I64 y,U8 ch)
+{
+  I64 res=__GrPutChar(dc,x,y,ch);
+  if (res) __gr_sync(dc,x,y,FONT_WIDTH,FONT_HEIGHT);
+  return res;
+}
+
+public I64 GrPrint(CDC *dc=gr.dc,I64 x,I64 y,U8 *s)
+{
+  return GrPutS(dc,x,y,s);
+}
+
+public U0 GrBorder(CDC *dc=gr.dc,I64 x1,I64 y1,I64 x2,I64 y2,
+        I64 step=1,I64 start=0)
+{
+  if (dc->thick!=1 || dc->flags&(DCF_TRANSFORMATION|DCF_SYMMETRY))
+    throw('Graphics',TRUE);
+  GrLine(dc,x1,y1,x2,y1,step,start);
+  GrLine(dc,x2,y1,x2,y2,step,start);
+  GrLine(dc,x2,y2,x1,y2,step,start);
+  GrLine(dc,x1,y2,x1,y1,step,start);
+}
+
+U0 GrSprite(CDC *dc,I64 x,I64 y,U8 *image,I64 w,I64 h,I64 scale=1)
+{//Legacy web bitmap helper; native programs use GrBlot.
+  I64 xx,yy;
+  CColorROPU32 old_color;
+  if (!dc) dc=gr.dc;
+  old_color=dc->color;
+  if (scale<1) scale=1;
+  for (yy=0;yy<h;yy++)
+    for (xx=0;xx<w;xx++)
+      if (image[yy*w+xx]!=TRANSPARENT) {
+        dc->color=image[yy*w+xx];
+        GrRect(dc,x+xx*scale,y+yy*scale,scale,scale);
+      }
+  dc->color=old_color;
+}
 
 //==================== misc no-ops demos sometimes call ====================
-U0 Refresh() { __gr_flip(); }
+U0 Refresh()
+{
+  __gr_update(gr.dc->body,gr.dc->width_internal,0,0,gr.dc->width,gr.dc->height);
+  __gr_flip;
+}
 U0 WinBorder(I64 on=1) {}
 U0 DocClear() {}
 U0 Free(U8 *p) { __free(p); }
-U8 *MAlloc(I64 size)
+U8 *MAlloc(I64 size,CTask *mem_task=NULL)
 {
-  U8 *res=__malloc(size);
+  U8 *res;
+  if (mem_task && mem_task!=Fs) throw('HeapTask',TRUE);
+  res=__malloc(size);
   if (!res) throw('OutMem',TRUE);
   return res;
 }
 
-U8 *CAlloc(I64 size)
+U8 *CAlloc(I64 size,CTask *mem_task=NULL)
 {
-  U8 *res=MAlloc(size);
+  U8 *res=MAlloc(size,mem_task);
   MemSet(res,0,size);
   return res;
 }
 
 //==================== runtime init (called by __rt_init) ====================
-U0 __hcrt_init() {
-  Fs = &fs_storage;
-  Fs->pix_width = GR_WIDTH;
-  Fs->pix_height = GR_HEIGHT;
-  gr.dc = &gr_dc_storage;
-  gr_dc_storage.color = WHITE;
-  gr_dc_storage.thick = 1;
+U0 __hcrt_init()
+{
+  I64 i,j,bits;
+  Fs=&fs_storage;
+  Fs->pix_width=__gr_width;
+  Fs->pix_height=__gr_height;
+  Fs->pix_right=Fs->pix_width-1;
+  Fs->pix_bottom=Fs->pix_height-1;
+  Fs->next_task=sys_winmgr_task=Fs;
+  gr.dc=&gr_dc_storage;
+  gr.dc->width=gr.dc->width_internal=GR_WIDTH;
+  gr.dc->height=GR_HEIGHT;
+  gr.dc->body=gr_scrn_bitmap;
+  gr.dc->r=gr_scrn_r;
+  gr.dc->win_task=gr.dc->mem_task=Fs;
+  gr.dc->dc_signature=DCS_SIGNATURE_VAL;
+  gr.dc->flags=DCF_SCRN_BITMAP|DCF_ON_TOP;
+  __gr_font=sys_font_std;
+  for (i=0;i<256;i++) {
+    bits=0;
+    for (j=0;j<8;j++) {
+      gr.to_8_colors[i]|=i<<(j*8);
+      if (i&1<<j) bits|=0xFF<<(j*8);
+    }
+    gr.to_8_bits[i]=bits;
+  }
+  DCRst(gr.dc);
 }
 
 U8 *MemSet(U8 *dst,I64 val,I64 cnt)
@@ -683,6 +752,16 @@ U8 *MemCpy(U8 *dst,U8 *src,I64 cnt)
   else
     __memcopy(dst,src,cnt);
   return dst+cnt;
+}
+
+I64 MemCmp(U8 *a,U8 *b,I64 cnt)
+{//Compare unsigned bytes; native returns only -1, 0 or 1.
+  while (cnt-->0) {
+    if (*a<*b) return -1;
+    if (*a>*b) return 1;
+    a++;b++;
+  }
+  return 0;
 }
 I64 StrLen(U8 *s) { I64 n=0; while (s[n]) n++; return n; }
 U0 StrCpy(U8 *d, U8 *s) { I64 i=0; while (s[i]) { d[i]=s[i]; i++; } d[i]=0; }

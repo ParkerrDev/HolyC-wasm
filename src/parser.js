@@ -38,7 +38,7 @@ export class Parser {
   next() { return this.toks[this.i++]; }
   atEnd() { return this.cur().type === "eof"; }
   err(msg, tok = this.cur()) {
-    throw new Error(`${this.filename}:${tok.line}:${tok.col}: parse error: ${msg} (near '${tok.text}')`);
+    throw new Error(`${tok.filename??this.filename}:${tok.line}:${tok.col}: parse error: ${msg} (near '${tok.text}')`);
   }
   isP(v, k = 0) { const t = this.peek(k); return t.type === "punct" && t.value === v; }
   isKw(v, k = 0) { const t = this.peek(k); return t.type === "ident" && t.value === v; }
@@ -219,6 +219,7 @@ export class Parser {
 
   parseDeclarator(baseType,unnamed=false) {
     let type=baseType,name=null,stars=0;
+    while (this.isKw("reg") || this.isKw("noreg")) this.next();
     while (this.optP("*")) type=ptrTo(type);
     const callback=this.isP("(") && this.isP("*",1);
     if (callback) {
@@ -458,10 +459,10 @@ export class Parser {
   }
   parseSwitch() {
     const t = this.next();
-    let noBounds = false;
-    if (this.isP("[")) { this.next(); this.eatP("]"); noBounds = true; } // switch [x] -> NoBounds
-    this.eatP("(");
-    const disc = this.parseExpression(); this.eatP(")");
+    const noBounds=!!this.optP("[");
+    if (!noBounds) this.eatP("(");
+    const disc=this.parseExpression();
+    this.eatP(noBounds?"]":")");
     this.eatP("{");
     const items = []; // sequence of {type:'case'|'default'|'start'|'end'|'stmt', ...}
     while (!this.isP("}") && !this.atEnd()) {

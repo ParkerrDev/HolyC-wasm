@@ -260,6 +260,9 @@ export function lex(src, filename = "<src>") {
   }
 
   tokens.push(new Token("eof", null, "", line, col, i));
-  for (const token of tokens) token.directiveLine=directiveLines.get(token.line)??token.line;
+  for (const token of tokens) {
+    token.filename=filename;
+    token.directiveLine=directiveLines.get(token.line)??token.line;
+  }
   return tokens;
 }

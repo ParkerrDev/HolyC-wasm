@@ -119,6 +119,13 @@ WebAssembly F64 arithmetic does not reproduce the full x87 extended-precision
 environment. Passing a compiler fixture does not prove a game's rendering,
 input, performance or behavior on QEMU, other virtual machines or bare metal.
 
+Fresh WebAssembly memory and register locals start at zero. Native HolyC
+storage can contain old data: initialize pointers and counters explicitly.
+Tests of source that relies on zero-initialized globals are not proof that it
+will run on TempleOS. Some self-modifying expressions also have native optimizer
+effects not fully reproduced; retained examples and native outputs are in
+`tests/probes/`.
+
 HolyC has different precedence from C: `1<<4+1` is `(1<<4)+1`, bitwise operations
 bind above addition, and comparisons can chain through equality. Consumers
 ported from C must audit those expressions when moving to this compiler.
@@ -169,3 +176,35 @@ header layout and separate task-owned heaps are not reproduced.
 `npm run test:heap` checks allocation lifetime, splitting/coalescing, cleared
 reuse, failed growth, full-memory restoration, legacy restoration and four
 workers allocating/freeing the same growing shared memory.
+
+## Device contexts and drawing
+
+The runtime now uses the 408-byte V5.03 `CDC` layout and native HolyC algorithms
+for bitmap allocation, aliases, pen reset, matrices, depth buffers, pixel reads
+and writes, rectangle fills, bitmap blits, lines, circle outlines and glyphs.
+Aliases own their context/matrix and share their source bitmap. The QEMU-backed
+`Graphics` fixture checks colors, raster operations, both dithers, clipping,
+fonts, extent tracking and depth behavior against the original OS. `MemCmp`
+compares unsigned bytes and returns -1, 0 or 1, including equal empty ranges.
+
+`GrBorder` takes two endpoint coordinates, not a width and height. `GrCircle`
+draws an outline. `DCFill` defaults to `TRANSPARENT`. These native semantics can
+expose assumptions in programs written for the previous browser approximations.
+The runtime is still a single-window host: task-owned heaps, window occlusion,
+3D brushes, transformed/thick borders, sprites and variadic `GrPrint` remain
+unsupported. The old empty `GrFloodFill` implementation was removed, so strict
+compilation rejects that missing API instead of reporting success for a no-op.
+
+Update compiler and host together for the new `__gr_update` bitmap import.
+The graphics adapter should expose its byte index buffer as `gfx.indices` for
+efficient, exact row updates, including transparent bytes. `Refresh` also
+publishes direct screen-bitmap writes. Older compiled modules can still use the
+retained legacy host drawing imports. The allocator ABI remains 1.
+
+`npm run test:graphics` checks 1,000 context lifetimes, offscreen isolation and
+bitmap/display agreement. With a TempleOS-Web checkout and its Playwright
+dependency installed, `TEMPLEOS_WEB=/path/to/TempleOS-Web npm run
+test:browser-games` launches HolyCraft, Babel, Volley and Snake in Chromium with
+this checkout's compiler/runtime, checks advancing rendered frames after input,
+and saves screenshots in `tests/.oracle/browser-games/`. This is a launch and
+input smoke test, not complete gameplay certification.

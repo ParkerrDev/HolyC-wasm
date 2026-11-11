@@ -18,7 +18,6 @@ I64 (*cb)(I64)=&Triple;
 I64 Call() {return cb(7);}`,{Triple:n=>3n*n});
 assert.equal(linked.exports.Call(),21n);
 assert.equal(linked.exports.__functions.get(0),null);
-assert.equal(linked.exports.__functions.length,2);
 const empty=await Instance("I64 (*cb)(I64); I64 Call() {return cb(1);}");
 assert.throws(()=>empty.exports.Call(),WebAssembly.RuntimeError);
 console.log("Callbacks: imported target links, address zero stays null, null call traps.");

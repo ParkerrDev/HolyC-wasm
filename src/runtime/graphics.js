@@ -110,8 +110,7 @@ export class Framebuffer {
     }
   }
 
-  // Blit an 8-bit indexed sprite (TempleOS DCBlot/CSprite format: one palette
-  // index per pixel, 0xFF = transparent) with integer nearest-neighbor scaling.
+  //Legacy raw bitmap blit, with 0xFF transparency and integer scaling.
   sprite(x, y, w, h, px, scale = 1) {
     x |= 0; y |= 0; w |= 0; h |= 0;
     scale = Math.max(1, scale | 0);
@@ -142,7 +141,6 @@ export class Framebuffer {
     const data = new Uint32Array(this.image.data.buffer);
     const idx = this.indices, pal = this.pal32;
     for (let i = 0; i < idx.length; i++) data[i] = pal[idx[i]];
-    if (!this.ctx) return;
     if (this.scale === 1) {
       this.ctx.putImageData(this.image, 0, 0);
     } else {

@@ -64,8 +64,22 @@ export function createHost(opts = {}) {
     __gr_flip() { state.gfx?.flip(); state.onFlip?.(); },
     __gr_width() { return BigInt(state.gfx?.width ?? 640); },
     __gr_height() { return BigInt(state.gfx?.height ?? 480); },
-    // Blit an 8-bit indexed sprite (TempleOS DCBlot format: one palette index per
-    // pixel, 0xFF = transparent), reading w*h bytes from wasm memory at addr.
+    __gr_update(addr,stride,x,y,width,height) {
+      const gfx=state.gfx;
+      if (!gfx) return;
+      addr=Number(addr);stride=Number(stride);
+      x=Number(x);y=Number(y);width=Number(width);height=Number(height);
+      const left=Math.max(0,x),top=Math.max(0,y);
+      const right=Math.min(gfx.width??640,x+width),bottom=Math.min(gfx.height??480,y+height);
+      if (left>=right || top>=bottom) return;
+      const bytes=u8();
+      for (let row=top;row<bottom;row++) {
+        const pixels=bytes.subarray(addr+stride*row+left,addr+stride*row+right);
+        if (gfx.indices) gfx.indices.set(pixels,row*gfx.width+left);
+        else gfx.sprite?.(left,row,right-left,1,pixels,1);
+      }
+    },
+    //Legacy web bitmap ABI retained for previously compiled modules.
     __gr_sprite(x, y, w, h, addr, scale) {
       const W = Number(w), H = Number(h);
       if (W <= 0 || H <= 0) return;

@@ -15,4 +15,8 @@ assert(label.warnings.some(message=>message.includes("Unused label")));
 assert(WebAssembly.validate(label.bytes));
 assert.throws(()=>compile("U32 class Tiny {U8 a;}; Tiny x;"),
   /different layout and storage width/);
+assert.throws(()=>compile('#include "Header.HC"',{filename:"Entry.HC",
+  includeResolver:()=>"U0 Broken() { =; }"}),/Header\.HC:1:.*parse error/);
+assert.throws(()=>compile('#include "Header.HC"',{filename:"Entry.HC",
+  includeResolver:()=>"U0 Broken() { Undefined; }"}),/Header\.HC:1:.*undefined symbol/);
 console.log("Strict compilation rejects unsupported assembly, unresolved calls and mismatched scalar layouts.");

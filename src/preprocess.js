@@ -27,9 +27,8 @@ export function preprocess(tokens, opts = {}) {
   const includeResolver = opts.includeResolver || (() => null);
   const includedOnce = project?.included || new Set();
 
-  // First pass: collect directives + produce a stream with directives removed,
-  // honoring conditional compilation.
-  const out = [];
+  const out = [],pending=[];
+  const flush=()=>{out.push(...expandMacros(pending,defines));pending.length=0;};
   const condStack = []; // {active, taken, parentActive}
   function activeNow() { return condStack.every((c) => c.active); }
   let skipBraceNext = false;  // set after #exe to drop the following {...} block
@@ -54,6 +53,8 @@ export function preprocess(tokens, opts = {}) {
     if (skipBraceNext && !(t.type === "punct" && t.value === ";")) skipBraceNext = false;
 
     if (isDirectiveHash(tokens, i)) {
+      //Later definitions must not rewrite code before this directive.
+      flush();
       const line = t.directiveLine??t.line;
       // gather the rest of this line's tokens
       let j = i + 1;
@@ -147,16 +148,14 @@ export function preprocess(tokens, opts = {}) {
     }
 
     if (!activeNow()) { i++; continue; }
-    out.push(t);
+    pending.push(t);
     i++;
   }
 
-  // Second pass: macro expansion. Re-attach an EOF token so the parser has a
-  // proper terminator (the lexer's EOF was consumed by the directive scan).
-  const expanded = expandMacros(out, defines);
+  flush();
   const eof = tokens[tokens.length - 1];
-  expanded.push(eof && eof.type === "eof" ? eof : { type: "eof", value: null, text: "", line: 0, col: 0, pos: 0 });
-  return expanded;
+  out.push(eof && eof.type === "eof" ? eof : { type: "eof", value: null, text: "", line: 0, col: 0, pos: 0 });
+  return out;
 }
 
 

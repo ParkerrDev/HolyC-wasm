@@ -2,6 +2,6 @@
 // source position (line) for diagnostics.
 export function mk(kind, props, tok) {
   const n = { kind, ...props };
-  if (tok) { n.line = tok.line; n.col = tok.col; }
+  if (tok) { n.line=tok.line;n.col=tok.col;n.filename=tok.filename; }
   return n;
 }
