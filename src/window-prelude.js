@@ -1,8 +1,6 @@
 //Native V5.03 document state, window geometry, ordering and callback ownership.
 export const DOC_TYPES_SRC=String.raw`//DolDoc records from TempleOS V5.03 Kernel/KernelA.HH.
 
-extern class CDirContext;
-
 public class CDocBin
 {
   CDocBin *next,*last;

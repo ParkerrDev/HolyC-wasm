@@ -161,6 +161,15 @@ export function createTaskHost(opts={}) {
     const top=fn().TaskHostStkTop(ptr);
     const task=record(ptr,owner,start,[data],top,top-stackSize);
     own(ptr,task);own(fn().TaskHostStk(ptr),task);
+    const saved=fn().__sp.value;
+    try {fn().DirHostTaskInit?.(ptr);}
+    catch(error) {
+      fn().__sp.value=saved;
+      fn().TaskHostDone(ptr);
+      for(const allocation of [...task.alloc]) host.env.__free(allocation);
+      tasks.delete(ptr);owner.children.delete(task);
+      throw error;
+    }
     schedule();return ptr;
   }
   function kill(ptr,shouldWait,justBreak) {
@@ -256,6 +265,12 @@ export function createTaskHost(opts={}) {
     return device(()=>{accepted=Boolean(fn().TaskHostBreak(target));}) && accepted;
   };
   host.stop=()=>{if(root && root.status!=='dead') mark(root);return root?.done??Promise.resolve();};
+  const files=host.files;
+  host.files=()=>{
+    if(disposed) throw new Error('HolyC task host is disposed');
+    if(!root || root.status==='dead') return files();
+    let result;device(()=>{result=files();});return result;
+  };
   host.snapshot=()=>{throw new Error('Suspended JSPI continuations cannot be serialized; use a HEMU full-machine snapshot for portable TempleOS state');};
   host.dispose=async()=>{
     try {await host.stop();}

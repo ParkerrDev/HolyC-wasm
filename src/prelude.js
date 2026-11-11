@@ -10,6 +10,7 @@ import {GR_MATH_SRC} from "./gr-math.js";
 import {GR_TYPES_SRC,GR_SRC} from "./gr-prelude.js";
 import {TASK_TYPES_SRC,TASK_SRC} from "./task-prelude.js";
 import {TASK_MESSAGE_SRC} from "./task-message.js";
+import {DIR_TYPES_SRC,DIR_SRC} from "./dir-prelude.js";
 import {TASK_INTERFACE,TASK_SCHEDULE_SRC} from "./task-schedule.js";
 import {DOC_TYPES_SRC,WINDOW_SRC} from "./window-prelude.js";
 import {FIFO_TYPES_SRC,FIFO_SRC} from "./fifo-prelude.js";
@@ -24,6 +25,12 @@ import {SPRITE_TYPES_SRC,SPRITE_SRC} from "./gr-sprite.js";
 // compiler uses the same reachability graph for these hooks and ordinary calls.
 export const RUNTIME_INITIALIZERS=[
   {name:"__hcrt_init",always:true},
+  {name:"DirHostInit",globals:["blkdev","dir_host_ready","dir_host_nodes",
+      "dir_host_node_cnt","dir_host_byte_cnt","dir_host_drvs","dir_host_bds"],
+    fields:["CTask.cur_dir","CTask.cur_dv"],
+    exports:["DirHostTaskInit","DirHostSeed","DirHostReady","DirHostNext",
+      "DirHostName","DirHostData","DirHostSize","DirHostIsDir",
+      "DirHostMaxPath","DirHostMaxBytes","DirHostMaxNodes","MAlloc","Free"]},
   {name:"RawHostInit",globals:["text"]},
   {name:"KbdHostInit",globals:["kbd"]},
   {name:"__hgr_init",globals:["gr","__gr_font"]},
@@ -181,6 +188,7 @@ I64 gr_scrn_r[16];
 
 ${FIFO_TYPES_SRC}
 ${TASK_TYPES_SRC}
+${DIR_TYPES_SRC}
 ${DOC_TYPES_SRC}
 CTask fs_storage;
 CTask *Fs;
@@ -701,6 +709,7 @@ ${TASK_SCHEDULE_SRC}
 ${FIFO_SRC}
 ${KBD_SRC}
 ${WINDOW_SRC}
+${DIR_SRC}
 
 public I64 DistSqrI64(I64 x1,I64 y1,I64 x2,I64 y2)
 {

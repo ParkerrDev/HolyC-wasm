@@ -45,6 +45,27 @@ try {
     assert(result.match,result.name+': '+result.output);
     assert.equal(result.tasks,1);assert.equal(result.allocations,0);
   }
+  const directory={source:await readFile(new URL('probes/DirectoryTask.HC',import.meta.url),'latin1'),
+    expected:await readFile(new URL('probes/DirectoryTask.out',import.meta.url),'latin1')};
+  const volume=await page.evaluate(async fixture=>{
+    const {compileHolyC}=await import('/src/compiler.js');
+    const {createTaskHost}=await import('/src/runtime/tasks.js');
+    const result=compileHolyC(fixture.source+' "VOLUME_WAIT\\n"; GetKey;',{lenient:false});
+    let output='',ready;
+    const host=createTaskHost({files:[{path:new Uint8Array([67,58,47,255]),bytes:new Uint8Array([0,255,10])}],
+      ansi:false,onText:text=>{output+=text;if(output.endsWith('VOLUME_WAIT\n'))ready();}});
+    host.attach(new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env}));
+    const rows=[];
+    for(let i=0;i<2;i++) {
+      output='';const waiting=new Promise(resolve=>ready=resolve),running=host.run();await waiting;
+      const entries=host.files(),file=entries.find(entry=>entry.path.length===4 && entry.path[3]===255);
+      rows.push({match:output===fixture.expected+'VOLUME_WAIT\n',bytes:Array.from(file.bytes)});
+      if(!host.postMessage(2,27,1))throw new Error('Directory session did not remain ready for input');
+      await running;
+    }
+    await host.dispose();return {rows,allocations:host.state.tasks[0].allocations};
+  },directory);
+  assert.deepEqual(volume,{rows:[{match:true,bytes:[0,255,10]},{match:true,bytes:[0,255,10]}],allocations:0});
   await page.evaluate(async()=>{
     const {compileHolyC}=await import('/src/compiler.js');
     const {createTaskHost}=await import('/src/runtime/tasks.js');
@@ -68,5 +89,5 @@ try {
   assert.equal(await page.evaluate(()=>window.keyOutput),'0\n28\n31\n0\n97\n97\n27\n');
   await page.evaluate(async()=>{keyHost.resetInput();await keyHost.stop();await keyRun;await keyHost.dispose();});
   assert.deepEqual(errors,[]);
-  console.log('Browser JSPI: original task lifecycle, cross-task exceptions, catchable breaks and character waits match with no surviving child allocations; real browser keys deliver Shift-Escape/Space, arrows and repeat through set-1 decoding.');
+  console.log('Browser JSPI: original task lifecycle, cross-task exceptions, catchable breaks and character waits and native directory/byte-volume sessions match with no surviving child allocations; real browser keys deliver Shift-Escape/Space, arrows and repeat through set-1 decoding.');
 } finally {await browser.close();await new Promise(resolve=>server.close(resolve));}

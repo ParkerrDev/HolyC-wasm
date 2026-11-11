@@ -6,6 +6,7 @@
 // Pass in adapters; sensible no-op defaults are used otherwise.
 import { format, readCStr, bytesToLatin1, docText } from "./console.js";
 import { MS_ADDR, MS } from "../abi.js";
+import {fileBridge} from "./files.js";
 import {Heap,LegacyHeap,HOST_HEAP_ABI} from "./heap.js";
 export {HOST_HEAP_ABI} from "./heap.js";
 
@@ -26,6 +27,10 @@ export function createHost(opts = {}) {
     onFlip: opts.onFlip || null,
     onTick: opts.onTick || null,           // called before scan/sleep/yield (e.g. mouse mirror)
   };
+
+  let native=null;
+  const files=fileBridge(opts.files,()=>native);
+  Object.defineProperty(state,"filesystemError",{get:()=>files.error});
 
   const heapAbi=opts.heapAbi??HOST_HEAP_ABI;
   if (heapAbi!==0 && heapAbi!==HOST_HEAP_ABI)
@@ -133,6 +138,7 @@ export function createHost(opts = {}) {
     __fmod: (x,y) => x%y,
   };
 
+  if(heapAbi===HOST_HEAP_ABI) imports.__fs_seed=files.seed;
   if(typeof state.gfx?.palette==='function')
     imports.__gr_palette=(index,bgr48)=>state.gfx.palette(Number(index),bgr48);
   if(state.gfx?.indices instanceof Uint8Array)
@@ -158,7 +164,9 @@ export function createHost(opts = {}) {
 
   return {
     env: imports,
+    files:files.entries,
     attach(instance) {
+      native=instance.exports;
       state.mem = instance.exports.memory;
       // initialize Fs pointer + pix dims and ms struct defaults
       return state;

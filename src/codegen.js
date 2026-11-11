@@ -638,6 +638,11 @@ class Codegen {
         if (!fn) throw new CodegenError("Missing runtime initializer: "+hook.name);
         hooks.add(hook.name);
         visitFunction(fn.index);
+        for (const name of hook.exports || []) {
+          const exported=this.functions.get(name);
+          if (!exported) throw new CodegenError("Missing runtime initializer export: "+name);
+          visitFunction(exported.index);exports.add(name);
+        }
         changed=true;
       }
     }
@@ -1505,7 +1510,10 @@ class FnCtx {
   // never aborts compilation.
   fieldOf(cls, name) {
     cls = this.cg.resolveType(cls);
-    if (isClass(cls) && this.cg.classes.has(cls.name)) return this.cg.classField(cls, name);
+    if (isClass(cls) && this.cg.classes.has(cls.name)) {
+      (this.f.fieldUses??=new Set()).add(cls.name+"."+name);
+      return this.cg.classField(cls,name);
+    }
     if (this.cg.lenient) { this.cg.warnOnceCg(`member '.${name}' on non-class value; offset 0`); return { offset: 0, type: T.I64 }; }
     throw new CodegenError(`member access '.${name}' on non-class type`);
   }

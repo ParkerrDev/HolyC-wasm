@@ -665,3 +665,54 @@ and ordinary console transport remains unchanged.
 `npm run test:raw` checks original source-hashed character/font/VGA evidence,
 literal device pixels and clipping, rejected-range nonmutation, memory growth,
 child/session lifetime, failed initialization and fresh-instance recovery.
+
+### Session directories and byte volumes
+
+The native directory records and `DirCur`, `DirNameAbs`, `Cd`, `Drv`,
+`Let2Drv`, `Drv2Let`, `Let2Let`, `HomeSet`, `DirContextNew/Del`, `IsDir`,
+`DirMk`, `FileNameChk` and `AStrNew` are available. The bounded backend is
+explicitly `FSt_HOST`/`BDT_HOST`, not a simulated FAT32 or RedSea disk. Paths
+use exact byte names and case-sensitive lookup. Native path rules include
+relative same-drive changes, home/boot aliases, repeated-slash root resets
+and retaining the last valid prefix after a failed `Cd`. Filename checks
+cover all 256 byte values and the native length limit.
+
+A module reaching directory state receives virtual `B:/`, `C:/`, `C:/Home`
+and `C:/Tmp`; the root starts at `C:/Home`. `createHost` and `createTaskHost`
+accept `files: [{path, bytes}, {path, directory: true}]` for startup seeding.
+`path` is a Uint8Array or a byte-valued string; callers must encode Unicode
+filenames to CP437 explicitly. `bytes` is a Uint8Array. The bridge performs
+no path normalization; the native backend validates absolute paths and
+rejects aliases such as `..` in seeds. `host.files()` returns copied exact
+path/data bytes and directory flags, including directories created by HolyC.
+Seed options alone do not activate the volume in an otherwise unrelated
+module. After failed startup, `state.filesystemError` may contain a bridge
+validation error; the original HolyC exception remains observable.
+
+Limits are 4,096 total nodes, 64 MiB of file data/startup seed bytes and
+4,096 bytes per absolute path, including paths composed across relative
+changes. Allocation can fail before those limits. Failed startup releases
+the partial volume and poisons that instance; construct a fresh instance
+to retry. Context-construction failures restore saved directory state
+without allocating. Runtime mutations are not general transactions.
+Directory diagnostics currently use the console transport; native DolDoc
+error decoration and physical block operations remain unsupported. Nonzero
+DirMk entry preallocation rejects explicitly. General file I/O, compressed
+files, registry and directory listing APIs are separate remaining work.
+
+Volume nodes/data belong to the session. A spawned child starts at the
+configured home directory, as stock TaskInit does, with its own current
+directory allocated after task registration. Child teardown frees that
+copy; session disposal frees the volume and rejects later enumeration.
+Directory state and nodes live entirely in WASM memory, so full-memory
+restore needs no hidden JavaScript path index. New volume modules require
+heap ABI 1; legacy bump-heap restore mode rejects their seed import before
+initialization, while old saved modules retain their original behavior. Cooperative task continuation
+snapshots remain unsupported. Modules using only directory APIs do not
+require JSPI; unused filesystem code/imports remain unlinked.
+
+`test:files` verifies original QEMU directory layouts/path/context/mkdir/name
+and child-start behavior, exact binary seed/export, memory restore, all
+startup allocation failures, operation/child-constructor failures, quotas
+and composed-path bounds. `test:tasks-browser` also exports a live browser
+volume during GetKey suspension and checks two native child-directory runs.

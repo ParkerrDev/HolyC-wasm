@@ -75,6 +75,7 @@ export const HOST_IMPORTS = {
   __get_char:    { params: [I, I], results: [I] },        // (echo, doScan) blocking
   __time_ms:     { params: [], results: [F] },
 
+  __fs_seed: {params: [], results: [I]},
   __task_require: {params: [], results: []},
   __task_spawn: {params: [I,I,I,I,I,I,I], results: [I]},
   __task_kill: {params: [I,I,I], results: [I]},
