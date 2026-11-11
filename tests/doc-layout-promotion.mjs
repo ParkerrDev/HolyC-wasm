@@ -10,5 +10,5 @@ assert.equal(proof.backend.engine,'qemu');assert.equal(proof.manifest.templeos,'
 assert.equal(proof.outputSha256,hash(Buffer.from(proof.out,'latin1')));
 let output='';const result=compileHolyC(source.toString('latin1'),{lenient:false});assert.deepEqual(result.warnings,[]);
 const host=createHost({ansi:false,onText:s=>output+=s});const instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});host.attach(instance);instance.exports.__main();
-assert.equal(output.split('\n')[1],proof.out.split('\n')[1]);
-console.log('Explicit I64 divisor matches native negative division/remainder. Direct small-type expression parity:',output===proof.out?'matched':'known compiler gap (not claimed)');
+assert.equal(output,proof.out);
+console.log('Direct and widened I32/U16 division/remainder match original V5.03.');

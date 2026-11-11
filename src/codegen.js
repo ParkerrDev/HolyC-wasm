@@ -1374,8 +1374,8 @@ class FnCtx {
     return { L, type: type ?? this.cg.resolveType(L.type), own: this.cg.resolveType(L.type) };
   }
 
-  // Static type of an expression without emitting code (best-effort).
-  peekType(node) {
+  // Scalar type observed during OptPass012 pass 0, 1 or 2.
+  peekType(node,phase=2) {
     switch (node.kind) {
       case "IntLit": case "CharLit": return literalType(node.value);
       case "FloatLit": return T.F64;
@@ -1390,9 +1390,9 @@ class FnCtx {
       case "Cast": return this.cg.resolveType(node.type);
       case "Binary": {
         if (node.op === "`") return T.F64;
-        const a = this.peekType(node.left), b = this.peekType(node.right);
+        const a = this.peekType(node.left,phase), b = this.peekType(node.right,phase);
         if ([">","<",">=","<=","==","!="].includes(node.op)) return T.I64;
-        return binResultType(a, b);
+        return this.binaryType(node,a,b,phase);
       }
       case "Logical": case "Chain": return T.I64;
       case "Unary": {
@@ -1403,19 +1403,19 @@ class FnCtx {
             const fn=this.functionAt(node.operand);
             if (fn) return funcPtr(fn.retType,fn.params,fn.isVarArgs);
           }
-          return ptrTo(this.peekType(node.operand));
+          return ptrTo(this.peekType(node.operand,phase));
         }
-        if (node.op === "*") { const t = this.peekType(node.operand); return isFuncPtr(t)?t:isPtr(t) || isArray(t) ? elemType(t) : T.I64; }
+        if (node.op === "*") { const t = this.peekType(node.operand,phase); return isFuncPtr(t)?t:isPtr(t) || isArray(t) ? elemType(t) : T.I64; }
         if (node.op === "!") return T.I64;
         if (node.op === "-") {
-          const t = this.peekType(node.operand);
+          const t = this.peekType(node.operand,phase);
           return isInt(t) ? { ...t, signed: true } : t;
         }
-        return this.peekType(node.operand);
+        return this.peekType(node.operand,phase);
       }
-      case "Postfix": return this.peekType(node.operand);
+      case "Postfix": return this.peekType(node.operand,phase);
       case "Assign": return this.peekType(node.target);
-      case "Cond": return this.peekType(node.then);
+      case "Cond": return this.peekType(node.then,phase);
       case "Call": {
         const callee = node.callee,type=this.peekType(callee);
         if (isFuncPtr(type)) return type.retType;
@@ -1850,13 +1850,16 @@ class FnCtx {
       } else {
         this.genExprCoerce(node.left, T.I64);
         this.genExprCoerce(node.right, T.I64);
-        const unsigned = isUnsigned(lr) || isUnsigned(rr);
+        const unsigned = this.comparisonUnsigned(node.left) || this.comparisonUnsigned(node.right);
         this.intCmp(node.op, unsigned);
       }
       this.f.op("i64_extend_i32_u");
       return T.I64;
     }
     // integer op (coerce truncates any float operand)
+    const integerResult=isInt(lr) && isInt(rr)?this.binaryType(node,lr,rr):
+      (isUnsigned(lr) || isUnsigned(rr)?T.U64:T.I64);
+    const constantOperands=this.integerConstant(node.left) && this.integerConstant(node.right);
     const emittedLeft=this.genExpr(node.left);
     this.coerce(emittedLeft,T.I64);
     const shift=node.op==="/" && this.cg.fold(node.left,this.locals,{})==null?
@@ -1866,14 +1869,54 @@ class FnCtx {
       this.intOp(">>",isUnsigned(emittedLeft));
     } else {
       this.genExprCoerce(node.right, T.I64);
-      this.intOp(node.op,node.op===">>"?isUnsigned(emittedLeft) || isUnsigned(rr):
-        isUnsigned(lr) || isUnsigned(rr));
+      this.intOp(node.op,constantOperands?isUnsigned(lr) || isUnsigned(rr):
+        node.op===">>"?isUnsigned(this.binaryType(node,emittedLeft,rr)):
+        isUnsigned(integerResult));
     }
-    // Native constant division shifts the original left value. A later shift
-    // retains that emitted signedness; other results propagate unsigned operands.
-    if (shift!=null) return isUnsigned(emittedLeft)?T.U64:T.I64;
-    if (node.op===">>") return isUnsigned(emittedLeft) || isUnsigned(rr)?T.U64:T.I64;
-    return (isUnsigned(lr) || isUnsigned(rr)) ? T.U64 : T.I64;
+    // A constant-power division becomes a unary shift of the left value.
+    if (shift!=null) return emittedLeft;
+    if (node.op===">>") return this.binaryType(node,emittedLeft,rr);
+    return integerResult;
+  }
+
+  binaryType(node,a,b,phase=2) {
+    // Native rewrites change the class used by later arithmetic. Right-hand
+    // shifts/powers become unary on the next pass; left *1 and +/-0 disappear
+    // only on pass 2. Fully constant operations keep their raw-type winner.
+    if (isInt(a) && isInt(b)) {
+      const lc=this.integerConstant(node.left),rc=this.integerConstant(node.right);
+      if (!lc && rc) {
+        if (phase>=1 && ["<<",">>"].includes(node.op)) return a;
+        const value=this.cg.fold(node.right,this.locals,{});
+        if (phase>=2 && ["+","-"].includes(node.op) && value===0n) return a;
+        if (["*","/"].includes(node.op) && (value===1n ||
+            phase>=1 && this.constantPowerShift(node.right)!=null)) return a;
+      } else if (lc && !rc && phase>=2) {
+        const value=this.cg.fold(node.left,this.locals,{});
+        if (node.op==="+" && value===0n || node.op==="*" && value===1n) return b;
+      }
+    }
+    return binResultType(a,b);
+  }
+
+  comparisonUnsigned(node) {
+    // ICF_USE_UNSIGNED is sticky: a later rewrite cannot clear an earlier
+    // unsigned operand class (e.g. signed_value/4(U64)<0).
+    return [0,1,2].some(phase=>isUnsigned(this.peekType(node,phase)));
+  }
+
+  integerConstant(node) {
+    if (["IntLit","CharLit","Sizeof","Offset"].includes(node.kind)) return true;
+    if (node.kind==="Cast") return isInt(this.cg.resolveType(node.type)) && this.integerConstant(node.operand);
+    if (node.kind==="Unary") return ["+","-","~","!"].includes(node.op) && this.integerConstant(node.operand);
+    if (["Binary","Logical"].includes(node.kind)) {
+      if (node.op==="`" || !this.integerConstant(node.left) ||
+          !this.integerConstant(node.right)) return false;
+      // OptPass012 leaves division/remainder by zero for execution.
+      return !["/","%"].includes(node.op) || this.cg.fold(node.right,this.locals,{})!==0n;
+    }
+    if (node.kind==="Chain") return node.operands.every(x=>this.integerConstant(x));
+    return false;
   }
 
   intOp(op, unsigned) {
@@ -1961,6 +2004,9 @@ class FnCtx {
     const ty = xs.map((x) => this.cg.resolveType(this.peekType(x)));
     const keep = ty.map((t) => (isFloat(t) ? T.F64 : T.I64));
     const tmp = [];
+    // IC_PUSH_CMP carries the previous integer comparison class forward.
+    const integerChain=ty.every(isInt);
+    let chainUnsigned=false;
     const pairFloat = (k) => isFloat(ty[k]) || isFloat(ty[k + 1]);
     const operand = (i, want) => {
       if (tmp[i] != null) this.f.local_get(tmp[i]);
@@ -1976,7 +2022,12 @@ class FnCtx {
       operand(k, want);
       operand(k + 1, want);
       if (pairFloat(k)) this.floatCmp(node.ops[k]);
-      else this.intCmp(node.ops[k], isUnsigned(ty[k]) || isUnsigned(ty[k + 1]));
+      else {
+        const unsigned=integerChain?this.comparisonUnsigned(xs[k]) || this.comparisonUnsigned(xs[k+1]):
+          isUnsigned(ty[k]) || isUnsigned(ty[k+1]);
+        if (integerChain) chainUnsigned ||= unsigned;
+        this.intCmp(node.ops[k],integerChain?chainUnsigned:unsigned);
+      }
       if (k > 0 && !short) this.f.op("i32_and");
     }
     if (short) for (let k = 1; k < n; k++) { this.f.else_(); this.f.i32_const(0); this.f.end(); this.popCtrl(); }

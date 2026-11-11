@@ -53,6 +53,7 @@
     "test:member": "node tests/member.mjs",
     "test:lex-token": "node tests/lex-token.mjs && node tests/lex-token-fault.mjs && node tests/lex-token-boundary.mjs",
     "test:lex-ext": "node tests/lex-ext.mjs && node tests/lex-ext-fault.mjs && node tests/lex-ext-reject.mjs && node tests/lex-ext-negative.mjs",
+    "test:integer-promotion": "node tests/integer-promotion.mjs && NOFOLD=1 node tests/integer-promotion.mjs && node tests/integer-promotion-negative.mjs",
     "test:doc-life": "node tests/doc-life.mjs && node tests/doc-life-owned.mjs && node tests/doc-life-fault.mjs && node tests/doc-life-reject.mjs && node tests/doc-life-negative.mjs",
     "test:doc-recalc": "node tests/doc-recalc.mjs && node tests/doc-recalc-reject.mjs && node tests/doc-recalc-fault.mjs && node tests/doc-recalc-abort.mjs && node tests/doc-recalc-negative.mjs",
     "test:doc-layout": "node tests/doc-layout.mjs && node tests/doc-layout-fault.mjs && node tests/doc-layout-negative.mjs && node tests/doc-layout-promotion.mjs",

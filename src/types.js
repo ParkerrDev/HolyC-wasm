@@ -99,7 +99,7 @@ export function storeOp(t) {
 // Returns 'float' if either is float; else 'int'.
 export function arithIsFloat(a, b) { return isFloat(a) || isFloat(b); }
 
-// Result type of binary arithmetic (HolyC mostly works in I64/F64).
+// OptFixupBinaryOp1 selects the greatest raw_type; values still use 64 bits.
 export function binResultType(a, b) {
   if (arithIsFloat(a, b)) return T.F64;
   if (isArray(a)) a = ptrTo(a.of);
@@ -108,9 +108,12 @@ export function binResultType(a, b) {
   if (isPtr(a) && isInt(b)) return a;
   if (isInt(a) && isPtr(b)) return b;
   if (isPtr(a) && isPtr(b)) return T.I64; // ptr - ptr
-  // integer: unsigned propagates (C "usual arithmetic conversions"), so a
-  // comparison on an unsigned arithmetic result is done unsigned, not signed.
-  if (isInt(a) && isInt(b) && (!a.signed || !b.signed)) return T.U64;
+  // RT_I8,U8,I16,U16,I32,U32,I64,U64: width precedes signedness.
+  if (isInt(a) && isInt(b)) {
+    if (a.bits>b.bits) return a;
+    if (b.bits>a.bits) return b;
+    return a.signed?b:a;
+  }
   return T.I64;
 }
 

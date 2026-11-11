@@ -220,18 +220,16 @@ and complete disposal cover the host layer. Native allocator-failure injection
 is not claimed. No screen rendering, data-refresh callbacks, editor, DocRecalc,
 DocTop/Rst/New or native DocClear is made available by these helpers.
 
-### Preserved small-integer promotion gap
+### Small-integer promotion evidence
 
-`tests/probes/SmallUnsignedPromotion.HC` and its native proof reduce the issue
-found in DocRecalcXY. For an I32 field -23 divided/reduced by a U16 field 12,
-original V5.03 returns -1 and -11. Current WASM returns 1537228672809129299 and 5
-because its binary lowering treats any unsigned operand as unsigned. An explicit
-I64 divisor returns the native -1/-11 on both backends. A70 widens only that
-modulo divisor; it does not change compiler-wide promotion or other unsigned
-expressions. Widening all header/footer expressions was rejected: an adversarial
-U16 65535 fixture exposes different native unsigned subtraction behavior. The
-full coordinate proof includes that case. Direct-expression parity remains an
-open compiler boundary, separately recorded from the passing helper contract.
+`tests/probes/SmallUnsignedPromotion.HC` reduces the issue found in DocRecalcXY.
+For an I32 field -23 divided/reduced by a U16 field 12, original V5.03 returns
+-1 and -11. A74 fixes the compiler's raw-type selection, and the test now requires
+both the direct and I64-widened forms to match. The earlier layout helper's
+explicit divisor remains equivalent; other unsigned header/footer expressions
+remain intact, including the adversarial U16 65535 coordinate case.
+[IntegerTypes.md](IntegerTypes.md) records the wider matrix and the separate
+native register-local width boundary.
 
 ## Normal document layout
 
@@ -294,10 +292,9 @@ unsupported modes through stock DocRecalc. Host instrumentation additionally
 proves no allocation calls during rejection. Removing cleanup from the same pass makes the allocation gate fail
 with its lock held. The normal and unfolded compiler modes are checked.
 
-The shared small-unsigned promotion gap remains: only the modulo divisor in
-page adjustment is widened to I64, matching the measured native expression.
-No numeric redesign is hidden in this checkpoint. The next dependency is actual
-DocTop/Bottom/Rst over this normal layout, followed by the real constructor,
+The page-adjustment divisor's earlier I64 widening remains native-equivalent;
+A74 also fixes the direct primitive expression in the shared compiler. The next
+dependency after DocTop/Bottom/Rst is the real constructor,
 DocPrint/DocPutS command path and editor invocation. None are added as stand-ins;
 KeyDev DocClear remains unavailable and the separate console legacy no-op remains
 explicitly documented.

@@ -67,6 +67,13 @@ zero. Compound `/=` uses the same shift; `%=` by a constant power of two uses
 a mask, including signed operands. `PowerDivide` records these distinctions,
 unsigned operands, the sign-bit divisor and subsequent shifts/comparisons.
 
+Primitive integer arithmetic retains the native raw-type order, with distinct
+runtime arithmetic, immediate folding and comparison signedness. Integer chains
+carry the preceding comparison class; constant rewrites retain native pass-order
+comparison flags. `npm run test:integer-promotion` checks original native matrices
+and four executable negative controls. See [integer type evidence](docs/IntegerTypes.md)
+for scope and the separate narrow register-local width gap.
+
 Compile-known switch labels use signed 64-bit values. Reversed ranges are
 normalized before empty-case numbering; duplicate/overlapping cases, empty
 case sets and native-invalid table spans reject. Repeated `default` labels
@@ -1474,11 +1481,12 @@ that catches the original split's unpublished-clone leak. Native foreign-task
 heap probes and host owner sets independently verify allocation ownership.
 `node tests/doc-layout-oracle.mjs` repeats the source-bound native proof.
 
-A measured compiler gap remains: I32 -23 divided/reduced by U16 12 gives native
--1/-11 but current WASM 1537228672809129299/5. The source-bound
-SmallUnsignedPromotion probe records both. The layout helper explicitly widens
-only the modulo divisor, preserving native results without changing the broader
-compiler rule or the native unsigned header/footer expressions.
+Primitive mixed-width arithmetic now follows original V5.03 raw-type selection:
+I32 -23 divided/reduced by U16 12 gives -1/-11 directly. The source-bound
+SmallUnsignedPromotion gate requires the direct and explicitly widened forms to
+match. The layout helper's earlier explicit divisor remains native-equivalent;
+[integer type evidence and remaining register-local limits](docs/IntegerTypes.md)
+are recorded separately from document ownership/layout behavior.
 
 ### Normal document layout
 

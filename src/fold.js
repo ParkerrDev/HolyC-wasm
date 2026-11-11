@@ -1,10 +1,12 @@
-function Integer(value,unsigned=false)
+function Integer(value,unsigned=false,bits=64)
 {
-  return {value:BigInt.asIntN(64,value),unsigned};
+  return {value:BigInt.asIntN(64,value),unsigned,bits};
 }
 
 function Binary(op,a,b)
 {
+  // Native immediate arithmetic uses either unsigned operand, independently
+  // of the result class selected below by raw_type.
   const unsigned=a.unsigned || b.unsigned;
   const x=unsigned?BigInt.asUintN(64,a.value):a.value;
   const y=unsigned?BigInt.asUintN(64,b.value):b.value;
@@ -33,11 +35,12 @@ function Binary(op,a,b)
     }
     default: return null;
   }
-  return Integer(value,unsigned);
+  const type=a.bits>b.bits?a:b.bits>a.bits?b:a.unsigned?a:b;
+  return Integer(value,type.unsigned,type.bits);
 }
 
 function Fold(node,env,resolve)
-{//Keep the signedness and 64-bit wrap of the run-time expression.
+{//Keep native immediate signedness, raw type and 64-bit wrap.
   if (!node) return null;
   switch (node.kind) {
     case "IntLit": case "CharLit": {
@@ -52,17 +55,17 @@ function Fold(node,env,resolve)
     case "Cast": {
       const a=Fold(node.operand,env,resolve),t=node.type;
       if (!a || t.kind!=="int") return null;
-      if (node.postfix) return Integer(a.value,!t.signed);
+      if (node.postfix) return Integer(a.value,!t.signed,t.bits);
       return Integer(t.signed?BigInt.asIntN(t.bits,a.value):
-        BigInt.asUintN(t.bits,a.value),!t.signed);
+        BigInt.asUintN(t.bits,a.value),!t.signed,t.bits);
     }
     case "Unary": {
       const a=Fold(node.operand,env,resolve);
       if (!a) return null;
       switch (node.op) {
-        case "-": return Integer(-a.value);
+        case "-": return Integer(-a.value,false,a.bits);
         case "+": return a;
-        case "~": return Integer(~a.value,a.unsigned);
+        case "~": return Integer(~a.value,a.unsigned,a.bits);
         case "!": return Integer(a.value?0n:1n);
       }
       return null;
@@ -80,7 +83,11 @@ function Fold(node,env,resolve)
     case "Chain": {
       const values=node.operands.map(x=>Fold(x,env,resolve));
       if (values.some(v=>!v)) return null;
-      return Integer(node.ops.every((op,i)=>Binary(op,values[i],values[i+1]).value)?1n:0n);
+      let unsigned=false;
+      return Integer(node.ops.every((op,i)=>{
+        unsigned ||= values[i].unsigned || values[i+1].unsigned;
+        return Binary(op,{...values[i],unsigned},values[i+1]).value;
+      })?1n:0n);
     }
     case "Cond": {
       const a=Fold(node.cond,env,resolve);
