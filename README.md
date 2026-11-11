@@ -252,6 +252,15 @@ VGA, while the full DAC table remains readable/writable. Initial DAC entries
 checks native DAC state, all shared entries, original planar conversion, RGBA
 presentation and refusal without a device adapter.
 
+The console-only output profile honors native `Silent`/`IsSilent` state for
+PutS, formatted strings, PutKey and packed PutChars. Character statements call
+PutChars, just as native code does: up to eight bytes are emitted and internal
+zero bytes are skipped while higher bytes remain. This adds no keyboard or
+continuation requirement. Character statements in no-prelude modules need an
+explicit PutChars declaration, like explicit Print for formatted output.
+The full native KeyDev/ScrollLock/DolDoc terminal chain remains a separate
+runtime profile; console transport does not claim those UI behaviors.
+
 `MAllocIdent(src,mem_task)` copies the source allocation's full usable capacity
 into the selected live task; `AMAllocIdent(src)` uses session kernel ownership.
 Both return NULL for a NULL source. `MSize2` reports the real internal span:

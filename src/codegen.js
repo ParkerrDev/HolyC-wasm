@@ -1187,9 +1187,11 @@ class FnCtx {
   }
 
   genPutChars(bytes) {
-    // print up to N raw bytes
-    const addr = this.cg.internBytes(bytes,false,this.f);
-    this.f.i64_const(addr); this.f.i64_const(bytes.length); this.f.call(this.cg.imports.__print_bytes.index);
+    const fn=this.cg.functions.get("PutChars");
+    if (!fn) this.err(null,"Character output requires the runtime or an explicit PutChars declaration");
+    let value=0n;
+    for (let i=0;i<bytes.length;i++) value|=BigInt(bytes[i])<<BigInt(i*8);
+    this.dropIfValue(this.emitCall(fn,[{kind:"IntLit",value}],null));
   }
 
   // ================================================== expressions

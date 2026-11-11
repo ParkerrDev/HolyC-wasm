@@ -922,7 +922,7 @@ U8 *CatPrint(U8 *_dst,U8 *fmt,...)
 
 U0 PutS(U8 *s)
 {//Present formatted text through the host's DolDoc adapter.
-  __puts(s);
+  if (s && !Bt(&Fs->display_flags,DISPLAYf_SILENT)) __puts(s);
 }
 
 U0 Print(U8 *fmt,...)

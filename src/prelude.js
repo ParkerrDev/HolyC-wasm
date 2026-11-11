@@ -599,12 +599,30 @@ I64 ScanChar() { return __scan_char(); }
 I64 KeyGet() { return __get_char(0,0); }
 
 //==================== console ====================
-U0 Putc(I64 ch) { __putc(ch); }
-U0 PutChars(I64 ch) { __putc(ch); }
+Bool Silent(Bool val=ON)
+{//Turn off console output and return its previous state.
+  return LBEqu(&Fs->display_flags,DISPLAYf_SILENT,val);
+}
+
+Bool IsSilent()
+{
+  return Bt(&Fs->display_flags,DISPLAYf_SILENT);
+}
+
+U0 Putc(I64 ch) { PutKey(ch); }
+
+U0 PutChars(U64 ch)
+{//Output up to eight packed characters.
+  while (ch) {
+    PutKey(ch&255,0);
+    ch>>=8;
+  }
+}
 U0 PutKey(I64 ch=0,I64 sc=0)
 {
+  if (Bt(&Fs->display_flags,DISPLAYf_SILENT)) return;
   if (sc&SCF_KEY_DESC) throw('KeyHost',TRUE);
-  if (ch && !Bt(&Fs->display_flags,DISPLAYf_SILENT)) __putc(ch);
+  if (ch) __putc(ch);
 }
 U0 PutExcept(Bool catch_it=TRUE)
 {
