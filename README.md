@@ -191,7 +191,7 @@ compares unsigned bytes and returns -1, 0 or 1, including equal empty ranges.
 draws an outline. `DCFill` defaults to `TRANSPARENT`. These native semantics can
 expose assumptions in programs written for the previous browser approximations.
 The runtime is still a single-window host: task-owned heaps, window occlusion,
-3D brushes, transformed/thick borders, sprites and variadic `GrPrint` remain
+transformed/thick borders, 3D lines/curves, sprites and variadic `GrPrint` remain
 unsupported. The old empty `GrFloodFill` implementation was removed, so strict
 compilation rejects that missing API instead of reporting success for a no-op.
 
@@ -247,3 +247,11 @@ The native numeric lexer permits an empty exponent (`1e` or `1e-` means 1.0)
 and consumes only a minus sign there. Consequently `1e+2` is the expression
 1.0 + 2, while `1e2` is 100.0. `FloatBoundary` records these token boundaries
 against V5.03 alongside the existing 623 floating-literal bit comparisons.
+
+`gr-primitives.js` uses the original `GrBlot3` bitmap transform and depth-buffer
+algorithm, plus native 2D ellipse/polygon/Bézier/B-spline wrappers and
+`GrPutChar3`. Bitmap brushes now work with a depth buffer. `Bitmap3.HC` compares
+128 combinations of transform, symmetry, mirror selection, depth, draw
+suppression and four raster operations against V5.03 in QEMU. It checks exact
+bitmap/depth hashes, extents, collision counts and restored context state.
+These additions do not implement the remaining 3D line/polygon/sprite APIs.

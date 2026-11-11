@@ -20,6 +20,9 @@ export const GR_TYPES_SRC=String.raw`
 #define ROPF_TWO_SIDED 0x2000
 #define ROPF_DITHER 0x40000000
 #define ROPF_PROBABILITY_DITHER 0x80000000
+#define COLORROP_COLORS_MASK 0x00FF00FF
+#define COLORROP_NO_ROP0_MASK 0xFFFF00FF
+#define COLORROP_BITS 16
 #define DCF_COMPRESSED 1
 #define DCF_PALETTE 2
 #define DCF_NO_TRANSPARENTS 4
@@ -1749,7 +1752,7 @@ Bool GrPlot1(CDC *dc=gr.dc,I64 x,I64 y)
     if (dc->color.c0.rop!=ROPB_COLLISION)
       dc->color.c0.rop=ROPB_MONO;
     if (dc->depth_buf)
-      throw('Graphics',TRUE);
+      GrBlot3(dc,x,y,dc->db_z,dc->brush);
     else
       GrBlot(dc,x,y,dc->brush);
     dc->color=old_color;

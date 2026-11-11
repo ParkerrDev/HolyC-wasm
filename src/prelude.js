@@ -4,6 +4,7 @@
 //
 // This mirrors how TempleOS builds most of Gr*/math/etc. in HolyC on top of a
 // few primitives, and it exercises the compiler on real HolyC code.
+import {GR_PRIMITIVES_SRC} from "./gr-primitives.js";
 import {GR_MATH_SRC} from "./gr-math.js";
 import {GR_TYPES_SRC,GR_SRC} from "./gr-prelude.js";
 import {FONT} from "./runtime/font.js";
@@ -631,6 +632,7 @@ U0 Play(U8 *notes, U8 *lyrics=NULL) {
 //==================== device-context / graphics ====================
 ${GR_MATH_SRC}
 ${GR_SRC}
+${GR_PRIMITIVES_SRC}
 
 public I64 DistSqrI64(I64 x1,I64 y1,I64 x2,I64 y2)
 {
