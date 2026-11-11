@@ -1076,4 +1076,145 @@ U8 *StrUtil(U8 *_src,I64 flags)
   return _src;
 }
 
+I64 StrOcc(U8 *src,I64 ch)
+{//Count occurrences of a char.
+  I64 i=0;
+  if (!src) return 0;
+  while (*src)
+    if (*src++==ch)
+      i++;
+  return i;
+}
+
+U8 *StrFirstOcc(U8 *src,U8 *marker)
+{//Point to 1st occurrence of marker set in str.
+  I64 ch;
+  while ((ch=*src++) && !StrOcc(marker,ch));
+  if (ch)
+    return src-1;
+  else
+    return NULL;
+}
+
+U8 *StrFirstRem(U8 *src,U8 *marker,U8 *dst=NULL)
+{//Remove first str segment and place in dst buf or NULL.
+  I64 ch;
+  U8 *ptr=src,*res=dst;
+  if (dst) {
+    while ((ch=*ptr++) && !StrOcc(marker,ch))
+      *dst++=ch;
+    *dst=0;
+  } else
+    while ((ch=*ptr++) && !StrOcc(marker,ch));
+  if (ch)
+    StrCpy(src,ptr);
+  else
+    *src=0;
+  return res;
+}
+
+U8 *StrLastOcc(U8 *src,U8 *marker)
+{//Point to last occurrence of marker set in str.
+  I64 ch;
+  U8 *res=NULL;
+  while (ch=*src++)
+    if (StrOcc(marker,ch))
+      res=src-1;
+  return res;
+}
+
+U8 *StrLastRem(U8 *src,U8 *marker,U8 *dst=NULL)
+{//Remove last str segment and place in dst buf or NULL.
+  U8 *ptr;
+  if (ptr=StrLastOcc(src,marker)) {
+    if (dst)
+      StrCpy(dst,ptr+1);
+    *ptr=0;
+  } else {
+    if (dst)
+      StrCpy(dst,src);
+    *src=0;
+  }
+  return dst;
+}
+
+U8 *Tabs2Spaces(U8 *src)
+{//MAlloc a string with tabs expanded to spaces.
+  I64 ch,i,j,l=StrLen(src)<<1+2,col=0;
+  U8 *dst=MAlloc(l),*tmp;
+  try {
+    while (ch=*src++) {
+      if (ch=='\t') {
+	j=(col+8)&~7;
+	for (i=col;i<j;i++) {
+	  dst[i]=CH_SPACE;
+	  if (i>=l-2) {
+	    tmp=MAlloc(l<<1);
+	    MemCpy(tmp,dst,i+1);
+	    Free(dst);
+	    l<<=1;
+	    dst=tmp;
+	  }
+	}
+	col=j;
+      } else {
+	dst[col]=ch;
+	if (col>=l-2) {
+	  tmp=MAlloc(l<<1);
+	  MemCpy(tmp,dst,col+1);
+	  Free(dst);
+	  l<<=1;
+	  dst=tmp;
+	}
+	col++;
+      }
+    }
+    dst[col]=0;
+  } catch
+    Free(dst);
+  return dst;
+}
+
+U8 *ScaleIndent(U8 *src,F64 indent_scale_factor)
+{//MAlloc a string with scaled leading whitespace.
+  I64 ch,i,col=0;
+  U8 *dst,*dst2;
+  while (ch=*src++) {
+    if (ch=='\t')
+      col=(col+8)&-0x8;
+    else if (ch==CH_SPACE)
+      col++;
+    else
+      break;
+  }
+  src--;
+  col=Round(indent_scale_factor*col);
+  dst=dst2=MAlloc(StrLen(src)+col/8+col&7+1);
+  for (i=col/8;i>0;i--)
+    *dst2++='\t';
+  for (i=col&7;i>0;i--)
+    *dst2++=CH_SPACE;
+  StrCpy(dst2,src);
+  return dst;
+}
+
+U8 *MStrUtil(U8 *src,I64 flags,F64 indent_scale_factor=0)
+{//MAlloc a transformed and shortened string.
+  U8 *dst=StrNew(src),*res,*tmp;
+  try {
+    StrUtil(dst,flags);
+    if (flags&SUF_T2S) {
+      tmp=Tabs2Spaces(dst);
+      Free(dst);
+      dst=tmp;
+    }
+    if (flags&SUF_SCALE_INDENT)
+      res=ScaleIndent(dst,indent_scale_factor);
+    else
+      res=StrNew(dst);
+  } catch
+    Free(dst);
+  Free(dst);
+  return res;
+}
 `;

@@ -14,6 +14,7 @@
     "test:format": "node tests/format.mjs",
     "test:console": "node tests/console.mjs",
     "test:exception": "node tests/exception.mjs",
+    "test:path-string": "node tests/path-string.mjs",
     "test:alloc-ident": "node tests/alloc-ident.mjs",
     "test:heap": "node tests/heap.mjs",
     "test:link": "node tests/link.mjs",

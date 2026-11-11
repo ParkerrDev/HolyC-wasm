@@ -567,6 +567,15 @@ the failure gate verifies six allocation sites and state restoration on retry.
 `StrUtil`, `Spaces2Tabs` and `BFieldExtU32` supply the renderer's remaining string
 and bit-field operations. `StringUtil` checks all 2,048 flag combinations,
 128 in-place/out-of-place tab conversions and 4,224 unaligned bit-field reads.
+`StrOcc`, `StrFirstOcc`/`StrLastOcc`, `StrFirstRem`/`StrLastRem`, `Tabs2Spaces`,
+`ScaleIndent` and `MStrUtil` supply the shared path/text transformations.
+Markers are sets of bytes, removal consumes the native first/last segment,
+and tab expansion counts columns through newlines as V5.03 does. `PathString`
+compares 48 separator combinations, 12,288 flag/scaling transformations, 257
+long tab/newline strings and 390 indentation cases against original QEMU.
+`test:path-string` fails every temporary allocation and verifies cleanup,
+unchanged source bytes and successful retry. These are string operations;
+filesystem existence and directory context remain separate requirements.
 The bit-field API, like its native assembly counterpart, reads an unaligned U64;
 callers must provide that accessible storage even for smaller requested fields.
 
