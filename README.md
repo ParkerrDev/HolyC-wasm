@@ -180,8 +180,9 @@ workers allocating/freeing the same growing shared memory.
 ## Device contexts and drawing
 
 The runtime now uses the 408-byte V5.03 `CDC` layout and native HolyC algorithms
-for bitmap allocation, aliases, pen reset, matrices, depth buffers, pixel reads
-and writes, rectangle fills, bitmap blits, lines, circle outlines and glyphs.
+for bitmap allocation, aliases, pens, matrices, depth buffers, pixel reads
+and writes, filled polygons, bitmap blits, thick/transformed lines and curves,
+circle outlines, flood fills and glyphs.
 Aliases own their context/matrix and share their source bitmap. The QEMU-backed
 `Graphics` fixture checks colors, raster operations, both dithers, clipping,
 fonts, extent tracking and depth behavior against the original OS. `MemCmp`
@@ -191,9 +192,11 @@ compares unsigned bytes and returns -1, 0 or 1, including equal empty ranges.
 draws an outline. `DCFill` defaults to `TRANSPARENT`. These native semantics can
 expose assumptions in programs written for the previous browser approximations.
 The runtime is still a single-window host: task-owned heaps, window occlusion,
-flood filling, sprites and variadic `GrPrint` remain
-unsupported. The old empty `GrFloodFill` implementation was removed, so strict
-compilation rejects that missing API instead of reporting success for a no-op.
+sprites and variadic `GrPrint` remain unsupported. Native `GrFloodFill` and
+`GrFloodFill3` use the original iterative scanline algorithm, including its
+28 MiB scratch allocation. The scratch is freed after each fill and reused on
+subsequent fills. The `Flood` fixture compares 512 combinations of depth,
+clipping, transforms, symmetry, dithering and draw suppression with QEMU.
 
 Update compiler and host together for the new `__gr_update` bitmap import.
 The graphics adapter should expose its byte index buffer as `gfx.indices` for
@@ -201,8 +204,8 @@ efficient, exact row updates, including transparent bytes. `Refresh` also
 publishes direct screen-bitmap writes. Older compiled modules can still use the
 retained legacy host drawing imports. The allocator ABI remains 1.
 
-`npm run test:graphics` checks 1,000 context lifetimes, offscreen isolation and
-bitmap/display agreement. With a TempleOS-Web checkout and its Playwright
+`npm run test:graphics` checks 1,000 context lifetimes, 100 repeated flood fills,
+offscreen isolation and immediate bitmap/display agreement. With a TempleOS-Web checkout and its Playwright
 dependency installed, `TEMPLEOS_WEB=/path/to/TempleOS-Web npm run
 test:browser-games` launches HolyCraft, Babel, Volley and Snake in Chromium with
 this checkout's compiler/runtime, checks advancing rendered frames, and saves

@@ -708,6 +708,15 @@ public I64 GrRect(CDC *dc=gr.dc,I64 x,I64 y,I64 w,I64 h)
   return res;
 }
 
+public I64 GrFloodFill(CDC *dc=gr.dc,I64 x,I64 y,
+        Bool not_color=FALSE,I64 z=0,I32 *db=NULL)
+{
+  I64 res=__GrFloodFill(dc,x,y,not_color,z,db);
+  if (res && dc->body==gr.dc->body)
+    __gr_update(dc->body,dc->width_internal,0,0,dc->width,dc->height);
+  return res;
+}
+
 public I64 GrHLine(CDC *dc=gr.dc,I64 x1,I64 x2,I64 y,I64 z1=0,I64 z2=0)
 {
   I64 res=__GrHLine(dc,x1,x2,y,z1,z2);

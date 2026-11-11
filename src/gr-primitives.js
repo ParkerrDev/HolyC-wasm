@@ -1762,4 +1762,140 @@ public I64 GrRect3(CDC *dc=gr.dc,I64 x,I64 y,I64 z,I64 w,I64 h)
   return GrFillPoly3(dc,4,poly);
 }
 
+class CFFRay
+{
+  I64 state,x,y,j,x1,ray_len,ray_len2;
+};
+
+I64 GrFloodFillRay(CDC *dc,I64 x,I64 y,I64 z,I32 *db)
+{//Fill connected scanline runs without recursion.
+//Returns cnt of pixs changed
+  I64 res=0;
+//We don't dynamically calculate the size to avoid
+  //fragmentation of memory.
+  CFFRay *f_dc=MAlloc(sizeof(CFFRay)*0x80000),*f=f_dc;
+  f->x=x;
+  f->y=y;
+  f->state=0;
+  do {
+    switch [f->state] {
+      case 0:
+	f->state++;
+	res+=f->ray_len=GrRayLen(dc,&f->x,f->y,z,db);
+	f->y--;
+	f->j=f->ray_len;
+	f->x1=f->x;
+	break;
+      case 1:
+	if (f->j>0) {
+	  f->state++;
+	  if (f->ray_len2=GrRayLenMinus(dc,f->x1,f->y)) {
+	    f[1].x=f->x1;
+	    f[1].y=f->y;
+	    f[1].state=0;
+	    f++;
+	  }
+	} else
+	  f->state+=2;
+	break;
+      case 2:
+	f->state--;
+	f->j-=f->ray_len2+1;
+	f->x1-=f->ray_len2+1;
+	break;
+      case 3:
+	f->state++;
+	f->y+=2;
+	f->j=f->ray_len;
+	f->x1=f->x;
+	break;
+      case 4:
+	if (f->j>0) {
+	  f->state++;
+	  if (f->ray_len2=GrRayLenMinus(dc,f->x1,f->y)) {
+	    f[1].x=f->x1;
+	    f[1].y=f->y;
+	    f[1].state=0;
+	    f++;
+	  }
+	} else
+	  f->state+=2;
+	break;
+      case 5:
+	f->state--;
+	f->j-=f->ray_len2+1;
+	f->x1-=f->ray_len2+1;
+	break;
+      case 6:
+	f--;
+	break;
+    }
+  } while (f>=f_dc);
+  Free(f_dc);
+  return res;
+}
+
+I64 __GrFloodFill(CDC *dc=gr.dc,I64 x,I64 y,
+	Bool not_color=FALSE,I64 z=0,I32 *db=NULL)
+{//2D. Ignore z and db.
+//not_color=TRUE means fill up to everything which is not the current color.
+  //not_color=FALSE means fill all parts equ to the color under the point.
+  //Returns cnt of pixs changed
+  I64 res=0,j,old_flags=dc->flags;
+  CColorROPU32 old_color2=dc->color2;
+  CDC *old_brush;
+  if (dc->flags & DCF_DONT_DRAW) //TODO
+    return 0;
+  old_brush=dc->brush;
+  dc->brush=NULL;
+  if ((j=GrPeek(dc,x,y))>=0) {
+    if (not_color) {
+      dc->color2=dc->color.c0.color;
+      dc->flags|=DCF_FILL_NOT_COLOR;
+    } else {
+      dc->color2=j;
+      if (dc->color.c1.rop&ROPBF_DITHER) {
+	if (dc->color2.c0.color==dc->color.c0.color &&
+	      dc->color.c0.color==dc->color.c1.color)
+	  goto ff_done;
+      } else if (dc->color2.c0.color==dc->color.c0.color)
+	goto ff_done;
+      dc->flags&=~DCF_FILL_NOT_COLOR;
+    }
+    if (not_color && j!=dc->color2 ||
+	  !not_color)
+      res=GrFloodFillRay(dc,x,y,z,db);
+  }
+ff_done:
+  dc->brush=old_brush;
+  dc->flags=old_flags;
+  dc->color2=old_color2;
+  return res;
+}
+
+public I64 GrFloodFill3(CDC *dc=gr.dc,I64 x1,I64 y1,I64 z1,Bool not_color=FALSE)
+{//3D. Transformation.
+//not_color=TRUE means fill up to everything which is not the current color.
+  //not_color=FALSE means fill all parts equ to the color under the point.
+  //Returns cnt of pixs changed
+  I64 res,old_flags=dc->flags,
+	_x,_y,_z;
+  if (dc->flags & DCF_TRANSFORMATION) {
+    (*dc->transform)(dc,&x1,&y1,&z1);
+    dc->flags&=~DCF_TRANSFORMATION;
+  }
+  if (dc->flags & DCF_SYMMETRY) {
+    _x=x1; _y=y1; _z=z1;
+    DCReflect(dc,&_x,&_y,&_z);
+    dc->flags&=~DCF_SYMMETRY;
+    res=GrFloodFill(dc,_x,_y,not_color,_z,dc->depth_buf);
+    if (dc->flags&DCF_JUST_MIRROR)
+      goto gr_done;
+  }
+  res=GrFloodFill(dc,x1,y1,not_color,z1,dc->depth_buf);
+gr_done:
+  dc->flags=old_flags;
+  return res;
+}
+
 `;

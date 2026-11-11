@@ -23,6 +23,19 @@ U8 *Screen()
   return gr.dc->body;
 }
 
+I64 Flooded()
+{
+  CDC *dc=DCNew(32,24);
+  I64 res;
+  DCFill(dc,BLUE);
+  dc->color=WHITE;
+  GrBorder(dc,2,2,29,21);
+  dc->color=RED;
+  res=GrFloodFill(dc,5,5);
+  DCDel(dc);
+  return res;
+}
+
 U0 Onscreen()
 {
   CDC *img=DCNew(11,7);
@@ -51,6 +64,10 @@ U0 Onscreen()
   gr.dc->thick=1;
   gr.dc->depth_buf=NULL;
   Free(db);
+  gr.dc->color=WHITE;
+  GrBorder(gr.dc,420,300,450,330);
+  gr.dc->color=GREEN;
+  GrFloodFill(gr.dc,430,310);
   DCDel(img);
 }
 
@@ -59,7 +76,7 @@ U0 Direct()
   gr.dc->body[40*GR_WIDTH+500]=PURPLE;
   Refresh;
 }`;
-const result=compileHolyC(source,{lenient:false,exports:["Offscreen","Screen","Onscreen","Direct"]});
+const result=compileHolyC(source,{lenient:false,exports:["Offscreen","Screen","Flooded","Onscreen","Direct"]});
 const gfx=new Framebuffer(null),host=createHost({gfx,onText:()=>{}});
 gfx.flip=()=>gfx.present();
 const {instance}=await WebAssembly.instantiate(result.bytes,{env:host.env});
@@ -71,6 +88,14 @@ for (let i=0;i<1000;i++) {
   cursor??=host.state.heapPtr;
   assert.equal(host.state.heapPtr,cursor,"device-context deletion must release its allocations");
 }
+const initialBytes=instance.exports.memory.buffer.byteLength;
+let floodBytes;
+for (let i=0;i<100;i++) {
+  assert.equal(instance.exports.Flooded(),468n,"flood fill must stop inside its inclusive border");
+  assert.equal(host.state.heapPtr,cursor,"flood fill must release its scratch rays and context");
+  floodBytes??=instance.exports.memory.buffer.byteLength;
+  assert.equal(instance.exports.memory.buffer.byteLength,floodBytes,"repeated fills must reuse scratch storage");
+}
 assert.ok(gfx.indices.every(value=>value===17),"offscreen operations must not touch the display");
 instance.exports.Onscreen();
 const screen=new Uint8Array(instance.exports.memory.buffer,Number(instance.exports.Screen()),640*480);
@@ -78,4 +103,4 @@ assert.deepEqual(gfx.indices,screen,"display updates must match native bitmap st
 instance.exports.Direct();
 assert.equal(gfx.indices[40*640+500],5,"Refresh publishes direct bitmap writes");
 assert.deepEqual(gfx.indices,screen);
-console.log("Graphics: 1,000 device-context lifetimes stay bounded; offscreen isolation and exact bitmap/display synchronization pass.");
+console.log(`Graphics: 1,000 context lifetimes and 100 flood fills stay bounded; scratch grows memory ${initialBytes}->${floodBytes} bytes once. Offscreen isolation and exact bitmap/display synchronization pass.`);
