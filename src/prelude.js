@@ -9,6 +9,7 @@ import {GR_PALETTE_SRC} from "./gr-palette.js";
 import {GR_MATH_SRC} from "./gr-math.js";
 import {GR_TYPES_SRC,GR_SRC} from "./gr-prelude.js";
 import {HASH_TYPES_SRC,HASH_SRC} from "./hash-prelude.js";
+import {DEFINE_SRC} from "./define-prelude.js";
 import {TASK_TYPES_SRC,TASK_SRC} from "./task-prelude.js";
 import {TASK_MESSAGE_SRC} from "./task-message.js";
 import {DIR_TYPES_SRC,DIR_SRC} from "./dir-prelude.js";
@@ -727,6 +728,7 @@ ${docEntrySrc}
 ${DIR_SRC}
 ${FILE_SRC}
 ${HASH_SRC}
+${DEFINE_SRC}
 
 public I64 DistSqrI64(I64 x1,I64 y1,I64 x2,I64 y2)
 {

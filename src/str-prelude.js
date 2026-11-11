@@ -76,6 +76,43 @@ U8 *LstSub(I64 sub,U8 *lst)
     return lst;
 }
 
+#define LMF_IGNORE_CASE 1
+#define LMF_EXACT 2
+
+I64 LstMatch(U8 *needle,U8 *haystack_lst,I64 flags=0)
+{//Return -2 for an ambiguous prefix, -1 if absent.
+  I64 sub=0,res=-1;
+  U8 *ptr;
+  if (!haystack_lst) return -1;
+  while (*haystack_lst) {
+    if (*haystack_lst=='@') {
+      sub--;
+      haystack_lst++;
+    }
+    ptr=needle;
+    if (flags&LMF_IGNORE_CASE) {
+      while (*ptr && ToUpper(*ptr)==ToUpper(*haystack_lst)) {
+	ptr++;
+	haystack_lst++;
+      }
+    } else {
+      while (*ptr && *ptr==*haystack_lst) {
+	ptr++;
+	haystack_lst++;
+      }
+    }
+    if (!*ptr) {
+      if (!*haystack_lst) return sub;
+      if (res!=-1) res=-2;
+      else if (!(flags&LMF_EXACT)) res=sub;
+    }
+    while (*haystack_lst) haystack_lst++;
+    haystack_lst++;
+    sub++;
+  }
+  return res;
+}
+
 U0 SPutChar(U8 **_dst,U8 ch,U8 **_buf)
 {
   I64 i;

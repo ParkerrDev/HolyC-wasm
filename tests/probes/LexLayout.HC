@@ -1,0 +1,10 @@
+"LexLayout:%d:%d:%d:%d\n",sizeof(CCmpCtrl),sizeof(CLexFile),
+  sizeof(CLexHashTableContext),sizeof(CCodeCtrl);
+"LexFields:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d\n",
+  offset(CCmpCtrl.token),offset(CCmpCtrl.cur_str),offset(CCmpCtrl.htc),
+  offset(CCmpCtrl.hash_entry),offset(CCmpCtrl.cur_buf_ptr),
+  offset(CCmpCtrl.lex_include_stk),offset(CCmpCtrl.opts),
+  offset(CCmpCtrl.coc),offset(CCmpCtrl.ps),offset(CCmpCtrl.pmt_line);
+"LexFile:%d:%d:%d:%d:%d:%d\n",offset(CLexFile.line_num),
+  offset(CLexFile.full_name),offset(CLexFile.doc),
+  offset(CLexFile.cur_entry),offset(CLexFile.depth),offset(CLexFile.last_U16);

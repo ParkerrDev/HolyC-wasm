@@ -965,3 +965,44 @@ retry, real raw diagnostics, original-source preservation and task/session clean
 `node tests/doc-entry-oracle.mjs` repeats native evidence; `--record` updates it.
 The Chromium task gate also runs the native foreign-task fixture twice and checks
 stable allocation lifetimes and complete disposal.
+
+### Runtime defines and string lists
+
+DefineLoad, DefineLstLoad, Define/Sub/Cnt/Match/Print, UndefinedDefine and
+HashDefineLstAdd operate on program-owned task hash entries. LstMatch follows
+native prefix, ambiguity, alias, case and exact-match behavior. Repeated loads
+publish a new entry; they do not overwrite or free an older binding. Child tables
+inherit parent lookups and own their new entries. List expansion allocates on the
+calling task's heap, regardless of which task owns the destination table.
+
+DefineLstLoad copies the complete list into `data`, but its `sub_idx` points into
+the caller's **original buffer**, exactly as native V5.03 does. DefineSub therefore
+observes later mutations of that buffer, whereas Define/DefineMatch and hash-list
+expansion use the independent copied data. The caller must keep the original
+buffer alive. HashDel/HashRemDel retain the native rule that `sub_idx` is not freed;
+explicit entry teardown must separately release that index allocation. Task exit
+still releases all allocations owned by that task. Empty/alias-only lists retain
+the native count and allocation behavior. Constructor failures release detached
+fields/indexes before publication, preserving earlier bindings. DefinePrint also
+releases its formatting buffer when a load fails; partial HashDefineLstAdd output
+remains owned by its destination table/caller until explicitly deleted.
+
+The host loaders set `src_link=NULL`: native Caller return-address/debugger
+metadata is unavailable. They do not fabricate an `AD:` address. Native evidence
+separately checks that stock loaders produce a nonempty hexadecimal AD link and
+that the port deliberately leaves this field NULL; it excludes this diagnostic
+field from otherwise matching native behavior. Source navigation/debugger parity
+remains open. These tables contain no live compiler symbols and do not automatically
+load the kernel's SysDefinesLoad lists. Runtime DefineLoad cannot change compilation
+of the current source or turn a later unknown identifier into a compiled macro.
+
+`npm run test:define` verifies native loading, copied/borrowed data, shadowing,
+list expansion, errors and parent/child ownership over five lifetimes, plus 35
+allocation-failure/retry cases including formatting growth and child teardown.
+`node tests/define-oracle.mjs` repeats stock and renamed-ported native checks;
+`--record` updates source/wrapper/capture/output-bound evidence. The standard
+ListMatch fixture adds 16,769 native decisions, including aliases, ambiguous
+prefixes, exact/case flags and deterministic generated inputs. The browser task
+gate also runs the native define-child fixture and checks complete disposal.
+The remaining real DocInit/lexer/control dependencies are mapped in
+[docs/DocInit.md](docs/DocInit.md), without substituting fixed document metadata.
