@@ -1,5 +1,179 @@
 //Public-domain primitives from TempleOS V5.03 Adam/Gr/GrPrimatives.HC.
 export const GR_PRIMITIVES_SRC=String.raw`
+public Bool GrClamp(CDC *dc=gr.dc,I64 *left,I64 *top,I64 *right,I64 *bottom,
+	I64 width=0,I64 height=0)
+{//Returns scrn, not window coordinates.
+  CTask *win_task;
+  *left=0;
+  *top=0;
+  *right=dc->width-1;
+  *bottom=dc->height-1;
+  if (dc->flags & DCF_SCRN_BITMAP) {
+    win_task=dc->win_task;
+    if (GR_WIDTH-1<*right)
+      *right=GR_WIDTH-1;
+    if (GR_HEIGHT-1<*bottom)
+      *bottom=GR_HEIGHT-1;
+    if (win_task->pix_left>*left)
+      *left=win_task->pix_left;
+    if (win_task->pix_top>*top)
+      *top=win_task->pix_top;
+    if (win_task->pix_right<*right)
+      *right=win_task->pix_right;
+    if (win_task->pix_bottom<*bottom)
+      *bottom=win_task->pix_bottom;
+  }
+  *left-=width;
+  *right+=width;
+  *top-=height;
+  *bottom+=height;
+  return *left<=*right && *top<=*bottom;
+}
+
+Bool DCClipLine(CDC *dc=gr.dc,I64 *x1,I64 *y1,I64 *x2,I64 *y2,
+	I64 width=0,I64 height=0)
+{//Also converts window to scrn coordinates
+  I64 left,top,right,bottom;
+  CTask *win_task;
+  if (GrClamp(dc,&left,&top,&right,&bottom,width,height)) {
+    if (dc->flags & DCF_SCRN_BITMAP) {
+      win_task=dc->win_task;
+      *x1+=win_task->pix_left+win_task->scroll_x;
+      *y1+=win_task->pix_top+win_task->scroll_y;
+      *x2+=win_task->pix_left+win_task->scroll_x;
+      *y2+=win_task->pix_top+win_task->scroll_y;
+    }
+    return ClipLine(x1,y1,x2,y2,left,top,right,bottom);
+  } else
+    return FALSE;
+}
+
+public Bool GrPlot(CDC *dc=gr.dc,I64 x,I64 y)
+{//2D. Clipping but No transformation or thick.
+  I32 *db=dc->depth_buf;
+  CTask *win_task;
+  CColorROPU32 old_color;
+  dc->depth_buf=NULL;
+  if (dc->brush) {
+    old_color=dc->color;
+    if (dc->color.c0.rop!=ROPB_COLLISION)
+      dc->color.c0.rop=ROPB_MONO;
+    GrBlot(dc,x,y,dc->brush);
+    dc->color=old_color;
+  } else if (dc->flags & DCF_SCRN_BITMAP) {
+    win_task=dc->win_task;
+    x+=win_task->pix_left+win_task->scroll_x;
+    y+=win_task->pix_top+win_task->scroll_y;
+    if (win_task->pix_left<=x<=win_task->pix_right &&
+	  win_task->pix_top<=y<=win_task->pix_bottom &&
+	  0<=x<dc->width && 0<=y<dc->height &&
+	  (win_task->next_task==sys_winmgr_task ||
+	  dc->flags&DCF_ON_TOP ||
+	  !IsPixCovered0(win_task,x,y)))
+      GrPlot0(dc,x,y);
+  } else
+    if (0<=x<dc->width && 0<=y<dc->height)
+      GrPlot0(dc,x,y);
+  dc->depth_buf=db;
+  return TRUE;
+}
+
+Bool GrPlot1(CDC *dc=gr.dc,I64 x,I64 y)
+{//Clipping but No transformation or thick, called with db_z set
+  CTask *win_task;
+  CColorROPU32 old_color;
+  if (dc->brush) {
+    old_color=dc->color;
+    if (dc->color.c0.rop!=ROPB_COLLISION)
+      dc->color.c0.rop=ROPB_MONO;
+    if (dc->depth_buf)
+      GrBlot3(dc,x,y,dc->db_z,dc->brush);
+    else
+      GrBlot(dc,x,y,dc->brush);
+    dc->color=old_color;
+  } else if (dc->flags & DCF_SCRN_BITMAP) {
+    win_task=dc->win_task;
+    x+=win_task->pix_left+win_task->scroll_x;
+    y+=win_task->pix_top+win_task->scroll_y;
+    if (win_task->pix_left<=x<=win_task->pix_right &&
+	  win_task->pix_top <=y<=win_task->pix_bottom &&
+	  0<=x<dc->width && 0<=y<dc->height &&
+	  (win_task->next_task==sys_winmgr_task ||
+	  dc->flags&DCF_ON_TOP ||
+	  !IsPixCovered0(win_task,x,y)))
+      GrPlot0(dc,x,y);
+  } else
+    if (0<=x<dc->width && 0<=y<dc->height)
+      GrPlot0(dc,x,y);
+  return TRUE;
+}
+
+public I64 GrPeek(CDC *dc=gr.dc,I64 x,I64 y)
+{//2D. Clipping but no transformation.
+//Returns pix color or -1 if off-scrn or covered.
+  CTask *win_task;
+  if (dc->flags & DCF_SCRN_BITMAP) {
+    win_task=dc->win_task;
+    x+=win_task->pix_left+win_task->scroll_x;
+    y+=win_task->pix_top+win_task->scroll_y;
+    if (!(win_task->pix_left<=x<=win_task->pix_right)  ||
+	  !(win_task->pix_top <=y<=win_task->pix_bottom) ||
+	  !(0<=x<dc->width) || !(0<=y<dc->height) ||
+	  win_task->next_task!=sys_winmgr_task &&
+	  !(dc->flags&DCF_ON_TOP) &&
+	  IsPixCovered0(win_task,x,y))
+      return -1;
+  } else
+    if (!(0<=x<dc->width) || !(0<=y<dc->height))
+      return -1;
+  return GrPeek0(dc,x,y);
+}
+
+Bool GrLinePlot0(CDC *dc,I64 x,I64 y,I64 z)
+{//This is a callback.
+  CTask *win_task=dc->win_task;
+  if (!(dc->flags & DCF_SCRN_BITMAP) ||
+	win_task->next_task==sys_winmgr_task ||
+	dc->flags&DCF_ON_TOP ||
+	!IsPixCovered0(win_task,x,y)) {
+    dc->db_z=z;
+    GrPlot0(dc,x,y);
+  }
+  return TRUE;
+}
+
+Bool GrLinePlot(CDC *dc,I64 x,I64 y,I64 z)
+{//This is a callback.
+  dc->db_z=z;
+  GrPlot1(dc,x,y);
+  return TRUE;
+}
+
+public Bool GrLine(CDC *dc=gr.dc,I64 x1,I64 y1,I64 x2,I64 y2,
+	I64 step=1,I64 start=0)
+{//2D. Clipping but not transformation.
+  Bool res=FALSE;
+  I32 *db=dc->depth_buf;
+  dc->depth_buf=NULL;
+  if (step==1 && !start && !dc->brush && !dc->depth_buf) {
+    if (DCClipLine(dc,&x1,&y1,&x2,&y2))
+      res=Line(dc,x1,y1,0,x2,y2,0,&GrLinePlot0,step,start);
+  } else
+    res=Line(dc,x1,y1,0,x2,y2,0,&GrLinePlot,step,start);
+  dc->depth_buf=db;
+  return res;
+}
+
+public Bool GrCircle(CDC *dc=gr.dc,I64 cx,I64 cy,I64 radius,
+  I64 step=1,F64 start_radians=0,F64 len_radians=2*π)
+{//2D. Clipping but not transformation.
+  Bool res;
+  I32 *db=dc->depth_buf;
+  dc->depth_buf=NULL;
+  res=Circle(dc,cx,cy,0,radius,&GrLinePlot,step,start_radians,len_radians);
+  dc->depth_buf=db;
+  return res;
+}
 public Bool GrEllipse(CDC *dc=gr.dc,
 		I64 cx,I64 cy,
 		I64 x_radius,I64 y_radius,
@@ -1069,6 +1243,523 @@ gr_done:
   Free(ctrl3);
   dc->flags=old_flags;
   return res;
+}
+
+public I64 GrFillTri0(CDC *dc=gr.dc,CD3I32 *p1,CD3I32 *p2,CD3I32 *p4)
+{//3D. Returns cnt of pixs changed
+  I64 x1,x2,y1,y2,z1,z2,dx1,dy1,dz1,dx2,dy2,dz2,res=0,i,min,max;
+  CTask *win_task;
+
+  if (AbsI64(p1->y-p2->y)+AbsI64(p1->y-p4->y)<=
+	AbsI64(p1->x-p2->x)+AbsI64(p1->x-p4->x)) {
+//p1 is min x
+    if (p4->x<p2->x)
+      SwapI64(&p4,&p2);
+    if (p2->x<p1->x)
+      SwapI64(&p2,&p1);
+
+      //p2y<=p4y
+    if (p4->y<p2->y)
+      SwapI64(&p4,&p2);
+
+    min=0;
+    max=dc->height;
+    if (dc->flags & DCF_SCRN_BITMAP) {
+      win_task=dc->win_task;
+      min-=win_task->scroll_y+win_task->pix_top;
+      max-=win_task->scroll_y+win_task->pix_top;
+      if (max>win_task->pix_bottom-(win_task->scroll_y+win_task->pix_top))
+	max=win_task->pix_bottom-(win_task->scroll_y+win_task->pix_top);
+    }
+
+    if ((dy2=p4->y-p1->y)<0) {
+      dy1=p2->y-p1->y;
+      dx1=(p1->x-p2->x)<<32/dy1;
+      dz1=(p1->z-p2->z)<<32/dy1;
+
+      dx2=(p1->x-p4->x)<<32/dy2;
+      dz2=(p1->z-p4->z)<<32/dy2;
+      x1=x2=p1->x<<32; y1=p1->y; z1=z2=p1->z<<32;
+      if (y1+dy2<min) {
+	i=min-(y1+dy2);
+	if (i>-dy2) goto ft_done;
+	dy2+=i;
+      }
+      if (y1>=max) {
+	i=y1-max+1;
+	if (i>-dy2)
+	  i=-dy2;
+	dy2+=i;
+	y1-=i;
+	x1+=dx1*i;
+	x2+=dx2*i;
+	z1+=dz1*i;
+	z2+=dz2*i;
+      }
+      while (dy2++) {
+	res+=GrHLine(dc,x1.i32[1],x2.i32[1],y1,z1.i32[1],z2.i32[1]);
+	y1--;
+	x1+=dx1;
+	x2+=dx2;
+	z1+=dz1;
+	z2+=dz2;
+      }
+      if (dy2=p2->y-p4->y) {
+	dx2=(p4->x-p2->x)<<32/dy2;
+	dz2=(p4->z-p2->z)<<32/dy2;
+	if (y1+dy2<min) {
+	  i=min-(y1+dy2);
+	  if (i>-dy2) goto ft_done;
+	  dy2+=i;
+	}
+	if (y1>=max) {
+	  i=y1-max+1;
+	  if (i>-dy2) goto ft_done;
+	  dy2+=i;
+	  y1-=i;
+	  x1+=dx1*i;
+	  x2+=dx2*i;
+	  z1+=dz1*i;
+	  z2+=dz2*i;
+	}
+      }
+      while (dy2++<=0) {
+	res+=GrHLine(dc,x1.i32[1],x2.i32[1],y1,z1.i32[1],z2.i32[1]);
+	y1--;
+	x1+=dx1;
+	x2+=dx2;
+	z1+=dz1;
+	z2+=dz2;
+      }
+    } else if ((dy2=p2->y-p1->y)>0) {
+      dy1=p4->y-p1->y;
+      dx1=(p4->x-p1->x)<<32/dy1;
+      dz1=(p4->z-p1->z)<<32/dy1;
+
+      dx2=(p2->x-p1->x)<<32/dy2;
+      dz2=(p2->z-p1->z)<<32/dy2;
+      x1=x2=p1->x<<32; y1=p1->y; z1=z2=p1->z<<32;
+      if (y1+dy2>=max) {
+	i=y1+dy2-max+1;
+	if (i>dy2) goto ft_done;
+	dy2-=i;
+      }
+      if (y1<min) {
+	i=min-y1;
+	if (i>dy2)
+	  i=dy2;
+	dy2-=i;
+	y1+=i;
+	x1+=dx1*i;
+	x2+=dx2*i;
+	z1+=dz1*i;
+	z2+=dz2*i;
+      }
+      while (dy2--) {
+	res+=GrHLine(dc,x1.i32[1],x2.i32[1],y1,z1.i32[1],z2.i32[1]);
+	y1++;
+	x1+=dx1;
+	x2+=dx2;
+	z1+=dz1;
+	z2+=dz2;
+      }
+      if (dy2=p4->y-p2->y) {
+	dx2=(p4->x-p2->x)<<32/dy2;
+	dz2=(p4->z-p2->z)<<32/dy2;
+	if (y1+dy2>=max) {
+	  i=y1+dy2-max+1;
+	  if (i>dy2) goto ft_done;
+	  dy2-=i;
+	}
+	if (y1<min) {
+	  i=min-y1;
+	  if (i>dy2) goto ft_done;
+	  dy2-=i;
+	  y1+=i;
+	  x1+=dx1*i;
+	  x2+=dx2*i;
+	  z1+=dz1*i;
+	  z2+=dz2*i;
+	}
+      }
+      while (dy2-->=0) {
+	res+=GrHLine(dc,x1.i32[1],x2.i32[1],y1,z1.i32[1],z2.i32[1]);
+	y1++;
+	x1+=dx1;
+	x2+=dx2;
+	z1+=dz1;
+	z2+=dz2;
+      }
+    } else {
+      if (dy1=p2->y-p1->y) {
+	dx1=(p2->x-p1->x)<<32/dy1;
+	dz1=(p2->z-p1->z)<<32/dy1;
+	if (dy2=p2->y-p4->y) {
+	  dx2=(p2->x-p4->x)<<32/dy2;
+	  dz2=(p2->z-p4->z)<<32/dy2;
+	} else {
+	  dx2=0;
+	  dz2=0;
+	}
+	x1=x2=p2->x<<32; y1=p2->y; z1=z2=p2->z<<32;
+	if (y1<min) {
+	  i=min-y1;
+	  if (i>-dy1)
+	    i=-dy1;
+	  dy1+=i;
+	  y1+=i;
+	  x1+=dx1*i;
+	  x2+=dx2*i;
+	  z1+=dz1*i;
+	  z2+=dz2*i;
+	}
+	while (dy1++<=0) {
+	  if (y1<max)
+	    res+=GrHLine(dc,x1.i32[1],x2.i32[1],y1,z1.i32[1],z2.i32[1]);
+	  y1++;
+	  x1+=dx1;
+	  x2+=dx2;
+	  z1+=dz1;
+	  z2+=dz2;
+	}
+      }
+      if (dy1=p4->y-p1->y) {
+	dx1=(p1->x-p4->x)<<32/dy1;
+	dz1=(p1->z-p4->z)<<32/dy1;
+	if (dy2=p4->y-p2->y) {
+	  dx2=(p2->x-p4->x)<<32/dy2;
+	  dz2=(p2->z-p4->z)<<32/dy2;
+	} else {
+	  dx2=0;
+	  dz2=0;
+	}
+	x1=x2=p4->x<<32; y1=p4->y; z1=z2=p4->z<<32;
+	if (y1-dy1<min) {
+	  i=min-(y1-dy1);
+	  if (i>dy1) goto ft_done;
+	  dy1-=i;
+	}
+	if (y1>=max) {
+	  i=y1-max+1;
+	  if (i>dy1) goto ft_done;
+	  dy1-=i;
+	  y1-=i;
+	  x1+=dx1*i;
+	  x2+=dx2*i;
+	  z1+=dz1*i;
+	  z2+=dz2*i;
+	}
+	while (dy1-->=0) {
+	  res+=GrHLine(dc,x1.i32[1],x2.i32[1],y1,z1.i32[1],z2.i32[1]);
+	  y1--;
+	  x1+=dx1;
+	  x2+=dx2;
+	  z1+=dz1;
+	  z2+=dz2;
+	}
+      }
+    }
+  } else {
+//p1 is min y
+    if (p4->y<p2->y)
+      SwapI64(&p4,&p2);
+    if (p2->y<p1->y)
+      SwapI64(&p2,&p1);
+
+      //p2x<=p4x
+    if (p4->x<p2->x)
+      SwapI64(&p4,&p2);
+
+    min=0;
+    max=dc->width;
+    if (dc->flags & DCF_SCRN_BITMAP) {
+      win_task=dc->win_task;
+      min-=win_task->scroll_x+win_task->pix_left;
+      max-=win_task->scroll_x+win_task->pix_left;
+      if (max>win_task->pix_right-(win_task->scroll_x+win_task->pix_left))
+	max=win_task->pix_right-(win_task->scroll_x+win_task->pix_left);
+    }
+
+    if ((dx2=p4->x-p1->x)<0) {
+      dx1=p2->x-p1->x;
+      dy1=(p1->y-p2->y)<<32/dx1;
+      dz1=(p1->z-p2->z)<<32/dx1;
+
+      dy2=(p1->y-p4->y)<<32/dx2;
+      dz2=(p1->z-p4->z)<<32/dx2;
+      y1=y2=p1->y<<32; x1=p1->x; z1=z2=p1->z<<32;
+      if (x1+dx2<min) {
+	i=min-(x1+dx2);
+	if (i>-dx2) goto ft_done;
+	dx2+=i;
+      }
+      if (x1>=max) {
+	i=x1-max+1;
+	if (i>-dx2)
+	  i=-dx2;
+	dx2+=i;
+	x1-=i;
+	y1+=dy1*i;
+	y2+=dy2*i;
+	z1+=dz1*i;
+	z2+=dz2*i;
+      }
+      while (dx2++) {
+	res+=GrVLine(dc,x1,y1.i32[1],y2.i32[1],z1.i32[1],z2.i32[1]);
+	x1--;
+	y1+=dy1;
+	y2+=dy2;
+	z1+=dz1;
+	z2+=dz2;
+      }
+      if (dx2=p2->x-p4->x) {
+	dy2=(p4->y-p2->y)<<32/dx2;
+	dz2=(p4->z-p2->z)<<32/dx2;
+	if (x1+dx2<min) {
+	  i=min-(x1+dx2);
+	  if (i>-dx2) goto ft_done;
+	  dx2+=i;
+	}
+	if (x1>=max) {
+	  i=x1-max+1;
+	  if (i>-dx2) goto ft_done;
+	  dx2+=i;
+	  x1-=i;
+	  y1+=dy1*i;
+	  y2+=dy2*i;
+	  z1+=dz1*i;
+	  z2+=dz2*i;
+	}
+      }
+      while (dx2++<=0) {
+	res+=GrVLine(dc,x1,y1.i32[1],y2.i32[1],z1.i32[1],z2.i32[1]);
+	x1--;
+	y1+=dy1;
+	y2+=dy2;
+	z1+=dz1;
+	z2+=dz2;
+      }
+    } else if ((dx2=p2->x-p1->x)>0) {
+      dx1=p4->x-p1->x;
+      dy1=(p4->y-p1->y)<<32/dx1;
+      dz1=(p4->z-p1->z)<<32/dx1;
+
+      dy2=(p2->y-p1->y)<<32/dx2;
+      dz2=(p2->z-p1->z)<<32/dx2;
+      y1=y2=p1->y<<32; x1=p1->x; z1=z2=p1->z<<32;
+      if (x1+dx2>=max) {
+	i=x1+dx2-max+1;
+	if (i>dx2) goto ft_done;
+	dx2-=i;
+      }
+      if (x1<min) {
+	i=min-x1;
+	if (i>dx2)
+	  i=dx2;
+	dx2-=i;
+	x1+=i;
+	y1+=dy1*i;
+	y2+=dy2*i;
+	z1+=dz1*i;
+	z2+=dz2*i;
+      }
+      while (dx2--) {
+	res+=GrVLine(dc,x1,y1.i32[1],y2.i32[1],z1.i32[1],z2.i32[1]);
+	x1++;
+	y1+=dy1;
+	y2+=dy2;
+	z1+=dz1;
+	z2+=dz2;
+      }
+      if (dx2=p4->x-p2->x) {
+	dy2=(p4->y-p2->y)<<32/dx2;
+	dz2=(p4->z-p2->z)<<32/dx2;
+	if (x1+dx2>=max) {
+	  i=x1+dx2-max+1;
+	  if (i>dx2) goto ft_done;
+	  dx2-=i;
+	}
+	if (x1<min) {
+	  i=min-x1;
+	  if (i>dx2) goto ft_done;
+	  dx2-=i;
+	  x1+=i;
+	  y1+=dy1*i;
+	  y2+=dy2*i;
+	  z1+=dz1*i;
+	  z2+=dz2*i;
+	}
+      }
+      while (dx2-->=0) {
+	res+=GrVLine(dc,x1,y1.i32[1],y2.i32[1],z1.i32[1],z2.i32[1]);
+	x1++;
+	y1+=dy1;
+	y2+=dy2;
+	z1+=dz1;
+	z2+=dz2;
+      }
+    } else {
+      if (dx1=p2->x-p1->x) {
+	dy1=(p2->y-p1->y)<<32/dx1;
+	dz1=(p2->z-p1->z)<<32/dx1;
+	if (dx2=p2->x-p4->x) {
+	  dy2=(p2->y-p4->y)<<32/dx2;
+	  dz2=(p2->z-p4->z)<<32/dx2;
+	} else {
+	  dy2=0;
+	  dz2=0;
+	}
+	y1=y2=p2->y<<32; x1=p2->x; z1=z2=p2->z<<32;
+	if (x1<min) {
+	  i=min-x1;
+	  if (i>-dx1)
+	    i=-dx1;
+	  dx1+=i;
+	  x1+=i;
+	  y1+=dy1*i;
+	  y2+=dy2*i;
+	  z1+=dz1*i;
+	  z2+=dz2*i;
+	}
+	while (dx1++<=0) {
+	  if (x1<max)
+	    res+=GrVLine(dc,x1,y1.i32[1],y2.i32[1],z1.i32[1],z2.i32[1]);
+	  x1++;
+	  y1+=dy1;
+	  y2+=dy2;
+	  z1+=dz1;
+	  z2+=dz2;
+	}
+      }
+      if (dx1=p4->x-p1->x) {
+	dy1=(p1->y-p4->y)<<32/dx1;
+	dz1=(p1->z-p4->z)<<32/dx1;
+	if (dx2=p4->x-p2->x) {
+	  dy2=(p2->y-p4->y)<<32/dx2;
+	  dz2=(p2->z-p4->z)<<32/dx2;
+	} else {
+	  dy2=0;
+	  dz2=0;
+	}
+	y1=y2=p4->y<<32; x1=p4->x; z1=z2=p4->z<<32;
+	if (x1-dx1<min) {
+	  i=min-(x1-dx1);
+	  if (i>dx1) goto ft_done;
+	  dx1-=i;
+	}
+	if (x1>=max) {
+	  i=x1-max+1;
+	  if (i>dx1) goto ft_done;
+	  dx1-=i;
+	  x1-=i;
+	  y1+=dy1*i;
+	  y2+=dy2*i;
+	  z1+=dz1*i;
+	  z2+=dz2*i;
+	}
+	while (dx1-->=0) {
+	  res+=GrVLine(dc,x1,y1.i32[1],y2.i32[1],z1.i32[1],z2.i32[1]);
+	  x1--;
+	  y1+=dy1;
+	  y2+=dy2;
+	  z1+=dz1;
+	  z2+=dz2;
+	}
+      }
+    }
+  }
+ft_done:
+  return res;
+}
+public I64 GrFillPoly3(CDC *dc=gr.dc,I64 n,CD3I32 *poly)
+{//3D. Must be convex.
+//Returns cnt of pixs changed
+  CD3I32 tri[3];
+  I64 i,j,x,y,z,res=0;
+  if (n<3) return 0;
+  if (dc->flags & DCF_SYMMETRY) {
+    for (i=1;i<n-1;i++) {
+      j=i-1;
+      if (i==1) {
+	x=poly[j].x; y=poly[j].y; z=poly[j].z;
+	if (dc->flags&DCF_TRANSFORMATION)
+	  (*dc->transform)(dc,&x,&y,&z);
+	DCReflect(dc,&x,&y,&z);
+	tri[0].x=x; tri[0].y=y; tri[0].z=z;
+      }
+
+      j++;
+      if (i==1) {
+	x=poly[j].x; y=poly[j].y; z=poly[j].z;
+	if (dc->flags&DCF_TRANSFORMATION)
+	  (*dc->transform)(dc,&x,&y,&z);
+	DCReflect(dc,&x,&y,&z);
+      }
+      tri[1].x=x; tri[1].y=y; tri[1].z=z;
+
+      j++;
+      x=poly[j].x; y=poly[j].y; z=poly[j].z;
+      if (dc->flags&DCF_TRANSFORMATION)
+	(*dc->transform)(dc,&x,&y,&z);
+      DCReflect(dc,&x,&y,&z);
+      tri[2].x=x; tri[2].y=y; tri[2].z=z;
+
+      res+=GrFillTri0(dc,&tri[0],&tri[1],&tri[2]);
+    }
+  }
+  if (dc->flags&DCF_JUST_MIRROR)
+    return res;
+  for (i=1;i<n-1;i++) {
+    j=i-1;
+    if (i==1) {
+      x=poly[j].x; y=poly[j].y; z=poly[j].z;
+      if (dc->flags&DCF_TRANSFORMATION)
+	(*dc->transform)(dc,&x,&y,&z);
+      tri[0].x=x; tri[0].y=y; tri[0].z=z;
+    }
+
+    j++;
+    if (i==1) {
+      x=poly[j].x; y=poly[j].y; z=poly[j].z;
+      if (dc->flags&DCF_TRANSFORMATION)
+	(*dc->transform)(dc,&x,&y,&z);
+    }
+    tri[1].x=x; tri[1].y=y; tri[1].z=z;
+
+    j++;
+    x=poly[j].x; y=poly[j].y; z=poly[j].z;
+    if (dc->flags&DCF_TRANSFORMATION)
+      (*dc->transform)(dc,&x,&y,&z);
+    tri[2].x=x; tri[2].y=y; tri[2].z=z;
+
+    res+=GrFillTri0(dc,&tri[0],&tri[1],&tri[2]);
+  }
+  return res;
+}
+
+public I64 GrRectB(CDC *dc=gr.dc,I64 x1,I64 y1,I64 x2,I64 y2)
+{//2D. Two point. Clipping but not transformation.
+  if (x2<x1) SwapI64(&x1,&x2);
+  if (y2<y1) SwapI64(&y1,&y2);
+  return GrRect(dc,x1,y1,x2-x1+1,y2-y1+1);
+}
+
+public I64 GrRect3(CDC *dc=gr.dc,I64 x,I64 y,I64 z,I64 w,I64 h)
+{//3D. Width Height. Clipping and transformation.
+  CD3I32 poly[4];
+  poly[0].x=x;
+  poly[0].y=y;
+  poly[0].z=z;
+  poly[1].x=x+w;
+  poly[1].y=y;
+  poly[1].z=z;
+  poly[2].x=x+w;
+  poly[2].y=y+h;
+  poly[2].z=z;
+  poly[3].x=x;
+  poly[3].y=y+h;
+  poly[3].z=z;
+  return GrFillPoly3(dc,4,poly);
 }
 
 `;

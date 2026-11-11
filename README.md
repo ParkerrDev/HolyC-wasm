@@ -191,7 +191,7 @@ compares unsigned bytes and returns -1, 0 or 1, including equal empty ranges.
 draws an outline. `DCFill` defaults to `TRANSPARENT`. These native semantics can
 expose assumptions in programs written for the previous browser approximations.
 The runtime is still a single-window host: task-owned heaps, window occlusion,
-polygon/fill APIs, sprites and variadic `GrPrint` remain
+flood filling, sprites and variadic `GrPrint` remain
 unsupported. The old empty `GrFloodFill` implementation was removed, so strict
 compilation rejects that missing API instead of reporting success for a no-op.
 
@@ -240,8 +240,8 @@ code size queries for functions are not implemented.
 matrices, 2D/3D symmetry, reflection, ellipse/polygon tracing and quadratic/cubic
 Bézier and B-spline callbacks. `GraphicsMath.HC` compares matrix values, point
 sequences, callback cancellation and degenerate symmetry behavior with the
-original compiler in QEMU. This supplies shared math for the remaining native
-3D raster and sprite work; it does not make those missing APIs available yet.
+original compiler in QEMU. The drawing primitives share this math; sprite
+decoding still requires further runtime work.
 
 The native numeric lexer permits an empty exponent (`1e` or `1e-` means 1.0)
 and consumes only a minus sign there. Consequently `1e+2` is the expression
@@ -254,7 +254,7 @@ algorithm, plus native 2D ellipse/polygon/Bézier/B-spline wrappers and
 128 combinations of transform, symmetry, mirror selection, depth, draw
 suppression and four raster operations against V5.03 in QEMU. It checks exact
 bitmap/depth hashes, extents, collision counts and restored context state.
-Polygon/fill and sprite APIs still require further work.
+Flood filling and sprite APIs still require further work.
 
 Integer token boundaries also follow V5.03: any initial decimal digit can
 precede `x`/`b`, and that digit starts the accumulator (`1xA` is 26, `2b101`
@@ -283,7 +283,7 @@ provides transformed/symmetric points without pen thickness. `Span.HC` checks
 256 span combinations and transformed points against original V5.03 in QEMU;
 the host display test verifies immediate bitmap/display agreement for depth
 spans. The task adapter includes the native `scroll_z` field for this path.
-Polygon/fill and sprite work is still separate.
+Flood filling and sprite work is still separate.
 
 The original 64 pen sizes (normal, collision, even and odd brushes), circle
 limits, thick 3D points/lines, transformed curves and native `GrBorder` are now
@@ -293,3 +293,10 @@ symmetry, mirror selection, curves and borders. Runtime initializer metadata
 tracks referenced global fields, so programs that use only unrelated graphics
 fields do not allocate these tables. Taking the address of the whole graphics
 object conservatively retains all its field dependencies.
+
+`GrFillTri0`, convex `GrFillPoly3`, `GrRect3` and endpoint-based `GrRectB` use
+the original native algorithms. `Polygon.HC` compares 512 clipped/degenerate
+triangle cases, 64 transformed polygon/rectangle cases and a reversed rectangle
+with V5.03, including depth, raster operations, dithering and window offsets.
+The 2D primitive functions now live with the 3D primitives in
+`gr-primitives.js`; bitmap and device-context operations stay in `gr-prelude.js`.

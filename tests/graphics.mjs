@@ -47,6 +47,7 @@ U0 Onscreen()
   gr.dc->thick=5;
   GrPlot3(gr.dc,620,10,3);
   GrLine3(gr.dc,-10,440,3,639,455,5);
+  GrRect3(gr.dc,330,240,4,35,20);
   gr.dc->thick=1;
   gr.dc->depth_buf=NULL;
   Free(db);
