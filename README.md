@@ -262,7 +262,17 @@ is 21). Empty suffixes are allowed; integer accumulation wraps to 64 bits.
 Underscores begin separate identifiers, not digit separators. The eight native
 fixtures for these boundaries also cover `reg`/`noreg` as global, static-local
 and member names, while keeping their automatic-local qualifier behavior.
-Native defaults derived from mutable globals are still a documented difference
-in `tests/probes/DefaultGlobal.HC`: native captures at declaration time, while
-WASM currently evaluates them at the call. Use an explicit wrapper until the
-source-ordered evaluation model is implemented.
+Argument defaults capture their values once at their declaration, as V5.03
+compilation does. Nonconstant defaults, including function calls and callback
+types, use private cells in WASM memory; calls read the captured value. The
+native `DefaultOrder` fixture checks effects, floating conversion, member/local
+callbacks, later global initializers and declaration-scope name resolution.
+
+`__rt_init` initializes the declaration-only prefix once, making exported
+libraries ready without calling `__main`. The latter executes top-level
+statements and intervening declaration initializers in source order. Hosts
+must call `__main` for a source file with executable top-level code. Repeated
+initialization does not repeat captured defaults. This preserves observable
+execution order; the JavaScript compiler does not execute arbitrary HolyC code
+during compilation, so dynamic source generation and runtime-defined array
+bounds still need further work.

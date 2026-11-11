@@ -92,4 +92,26 @@ I64 Thick() { return gr.dc->thick; }
   assert.equal(module.importFuncs.length,1);
   assert.equal(module.funcs.length,3);
 }
+
+// Hosts can initialize an exported library without entering its __main. Native
+// defaults capture the declaration's environment once, including side effects.
+{
+  const result=compileHolyC(`
+I64 option=2,count=0;
+I64 Next() { return ++count; }
+I64 Unused(I64 n=Next) { return n; }
+I64 Target(I64 n=option) { return n; }
+I64 Read() { return Target+count*10; }
+U0 Change() { option=9; }
+`,{lenient:false,exports:['Read','Change']});
+  const host=createHost(),instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});
+  host.attach(instance);
+  instance.exports.__rt_init();
+  assert.equal(instance.exports.Read(),12n);
+  instance.exports.Change();
+  assert.equal(instance.exports.Read(),12n);
+  instance.exports.__rt_init();
+  assert.equal(instance.exports.Read(),12n);
+  assert(![...result.globals.keys()].some(name=>name.startsWith('#default:')));
+}
 console.log('Linkage: unused imports/code/data omitted; eager diagnostics, initializer order, callbacks, exports and relocated calls preserved.');

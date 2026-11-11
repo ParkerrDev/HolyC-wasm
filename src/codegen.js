@@ -44,6 +44,8 @@ class Codegen {
     this.functions = new Map(); // name -> fn record
     this.globals = new Map();   // name -> {addr, type}
     this.globalInitializers=new Map();
+    this.declarationInitializers=new Map();
+    this.defaultValues=new WeakMap();
     this.constEnv = {};         // name -> bigint, for #define-like enum constants
     this.data = [];             // {addr, bytes}
     this.strings = new Map();   // key -> addr
@@ -125,6 +127,7 @@ class Codegen {
     this.collectClasses();
     this.collectConsts();
     this.collectGlobals();
+    this.captureDefaults();
     this.collectSourceImports();
     this.collectFunctions();
 
@@ -174,7 +177,8 @@ class Codegen {
 
     this.m.linkFunctions(linked.functions);
     const bytes = this.m.emit();
-    return { bytes, warnings: this.warnings, dataEnd: this.cursor, globals: this.globals };
+    const globals=new Map([...this.globals].filter(([,g])=>!g.node?.internal));
+    return { bytes, warnings: this.warnings, dataEnd: this.cursor, globals };
   }
 
   exceptionTag() {
@@ -336,6 +340,46 @@ class Codegen {
       if (d.kind === "ClassDecl" && d.vars) for (const v of d.vars) this.declareGlobal(v);
     }
   }
+  captureDefaults() {
+    const constant=node=>{
+      if (!node) return true;
+      if (["IntLit","CharLit","FloatLit","StrLit","BinLit"].includes(node.kind))
+        return true;
+      if (node.kind==="Unary") return !["++","--"].includes(node.op) && constant(node.operand);
+      if (node.kind==="Cast") return constant(node.operand);
+      if (["Binary","Logical"].includes(node.kind)) return constant(node.left) && constant(node.right);
+      if (node.kind==="Chain") return node.operands.every(constant);
+      return false;
+    };
+    let index=0,deferred=false;
+    const statements=new Set(this.program.topStmts);
+    for (const item of this.program.items) {
+      if (statements.has(item)) {deferred=true;continue;}
+      const names=[],seen=new Set();
+      const walk=node=>{
+        if (!node || typeof node!=="object" || seen.has(node)) return;
+        seen.add(node);
+        for (const [key,value] of Object.entries(node)) {
+          if (key==="params") for (const param of value) {
+            walk(param.type);
+            if (!param.default || constant(param.default)) continue;
+            const name="#default:"+index++,init=param.default;
+            this.declareGlobal({kind:"VarDecl",name,type:param.type,init,
+              filename:item.filename,line:init.line,internal:true});
+            names.push(name);
+            this.defaultValues.set(init,{kind:"Ident",name,filename:init.filename,line:init.line});
+          } else if (Array.isArray(value)) value.forEach(walk);
+          else if (value && typeof value==="object") walk(value);
+        }
+      };
+      walk(item);
+      const globals=item.kind==="VarDecl"?[item]:item.vars||[];
+      for (const node of globals)
+        if (this.globals.get(node.name)?.node===node) names.push(node.name);
+      for (const name of names) this.globals.get(name).deferred=deferred;
+      this.declarationInitializers.set(item,names);
+    }
+  }
   declareGlobal(d) {
     if (this.globals.has(d.name)) return;
     const ty = this.resolveType(d.type);
@@ -367,7 +411,7 @@ class Codegen {
     const bytes = [];
     for (const el of init.elements) {
       if (el.kind === "InitList") return false;      // nested aggregate: fall back
-      const c = this.fold(el);
+      const c = this.fold(el,undefined,{});
       if (c == null) return false;                   // non-constant element: fall back
       let v = BigInt.asUintN(64, c);
       for (let b = 0; b < esz; b++) { bytes.push(Number(v & 0xffn)); v >>= 8n; }
@@ -471,12 +515,14 @@ class Codegen {
 
   genGlobalInitializers() {
     const ctx=new FnCtx(this,{name:"__rt_init",params:[],retType:T.U0,node:{body:null}});
-    for (const [name,g] of this.globals) {
-      if (g.init==null) continue;
-      ctx.f=new Func();
-      ctx.genGlobalInit(g);
-      this.globalInitializers.set(name,ctx.f);
-    }
+    for (const names of this.declarationInitializers.values())
+      for (const name of names) {
+        const g=this.globals.get(name);
+        if (g.init==null || g.deferred) continue;
+        ctx.f=new Func();
+        ctx.genGlobalInit(g);
+        this.globalInitializers.set(name,ctx.f);
+      }
     return ctx;
   }
 
@@ -539,8 +585,16 @@ class Codegen {
   }
 
   genMain() {
-    // __main runs prelude rt-init, then top-level statements as a synthetic body
-    const bodyBlock = { kind: "Block", stmts: this.program.topStmts };
+    const stmts=[],statements=new Set(this.program.topStmts);
+    for (const item of this.program.items) {
+      if (statements.has(item)) stmts.push(item);
+      else {
+        const names=(this.declarationInitializers.get(item)||[])
+          .filter(name=>this.globals.get(name).deferred && this.globals.get(name).init!=null);
+        if (names.length) stmts.push({kind:"GlobalInit",names});
+      }
+    }
+    const bodyBlock = { kind: "Block", stmts };
     const fakeFn = { name: "__main", params: [], retType: T.U0, node: { body: bodyBlock } };
     const ctx = new FnCtx(this, fakeFn);
     const f = ctx.f;
@@ -715,6 +769,13 @@ class FnCtx {
       case "Block": for (const st of s.stmts) this.genStmt(st); return;
       case "Empty": return;
       case "DeclStmt": this.genDeclStmt(s); return;
+      case "GlobalInit": {
+        const guard=this.cg.alloc(8,8),f=this.f;
+        f.i64_const(guard).op("i32_wrap_i64").load("i64_load",0,3).op("i64_eqz").if_();
+        f.i64_const(guard).op("i32_wrap_i64").i64_const(1).store("i64_store",0,3);
+        for (const name of s.names) this.genGlobalInit(this.cg.globals.get(name));
+        f.end();return;
+      }
       case "ExprStmt": { const t = this.genExpr(s.expr); this.dropIfValue(t); return; }
       case "Print": this.genPrint(s); return;
       case "PutChars": this.genPutChars(s.bytes); return;
@@ -796,7 +857,7 @@ class FnCtx {
   genGlobalInit(g) {
     // Constant integer arrays (sprite/bitmap data, tables) compile to one wasm
     // data segment rather than thousands of per-element stores - instant to emit.
-    if (g.init.kind === "InitList" && this.cg.tryStaticConstArray(g,this.f)) return;
+    if (!g.deferred && g.init.kind === "InitList" && this.cg.tryStaticConstArray(g,this.f)) return;
     const pushAddr = () => this.f.i64_const(g.addr);
     this.storeInitInto(pushAddr, g.type, g.init);
   }
@@ -1833,7 +1894,7 @@ class FnCtx {
   }
 
   emitArgs(params,args,node) {
-    const values=params.map((p,i)=>args[i]??p.default),
+    const values=params.map((p,i)=>args[i]??this.cg.defaultValues.get(p.default)??p.default),
       types=params.map(p=>this.cg.resolveType(p.type));
     if (!this.cg.lenient && values.some(value=>value==null))
       this.err(node,"Missing required function argument");

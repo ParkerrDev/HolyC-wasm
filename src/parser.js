@@ -57,28 +57,31 @@ export class Parser {
   parseProgram() {
     const decls = [];
     const topStmts = [];
+    const items=[];
+    const declaration=node=>{decls.push(node);items.push(node);};
+    const statement=node=>{topStmts.push(node);items.push(node);};
     this.diagnostics = [];
     while (!this.atEnd()) {
       const startIdx = this.i;
       try {
         if (this.isP(";")) { this.next(); continue; }
         // top-level inline asm block
-        if (this.isKw("asm")) { topStmts.push(this.parseAsmBlock()); continue; }
+        if (this.isKw("asm")) { statement(this.parseAsmBlock()); continue; }
         // class/union declaration, possibly behind storage specifiers
         // (e.g. `public class Foo {...}` or forward decl `extern class Bar;`)
         let k = 0;
         while (this.peek(k).type === "ident" && STORAGE.has(this.peek(k).value)) k++;
         if (this.isKw("class", k) || this.isKw("union", k)) {
           for (let s = 0; s < k; s++) this.next(); // consume storage specifiers
-          decls.push(this.parseClass());
+          declaration(this.parseClass());
           continue;
         }
         // declaration vs statement
         if (this.looksLikeDecl()) {
           const d = this.parseDeclaration(true);
-          if (Array.isArray(d)) decls.push(...d); else decls.push(d);
+          if (Array.isArray(d)) d.forEach(declaration); else declaration(d);
         } else {
-          topStmts.push(this.parseStatement());
+          statement(this.parseStatement());
         }
       } catch (e) {
         if (!this.opts || !this.opts.resilient) throw e;
@@ -89,7 +92,7 @@ export class Parser {
         this.resyncTopLevel();
       }
     }
-    return mk("Program", { decls, topStmts, diagnostics: this.diagnostics });
+    return mk("Program", { decls, topStmts, items, diagnostics: this.diagnostics });
   }
 
   // After a parse error in resilient mode, advance to a plausible restart point:
