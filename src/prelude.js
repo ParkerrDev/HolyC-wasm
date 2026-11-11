@@ -13,6 +13,7 @@ import {QUE_VECT_TYPES_SRC,QUE_VECT_SRC} from "./que-vector.js";
 import {LEX_REM_SRC} from "./lex-rem.js";
 import {LEX_STRING_SRC} from "./lex-string.js";
 import {LEX_TYPES_SRC,LEX_BITMAP_SRC,LEX_GLOBALS_SRC,LEX_SRC} from "./lex-stream.js";
+import {CMP_TABLE_TYPES_SRC,CMP_TABLE_SRC} from "./cmp-tables.js";
 import {CMP_TYPES_SRC,CMP_SRC} from "./cmp-control.js";
 import {DEFINE_SRC} from "./define-prelude.js";
 import {TASK_TYPES_SRC,TASK_SRC} from "./task-prelude.js";
@@ -44,7 +45,11 @@ export const RUNTIME_INITIALIZERS=[
   {name:"HashHostInit",fields:["CTask.hash_table"],
     exports:["HashHostTaskInit"]},
   {name:"RawHostInit",globals:["text"]},
-  {name:"CmpLexHostInit",globals:["cmp"]},
+  {name:"CmpLexHostInit",globals:["cmp"],writeOnlyGlobals:["cmp"]},
+  {name:"CmpTablesHostInit",fields:["cmp.to_reg_vars_map","cmp.num_reg_vars",
+    "cmp.reg_vars_mask","cmp.non_ptr_vars_map","cmp.num_non_ptr_vars",
+    "cmp.non_ptr_vars_mask","cmp.dual_U16_tokens1","cmp.dual_U16_tokens2",
+    "cmp.dual_U16_tokens3","cmp.binary_ops"]},
   {name:"KbdHostInit",globals:["kbd"]},
   {name:"__hgr_init",globals:["gr","__gr_font"]},
   {name:"__hgr_pen_init",fields:["gr.pen_brushes","gr.collision_pen_brushes",
@@ -216,6 +221,7 @@ ${DIR_TYPES_SRC}
 ${DOC_TYPES_SRC}
 ${DOC_ENTRY_TYPES_SRC}
 ${CMP_TYPES_SRC}
+${CMP_TABLE_TYPES_SRC}
 ${LEX_TYPES_SRC}
 ${QUE_VECT_TYPES_SRC}
 CTask fs_storage;
@@ -741,6 +747,7 @@ ${DEFINE_SRC}
 ${CMP_SRC}
 ${LEX_BITMAP_SRC}
 ${LEX_GLOBALS_SRC}
+${CMP_TABLE_SRC}
 ${LEX_SRC}
 ${LEX_STRING_SRC}
 ${QUE_VECT_SRC}

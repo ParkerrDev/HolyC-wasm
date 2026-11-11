@@ -61,12 +61,17 @@ Native state/echo/counter fixtures and host allocation-failure checks cover this
 bounded layer. It does not supply tokens or document/prompt handlers.
 
 The complete native CCmpGlbls/CIntermediateCode layouts are present. A fresh
-host session explicitly zeroes their storage and implements only the shared
+host session explicitly zeroes cmp storage and implements the shared
 `cmp.compiled_lines` counter. Tests compare deltas with the already-running native
-compiler. ASM/internal-type/operator/IR/register graphs are unavailable, and
-Lex, CInit and CmpFillTables remain undefined; zero fields are not compiler
-initialization. Tokenization must establish these real dependencies before
-runtime compiler state can be claimed.
+compiler. A63 initializes the original three dual-U16 token tables, binary-op
+table and two register maps, including counts/masks. Six staged session-owned
+allocations publish only after success. Counter-only access remains allocation
+free; real aggregate/subobject escapes and aliases conservatively initialize
+the tables. Native proof compares all 1,218 values plus alias/task access;
+host failure tests cover each allocation and disposal. Native CmpFillTables is
+a boot routine whose repeated calls replace pointers without releasing old
+arrays, so it is not exposed as a refresh API. ASM/internal-type/IR graphs,
+Lex and CInit remain absent. Zero fields are not initialized compiler graphs.
 
 A60 adds the exact finite-stream `LexInStr` algorithm with source-bound native
 chunk/state tests. It preserves `done`, partial-buffer nontermination, embedded

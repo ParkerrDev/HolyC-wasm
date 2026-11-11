@@ -1089,12 +1089,13 @@ allocation or mutation. Source buffers must remain valid and NUL-terminated;
 this is the native pointer API, not a bounded untrusted-input parser.
 
 The complete CCmpGlbls, CIntermediateCode, CICArg, CICType and CICTreeLinks layouts
-are measured against V5.03. A fresh session explicitly zeroes `cmp`; only its
-`compiled_lines` counter is implemented, shared across tasks. Native has already
-compiled its kernel/startup before a probe, so tests compare line-count changes,
-not the boot total. ASM tables, internal type graphs, token/operator tables and
-register-allocation state remain unavailable. Their zero storage does not stand
-in for initialized compiler state. Lex, CInit, CmpFillTables, runtime compilation
+are measured against V5.03. A fresh session explicitly zeroes `cmp`; its
+`compiled_lines` counter is shared across tasks. Native has already compiled its
+kernel/startup before a probe, so tests compare line-count changes, not the boot
+total. The six token/operator/register-map arrays and their count/mask fields
+are initialized when reachable, as described below. ASM tables, internal type
+graphs and live compiler/IR state remain unavailable. Their zero storage does
+not stand in for initialized graphs. Lex, CInit, CmpFillTables, runtime compilation
 and DocInit are still absent. The printable and non-EOL bitmaps preserve all
 512 native bits. Console byte streams remain independent of task continuations;
 KeyDev echo deliberately uses the KeyDev profile and its real output chain.
@@ -1110,6 +1111,36 @@ hashes. The echo exception uses native `throw(...,TRUE)` to keep Adam logging
 outside the fixture, and its temporary hook only handles its own task. Actual
 browser JSPI checks exercise the same echo recovery and child lifetime paths.
 
+### Compiler lookup tables
+
+The three dual-U16 token tables, binary-operator table and two register maps
+preserve the original CmpFillTables values and CCmpGlbls fields. Their six
+allocations belong to the session. The internal initializer stages every array
+and publishes pointers, masks and counts only after all allocations succeed;
+failure frees staged ownership and poisons that instance before user code runs.
+This is startup initialization, not the native boot routine or a refresh API.
+Public CmpFillTables and CInit remain undefined; calling native CmpFillTables
+again would allocate six replacements without releasing its old arrays.
+
+Counter-only access needs no table allocation. Field reads select their real
+initializer, while taking the aggregate or a subobject address, array decay,
+typed aliases and captured default pointers conservatively retain the table
+dependency. Audited reset-only initializer effects prevent the initial cmp
+clear from inventing a read of every field. Ordinary callers and dependencies
+of functions called by that reset retain their normal reachability rules.
+
+`npm run test:cmp-tables` compares all 1,218 native table/map/count values,
+direct and escaped access, five lifetimes, child sharing and full disposal.
+Every one of the six allocation sites is denied in turn, checking no published
+partial state, user side effects or leaked allocations. A negative control
+without the reset effect demonstrates the needless counter-only allocation.
+`node tests/cmp-tables-oracle.mjs` repeats stock V5.03 tables and the staged
+initializer compiled by V5.03, with source/type/library/wrapper/capture/output
+hashes; `--record` refreshes that evidence. Allocation failures are host tests,
+not injected native failures. Native heap headers/spans and absent compiler
+graphs are outside this table-value and ownership proof.
+
+### Finite string chunks
 
 `LexInStr(cc,buf,size,&done)` supplies the native string-chunk layer over these
 finite streams. A quote or EOF appends a zero byte and returns its count with

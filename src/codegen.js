@@ -40,6 +40,7 @@ class Codegen {
     this.program = program;
     const binding=name=>program.runtimeBindings?.[name]??name;
     const bind=api=>({...api,globals:api.globals?.map(binding),
+      writeOnlyGlobals:api.writeOnlyGlobals?.map(binding),
       fields:api.fields?.map(name=>{const [root,...path]=name.split(".");return [binding(root),...path].join(".");})});
     this.opts={...opts,runtimeInitializers:opts.runtimeInitializers?.map(bind),
       runtimeInterfaces:opts.runtimeInterfaces?.map(bind)};
@@ -590,17 +591,26 @@ class Codegen {
   reachable() {
     const functions=new Set(),globals=new Set(),fields=new Set(),bodies=new Set(),hooks=new Set();
     const interfaces=new Set(),exports=new Set();
-    const visitBody=body=>{
+    const writeOnly=new Map();
+    for (const hook of this.opts.runtimeInitializers || []) {
+      const fn=this.functions.get(hook.name);
+      if (fn?.node?.filename==="<prelude>" && hook.writeOnlyGlobals?.length)
+        writeOnly.set(fn.index,new Set(hook.writeOnlyGlobals));
+    }
+    const visitBody=(body,initialized)=>{
       if (!body || bodies.has(body)) return;
       bodies.add(body);
       for (const index of body.references) visitFunction(index);
       for (const name of body.globalUses || []) visitGlobal(name);
-      for (const name of body.fieldUses || []) fields.add(name);
+      // A trusted initializer's direct writes need no prior field contents.
+      // Callee dependencies and all ordinary caller escapes remain visible.
+      for (const name of body.fieldUses || [])
+        if (!initialized?.has(name.split('.')[0])) fields.add(name);
     };
     const visitFunction=index=>{
       if (functions.has(index)) return;
       functions.add(index);
-      visitBody(this.m.funcs[index-this.m.importFuncs.length]?.body);
+      visitBody(this.m.funcs[index-this.m.importFuncs.length]?.body,writeOnly.get(index));
     };
     const visitGlobal=name=>{
       if (globals.has(name)) return;
@@ -1462,7 +1472,7 @@ class FnCtx {
     return null;
   }
 
-  genAddr(node) {
+  genAddr(node,recordFields=true) {
     if (this.exportedAddress(node)) this.err(node,"Invalid lval: exported address");
     const names=[];
     let root=node;
@@ -1470,7 +1480,7 @@ class FnCtx {
       if (root.kind==="Member") names.unshift(root.name);
       root=root.base;
     }
-    if (root.kind==="Ident" && !this.localBinding(root) && this.cg.globals.has(root.name))
+    if (recordFields && root.kind==="Ident" && !this.localBinding(root) && this.cg.globals.has(root.name))
       (this.f.fieldUses??=new Set()).add(root.name+'.'+(names.join('.')||'*'));
     if (!NOFOLD) { const ac = this.addrConst(node); if (ac) { this.f.i64_const(ac.addr); return ac.type; } }
     switch (node.kind) {
@@ -1576,17 +1586,26 @@ class FnCtx {
       if (fld.offset) this.f.i64_const(fld.offset).op("i64_add");
       return fld.type;
     }
-    // class (or lenient opaque) lvalue
-    this.genAddr(node.base);
+    // The outer lvalue recorded the full field path; its base does not escape.
+    this.genAddr(node.base,false);
     const fld = this.fieldOf(bt, node.name);
     if (fld.offset) this.f.i64_const(fld.offset).op("i64_add");
     return fld.type;
   }
 
+  recordGlobalEscape(node) {
+    let root=node;
+    while (root.kind==="Member" && !root.arrow || root.kind==="Index") root=root.base;
+    if (root.kind!=="Ident" || this.localBinding(root)) return;
+    const global=this.cg.globals.get(root.name);
+    if (global && isAggregate(this.cg.resolveType(root.globalType??global.type)))
+      (this.f.fieldUses??=new Set()).add(root.name+'.*');
+  }
+
   genLoadLValue(node) {
     const t = this.genAddr(node);
     const rt = this.cg.resolveType(t);
-    if (isAggregate(rt)) return rt; // address is the value
+    if (isAggregate(rt)) {this.recordGlobalEscape(node);return rt;} // address is the value
     this.f.op("i32_wrap_i64");
     this.emitLoad(rt);
     return rt;
@@ -1889,6 +1908,7 @@ class FnCtx {
           return funcPtr(fn.retType,fn.params,fn.isVarArgs);
         }
       }
+      this.recordGlobalEscape(node.operand);
       const t = this.genAddr(node.operand);
       return ptrTo(t);
     }
