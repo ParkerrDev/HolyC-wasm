@@ -12,6 +12,8 @@ const source=`U0 Offscreen()
   GrCircle(alias,4,7,3);
   GrPutS(alias,1,2,"AB");
   DCDepthBufAlloc(dc);
+  GrHLine(dc,-3,17,5,-2,9);
+  GrVLine(dc,7,14,-2,5,2);
   DCDel(alias);
   DCDel(dc);
 }
@@ -24,6 +26,7 @@ U8 *Screen()
 U0 Onscreen()
 {
   CDC *img=DCNew(11,7);
+  I32 *db;
   DCClear;
   DCFill(img,GREEN);
   img->color=RED;
@@ -36,6 +39,13 @@ U0 Onscreen()
   GrPutS(gr.dc,2,32,"AB\\tC\\nD");
   GrPlot(gr.dc,639,479);
   GrPlot(gr.dc,640,480);
+  db=DCDepthBufAlloc(gr.dc);
+  gr.dc->color=CYAN;
+  GrHLine(gr.dc,-2,500,100,-2,9);
+  GrVLine(gr.dc,150,520,100,2,20);
+  GrPlot3B(gr.dc,300,200,2);
+  gr.dc->depth_buf=NULL;
+  Free(db);
   DCDel(img);
 }
 

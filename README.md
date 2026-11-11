@@ -276,3 +276,11 @@ initialization does not repeat captured defaults. This preserves observable
 execution order; the JavaScript compiler does not execute arbitrary HolyC code
 during compilation, so dynamic source generation and runtime-defined array
 bounds still need further work.
+
+Native `GrHLine`/`GrVLine` now preserve depth interpolation, clipping, dither,
+collision counts, extent recording and nearest-point behavior. `GrPlot3B`
+provides transformed/symmetric points without pen thickness. `Span.HC` checks
+256 span combinations and transformed points against original V5.03 in QEMU;
+the host display test verifies immediate bitmap/display agreement for depth
+spans. The task adapter includes the native `scroll_z` field for this path.
+The remaining pen-brush/thick-line/polygon/sprite work is still separate.

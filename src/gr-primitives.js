@@ -274,4 +274,33 @@ gr_done:
   dc->brush=old_brush;
   return res;
 }
+public Bool GrPlot3B(CDC *dc=gr.dc,I64 x,I64 y,I64 z)
+{//3D. Clipping and transformation but no thick.
+  I64 _x,_y,_z;
+  Bool was_transform=FALSE,was_symmetry=FALSE;
+  if (dc->flags & DCF_TRANSFORMATION) {
+    (*dc->transform)(dc,&x,&y,&z);
+    dc->flags&=~DCF_TRANSFORMATION;
+    was_transform=TRUE;
+  }
+  if (dc->flags & DCF_SYMMETRY) {
+    _x=x; _y=y; _z=z;
+    DCReflect(dc,&_x,&_y,&_z);
+    dc->flags&=~DCF_SYMMETRY;
+    dc->db_z=_z;
+    GrPlot1(dc,_x,_y);
+    was_symmetry=TRUE;
+    if (dc->flags&DCF_JUST_MIRROR)
+      goto gr_done;
+  }
+  dc->db_z=z;
+  GrPlot1(dc,x,y);
+gr_done:
+  if (was_transform)
+    dc->flags|=DCF_TRANSFORMATION;
+  if (was_symmetry)
+    dc->flags|=DCF_SYMMETRY;
+  return TRUE;
+}
+
 `;

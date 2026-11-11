@@ -165,7 +165,7 @@ I64 gr_scrn_r[16];
 class CTask {
   I64 pix_width;
   I64 pix_height;
-  I64 pix_left,pix_right,pix_top,pix_bottom,scroll_x,scroll_y,win_z_num;
+  I64 pix_left,pix_right,pix_top,pix_bottom,scroll_x,scroll_y,win_z_num,scroll_z;
   CTask *next_task;
   U0 (*draw_it)(CTask *task,CDC *dc);
   U0 (*task_end_cb)();
@@ -639,6 +639,12 @@ public I64 DistSqrI64(I64 x1,I64 y1,I64 x2,I64 y2)
   return SqrI64(x2-x1)+SqrI64(y2-y1);
 }
 
+public U0 SwapI64(I64 *a,I64 *b)
+{
+  I64 tmp=*a;
+  *a=*b;*b=tmp;
+}
+
 public U0 SwapU16(U16 *a,U16 *b)
 {
   U16 tmp=*a;
@@ -672,6 +678,22 @@ public I64 GrRect(CDC *dc=gr.dc,I64 x,I64 y,I64 w,I64 h)
 {
   I64 res=__GrRect(dc,x,y,w,h);
   if (res) __gr_sync(dc,x,y,w,h);
+  return res;
+}
+
+public I64 GrHLine(CDC *dc=gr.dc,I64 x1,I64 x2,I64 y,I64 z1=0,I64 z2=0)
+{
+  I64 res=__GrHLine(dc,x1,x2,y,z1,z2);
+  if (res && dc->depth_buf)
+    __gr_sync(dc,MinI64(x1,x2),y,AbsI64(x2-x1)+1,1);
+  return res;
+}
+
+public I64 GrVLine(CDC *dc=gr.dc,I64 x,I64 y1,I64 y2,I64 z1=0,I64 z2=0)
+{
+  I64 res=__GrVLine(dc,x,y1,y2,z1,z2);
+  if (res && dc->depth_buf)
+    __gr_sync(dc,x,MinI64(y1,y2),1,AbsI64(y2-y1)+1);
   return res;
 }
 
