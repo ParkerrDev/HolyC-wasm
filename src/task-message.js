@@ -97,7 +97,7 @@ CJob *TaskMsg(CTask *_srv,CTask *master,
 	!Bt(&flags,JOBf_DONT_FILTER))
     srv=srv->next_input_filter_task;
   if (!TaskValidate(srv)) return NULL;
-  tmpc=CAlloc(sizeof(CJob));
+  tmpc=ACAlloc(sizeof(CJob));
   tmpc->master_task=master;
   tmpc->job_code=JOBT_MSG;
   tmpc->msg_code=AbsI64(msg_code);

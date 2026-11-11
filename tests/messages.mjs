@@ -35,6 +35,7 @@ host.env.__malloc=bytes=>{
   if (++count===failAt) return 0n;
   const ptr=malloc(bytes);if(ptr) live.add(ptr);return ptr;
 };
+host.env.__malloc_kernel=host.env.__malloc;
 host.env.__free=ptr=>{
   const length=Number(size(ptr));free(ptr);live.delete(ptr);
   if(ptr) new Uint8Array(host.state.mem.buffer,Number(ptr),length).fill(0xA5);

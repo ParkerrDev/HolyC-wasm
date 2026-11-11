@@ -74,7 +74,16 @@ export const HOST_IMPORTS = {
   __get_char:    { params: [I, I], results: [I] },        // (echo, doScan) blocking
   __time_ms:     { params: [], results: [F] },
 
+  __task_require: {params: [], results: []},
+  __task_spawn: {params: [I,I,I,I,I,I,I], results: [I]},
+  __task_kill: {params: [I,I,I], results: [I]},
+  __task_wait: {params: [I], results: []},
+  __task_exit: {params: [], results: []},
+  __task_stack_fail: {params: [], results: []},
+
   __malloc:      { params: [I], results: [I] },
+  __malloc_kernel: {params: [I], results: [I]},
+  __malloc_for: {params: [I,I], results: [I]},
   __free:        { params: [I], results: [] },
   __msize:       { params: [I], results: [I] },
 

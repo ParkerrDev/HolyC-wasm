@@ -172,6 +172,7 @@ export class Func {
     this.bytes = [];
     this.calls = [];
     this.references = new Set();
+    this.stackChecks=[];
   }
   _op(b) { this.bytes.push(b); return this; }
   raw(...bs) { for (const b of bs) this.bytes.push(b); return this; }
@@ -223,7 +224,33 @@ export class Func {
     for (const byte of body.bytes) this.bytes.push(byte);
     for (const call of body.calls) this.calls.push({...call,offset:offset+call.offset});
     for (const index of body.references) this.references.add(index);
+    for (const check of body.stackChecks) this.stackChecks.push({...check,offset:offset+check.offset});
     return this;
+  }
+  stackCheck(size) {
+    this.stackChecks.push({offset:this.bytes.length,size});return this;
+  }
+  guardStack(makeGuard) {
+    const bytes=[],added=[],shifts=[];
+    let start=0,shift=0;
+    for (const check of this.stackChecks) {
+      for (let i=start;i<check.offset;i++) bytes.push(this.bytes[i]);
+      const guard=makeGuard(check.size),offset=bytes.length;
+      for (const byte of guard.bytes) bytes.push(byte);
+      for (const call of guard.calls) added.push({...call,offset:offset+call.offset});
+      for (const index of guard.references) this.references.add(index);
+      shift+=guard.bytes.length;shifts.push({offset:check.offset,shift});
+      start=check.offset;
+    }
+    for (let i=start;i<this.bytes.length;i++) bytes.push(this.bytes[i]);
+    let index=0,delta=0;
+    for (const call of this.calls) {
+      while(index<shifts.length && shifts[index].offset<=call.offset)
+        delta=shifts[index++].shift;
+      call.offset+=delta;
+    }
+    this.bytes=bytes;this.calls.push(...added);
+    this.calls.sort((a,b)=>a.offset-b.offset);this.stackChecks=[];
   }
   remapCalls(indices) {
     const bytes=[];

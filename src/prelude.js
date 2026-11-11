@@ -9,6 +9,7 @@ import {GR_MATH_SRC} from "./gr-math.js";
 import {GR_TYPES_SRC,GR_SRC} from "./gr-prelude.js";
 import {TASK_TYPES_SRC,TASK_SRC} from "./task-prelude.js";
 import {TASK_MESSAGE_SRC} from "./task-message.js";
+import {TASK_INTERFACE,TASK_SCHEDULE_SRC} from "./task-schedule.js";
 import {FONT} from "./runtime/font.js";
 import {STR_SRC} from "./str-prelude.js";
 import {GR_COMPOSITES_SRC} from "./gr-composites.js";
@@ -22,6 +23,7 @@ export const RUNTIME_INITIALIZERS=[
   {name:"__hgr_pen_init",fields:["gr.pen_brushes","gr.collision_pen_brushes",
     "gr.even_pen_brushes","gr.odd_pen_brushes","gr.circle_lo","gr.circle_hi"]},
 ];
+export const RUNTIME_INTERFACES=[TASK_INTERFACE];
 
 export const PRELUDE_SRC = String.raw`
 //==================== constants ====================
@@ -590,6 +592,11 @@ U0 PressAKey() { __get_char(0,1); }
 //==================== console ====================
 U0 Putc(I64 ch) { __putc(ch); }
 U0 PutChars(I64 ch) { __putc(ch); }
+U0 PutKey(I64 ch=0,I64 sc=0)
+{
+  if (sc&SCF_KEY_DESC) throw('KeyHost',TRUE);
+  if (ch && !Bt(&Fs->display_flags,DISPLAYf_SILENT)) __putc(ch);
+}
 U0 PutExcept(Bool catch_it=TRUE)
 {
   "Except:%c:\n",Fs->except_ch;
@@ -660,6 +667,7 @@ ${GR_COMPOSITES_SRC}
 ${SPRITE_SRC}
 ${TASK_SRC}
 ${TASK_MESSAGE_SRC}
+${TASK_SCHEDULE_SRC}
 
 public I64 DistSqrI64(I64 x1,I64 y1,I64 x2,I64 y2)
 {
@@ -786,8 +794,11 @@ I64 MSize(U8 *p) { return __msize(p); }
 U8 *MAlloc(I64 size,CTask *mem_task=NULL)
 {
   U8 *res;
-  if (mem_task && mem_task!=Fs) throw('HeapTask',TRUE);
-  res=__malloc(size);
+  if (mem_task && mem_task!=Fs) {
+    res=__malloc_for(size,mem_task);
+    if (res==-1) throw('HeapTask',TRUE);
+  } else
+    res=__malloc(size);
   if (!res) throw('OutMem',TRUE);
   return res;
 }
@@ -795,6 +806,20 @@ U8 *MAlloc(I64 size,CTask *mem_task=NULL)
 U8 *CAlloc(I64 size,CTask *mem_task=NULL)
 {
   U8 *res=MAlloc(size,mem_task);
+  MemSet(res,0,size);
+  return res;
+}
+
+U8 *AMAlloc(I64 size)
+{//Allocate storage whose lifetime is independent of the caller task.
+  U8 *res=__malloc_kernel(size);
+  if (!res) throw('OutMem',TRUE);
+  return res;
+}
+
+U8 *ACAlloc(I64 size)
+{
+  U8 *res=AMAlloc(size);
   MemSet(res,0,size);
   return res;
 }
@@ -809,7 +834,9 @@ U0 __hcrt_init()
   Fs->pix_height=__gr_height;
   Fs->pix_right=Fs->pix_width-1;
   Fs->pix_bottom=Fs->pix_height-1;
-  Fs->next_task=sys_winmgr_task=Fs;
+  Fs->next_task=Fs->last_task=sys_winmgr_task=Fs;
+  Fs->next_child_task=Fs->last_child_task=
+        (&Fs->next_child_task)(U8 *)-offset(CTask.next_sibling_task);
   Fs->next_input_filter_task=Fs->last_input_filter_task=Fs;
   JobCtrlInit(&Fs->srv_ctrl);
 }

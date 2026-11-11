@@ -7,13 +7,19 @@ import { Worker, isMainThread, parentPort, workerData } from "node:worker_thread
 import { createHash } from "node:crypto";
 import { compileHolyC } from "../src/compiler.js";
 import { createHost } from "../src/runtime/host.js";
+import {createTaskHost} from "../src/runtime/tasks.js";
 
 if (!isMainThread) {
   let out = "";
-  const host = createHost({ ansi: false, onText: (s) => { out += s; } });
-  const { instance } = await WebAssembly.instantiate(workerData, { env: host.env });
+  const module=new WebAssembly.Module(workerData);
+  const tasks=WebAssembly.Module.imports(module).some(entry=>entry.name==='__task_require');
+  const host = (tasks?createTaskHost:createHost)({ ansi: false, onText: (s) => { out += s; } });
+  const instance = new WebAssembly.Instance(module,{ env: host.env });
   host.attach(instance);
-  try { instance.exports.__main(); } catch (e) { out += `[trap ${e.message}]\n`; }
+  try {
+    if(tasks) await host.run();else instance.exports.__main();
+  } catch (e) { out += `[trap ${e.message}]\n`; }
+  if(tasks) await host.dispose();
   parentPort.postMessage(out);
   process.exit(0);
 }

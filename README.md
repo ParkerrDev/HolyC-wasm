@@ -187,7 +187,8 @@ Pre-ABI-1 snapshots need `createHost({heapAbi:0})`, which retains their original
 bump allocator and no-op `Free`. An omitted option selects the current ABI;
 snapshot loaders must choose the old mode explicitly when metadata is absent.
 Do not switch an existing heap between modes. Heap addresses, native internal
-header layout and separate task-owned heaps are not reproduced.
+header layout is not reproduced. Ordinary `createHost` has one allocation
+owner; the continuation backend below tracks separate task lifetimes.
 
 The task, settings, message, scroll and keyboard records have their complete
 V5.03 layouts, including the 1,192-byte `CTask`. `TaskValidate` checks the native
@@ -210,6 +211,61 @@ input-filter task creation and macro recording are not implemented. The
 `Messages` and `Queue` fixtures compare independent native behavior, while
 `test:messages` checks failed allocation, poisoned freed nodes and cleanup.
 
+## Cooperative task backend
+
+Reachable `Spawn`, `Kill`, `Exit`, `GetMsg` or `GetKey` requires
+`result.requiredCapabilities` to include `"task-continuations"`. An unreachable
+reference adds no requirement. The module also has a capability-only WASM start
+function: an ordinary host or a host without JSPI refuses instantiation before
+source initializers, allocation or main can run. The site must use this metadata
+to decide launch availability before starting a program.
+
+Use `createTaskHost` from `src/runtime/tasks.js` on engines with
+`WebAssembly.Suspending` and `WebAssembly.promising` (`taskSupport()` checks
+both). Instantiate with its `env`, call `attach(instance)`, then await
+`run(entry="__main",...args)`. Named library entries also initialize their
+runtime first. `postMessage(code,arg1,arg2,target?)` delivers exact native
+messages; the default target is the session root, and scan arguments can be
+64-bit BigInts. `stop()` requests task termination; `dispose()` also releases
+session-owned storage, including after an error. A caller should handle errors
+from both the run and teardown promises. `onTaskError(error,task)` receives
+child faults; without that callback they are reported to the output adapter.
+
+Tasks have real suspended continuations, separate guarded shadow stacks, `Fs`
+and exception contexts, native parent/child links and message queues. Sleep,
+Yield and message waits release the worker event loop. Suspension flags are
+honored. Task termination callbacks can wait and yield; native `Kill(task,TRUE)`
+can return after a callback starts, before the task dies. Check `TaskValidate`
+when actual death is required. Task-owned allocations are released only after
+the continuation and descendants terminate. `MAlloc(size,task)` supports other
+live tasks; `AMAlloc`/`ACAlloc` and posted messages belong to the session kernel
+owner and survive their sending task. Raw `CHeapCtrl` owners are unsupported.
+The allocator headers/ABI remain unchanged, but new modules require the paired
+host's `__malloc_for` and `__malloc_kernel` imports.
+
+This is a cooperative, single-core, unshared-memory backend, not a model of
+native CPU contexts or preemption. A task must reach Sleep, Yield or a message
+wait for other tasks and external input to run. Only current-core Spawn with
+`JOBf_ADD_TO_QUE` is supported. Fixed child stacks accept 4 KiB through 64 MiB
+(default 1 MiB); frame and varargs reservations trap before crossing their
+lower bound. A termination callback that never finishes can prevent cooperative
+shutdown. Debugger breaks and raw cursor echo fail explicitly. PutKey supports
+the host text-output adapter; the DolDoc device pipeline remains separate.
+
+Suspended JSPI continuations cannot be serialized: `snapshot()` explicitly
+rejects task sessions. HEMU's guest-machine snapshots remain the portable
+TempleOS full-state path, and HEMU builds do not acquire the JSPI requirement.
+Hosts without JSPI still need a genuine alternative continuation backend.
+Window-manager draw dispatch, native settings/document state and physical
+keyboard packet delivery are subsequent work. Legacy `ScanChar`, `GetChar`
+and `KeyGet` adapters are retained until existing browser consumers migrate;
+do not treat their old signatures as native input parity.
+
+`Tasks` and `TaskExcept` compare original QEMU behavior. `test:tasks` also checks
+ten same-instance runs, refusal before side effects, cross-task ownership,
+failed Spawn cleanup, stack bounds, full scan values and nested cancellation.
+`test:tasks-browser` runs both native fixtures under actual Chromium JSPI.
+
 `npm run test:heap` checks allocation lifetime, splitting/coalescing, cleared
 reuse, failed growth, full-memory restoration, legacy restoration and four
 workers allocating/freeing the same growing shared memory.
@@ -230,8 +286,8 @@ compares unsigned bytes and returns -1, 0 or 1, including equal empty ranges.
 `GrBorder` takes two endpoint coordinates, not a width and height. `GrCircle`
 draws an outline. `DCFill` defaults to `TRANSPARENT`. These native semantics can
 expose assumptions in programs written for the previous browser approximations.
-The runtime is still a single-window host: task-owned heaps and window
-occlusion remain unsupported. Native `GrFloodFill` and
+The drawing runtime is still a single-window host; window occlusion and the
+native window-manager lifecycle remain unsupported. Native `GrFloodFill` and
 `GrFloodFill3` use the original iterative scanline algorithm, including its
 28 MiB scratch allocation. The scratch is freed after each fill and reused on
 subsequent fills. The `Flood` fixture compares 512 combinations of depth,

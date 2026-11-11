@@ -23,7 +23,9 @@
     "test:browser-games": "node tests/browser-games.mjs",
     "test:float-scale": "node tests/oracle-scale.mjs",
     "test:core": "node tests/core.mjs",
-    "test:messages": "node tests/messages.mjs"
+    "test:messages": "node tests/messages.mjs",
+    "test:tasks": "node tests/tasks.mjs",
+    "test:tasks-browser": "node tests/tasks-browser.mjs"
   },
   "license": "MIT",
   "author": "Built with Claude Code"

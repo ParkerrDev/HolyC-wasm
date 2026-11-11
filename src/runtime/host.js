@@ -37,6 +37,9 @@ export function createHost(opts = {}) {
 
   function mem() { return state.mem; }
   function u8() { return new Uint8Array(state.mem.buffer); }
+  function taskRequired() {
+    throw new Error("This HolyC program requires a task continuation backend; use createTaskHost with JSPI or run it in TempleOS through HEMU");
+  }
 
   const imports = {
     __puts:addr=>state.out(docText(readCStr(mem(),Number(addr)),{ansi:state.ansi})),
@@ -102,8 +105,16 @@ export function createHost(opts = {}) {
     __scan_char() { if (state.onTick) state.onTick(); return BigInt(state.scanChar() | 0); },
     __get_char(echo, scan) { if (state.onTick) state.onTick(); return BigInt(state.getChar(Number(echo), Number(scan)) | 0); },
     __time_ms() { return state.timeMs(); },
+    __task_require:taskRequired,
+    __task_spawn:taskRequired,
+    __task_kill:taskRequired,
+    __task_wait:taskRequired,
+    __task_exit:taskRequired,
+    __task_stack_fail() {throw new RangeError("HolyC task shadow stack overflow");},
 
     __malloc:size=>heap.malloc(size),
+    __malloc_kernel:size=>heap.malloc(size),
+    __malloc_for:()=>-1n,
     __free:ptr=>heap.free(ptr),
     __msize:ptr=>heap.size(ptr),
 

@@ -169,7 +169,7 @@ class Codegen {
     this.m.exportGlobal("__core", this.coreGlobal);   // SMP: host sets each worker's core index here
     // functions the host calls back into (a runtime JIT's memory/step hooks, guest-execution entry points,
     // test probes): named by the caller via opts.exports - the compiler has no built-in list.
-    for (const nm of new Set(this.opts.exports || [])) {
+    for (const nm of new Set([...(this.opts.exports || []),...linked.exports])) {
       const fn = this.functions.get(nm);
       if (fn && fn.slot) {
         if (!this.lenient && !fn.node) throw new CodegenError("Unresolved exported function: " + nm);
@@ -177,10 +177,27 @@ class Codegen {
       }
     }
 
+    if (linked.interfaces.size) {
+      if (this.cursor>=STACK_TOP) throw new CodegenError("Task runtime data exceeds the root shadow stack");
+      const limit=this.m.addGlobal(VT.i64,true,new Func().i64_const(this.cursor));
+      this.m.exportGlobal("__stack_limit",limit);
+      this.m.exportGlobal("__exception",this.excGlobal);
+      const fault=this.imports.__task_stack_fail.index;
+      for (const slot of this.m.funcs)
+        slot.body.guardStack(size=>new Func().global_get(this.spGlobal)
+          .global_get(limit).i64_const(size).op("i64_add").op("i64_lt_u")
+          .if_().call(fault).unreachable().end());
+      linked.functions.add(fault);
+      const start=this.m.func([],[]),body=new Func();
+      for (const api of linked.interfaces) body.call(this.functions.get(api.check).index);
+      start.setBody([],body);this.m.setStart(start.index);
+      linked.functions.add(start.index);
+    }
     this.m.linkFunctions(linked.functions);
     const bytes = this.m.emit();
     const globals=new Map([...this.globals].filter(([,g])=>!g.node?.internal));
-    return { bytes, warnings: this.warnings, dataEnd: this.cursor, globals };
+    return { bytes, warnings: this.warnings, dataEnd: this.cursor, globals,
+      requiredCapabilities:[...linked.interfaces].map(api=>api.name) };
   }
 
   exceptionTag() {
@@ -562,6 +579,7 @@ class Codegen {
 
   reachable() {
     const functions=new Set(),globals=new Set(),fields=new Set(),bodies=new Set(),hooks=new Set();
+    const interfaces=new Set(),exports=new Set();
     const visitBody=body=>{
       if (!body || bodies.has(body)) return;
       bodies.add(body);
@@ -592,6 +610,17 @@ class Codegen {
     let changed=true;
     while (changed) {
       changed=false;
+      for (const api of this.opts.runtimeInterfaces || []) {
+        if (interfaces.has(api) || !api.imports.some(name=>functions.has(this.imports[name]?.index))) continue;
+        interfaces.add(api);
+        for (const name of [api.check,...api.exports]) {
+          const fn=this.functions.get(name);
+          if (!fn) throw new CodegenError("Missing runtime interface: "+name);
+          visitFunction(fn.index);
+        }
+        for (const name of api.exports) exports.add(name);
+        changed=true;
+      }
       for (const hook of this.opts.runtimeInitializers || []) {
         if (hooks.has(hook.name)) continue;
         if (!hook.always && !(hook.globals||[]).some(name=>globals.has(name)) &&
@@ -604,7 +633,7 @@ class Codegen {
         changed=true;
       }
     }
-    return {functions,globals,bodies,hooks};
+    return {functions,globals,bodies,hooks,interfaces,exports};
   }
 
   genRtInit(ctx,linked) {
@@ -769,6 +798,7 @@ class FnCtx {
   beginFrame() {
     if (this.frameSize === 0) return;
     const f = this.f;
+    f.stackCheck(this.frameSize);
     f.global_get(this.cg.spGlobal).i64_const(this.frameSize).op("i64_sub").global_set(this.cg.spGlobal);
     f.global_get(this.cg.spGlobal).local_set(this.fpLocal());
     // copy addressable params into their slots
@@ -1968,6 +1998,7 @@ class FnCtx {
         this.f.local_set(locals[i]);
       }
       const bytes=(extra.length+1)*8;
+      this.f.stackCheck(bytes);
       this.f.global_get(this.cg.spGlobal).i64_const(bytes).op("i64_sub")
         .global_set(this.cg.spGlobal);
       this.f.global_get(this.cg.spGlobal).op("i32_wrap_i64").i64_const(extra.length)
