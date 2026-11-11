@@ -32,6 +32,7 @@ npm run test:intrinsics   # Emitter, atomic memory operations and import linking
 npm run test:document     # Full DolDoc input, sprite integrity and CP437 transport.
 npm run test:strict       # Unsupported assembly and unresolved callable symbols.
 npm run test:callback     # Imported callbacks and null pointer traps.
+npm run test:varargs      # Variadic ABI, nested calls and exception cleanup.
 npm run test:exception    # Cross-call unwinding and repeated stack cleanup.
 npm run test:oracle       # Boot V5.03 in QEMU and recheck the native results.
 npm run test:float-scale  # Reproduce the native Pow10I64 table in QEMU.
@@ -47,6 +48,13 @@ Typed callbacks cover local/global variables, members, arrays, parameters,
 default arguments and native evaluation order. Direct calls and Print evaluate
 arguments right to left; an indirect call captures its target first. Nested
 printing cannot overwrite the outer call's staged argument values.
+Variadic functions expose native `I64 argc` and `I64 argv[127]`; the declared
+array size is descriptive, and calls may pass more than 127 values. Extra
+arguments preserve their raw 64-bit representation, including floating values.
+Their caller-owned argument blocks are reentrant and released after normal
+returns or caught exceptions. A variadic WASM import/export has one hidden
+final I64 parameter pointing to the count followed by contiguous I64 arguments.
+This calling convention does not reproduce the native x86 machine stack.
 Scalar-backed classes such as `U32 class CColorROPU32` retain their integer or
 F64 value operations and named fields. Layouts whose byte size differs from
 their underlying storage type remain unsupported in strict mode.

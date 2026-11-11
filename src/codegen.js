@@ -428,7 +428,9 @@ class Codegen {
       const sig = info.sig;
       this.functions.set(name, {
         name, isImport: true, index: info.index,
-        params: sig.params.map((vt) => ({ type: vt === VT.f64 ? T.F64 : T.I64 })),
+        params: info.declaration?info.declaration.params.map(p=>({...p,type:this.resolveType(p.type)})):
+          sig.params.map((vt) => ({ type: vt === VT.f64 ? T.F64 : T.I64 })),
+        isVarArgs:info.declaration?.isVarArgs,
         retType: sig.results.length ? (sig.results[0] === VT.f64 ? T.F64 : T.I64) : T.U0,
       });
     }
@@ -458,9 +460,9 @@ class Codegen {
       if (d.kind !== "FuncDecl" || d.body || !d.storage?.includes("import")) continue;
       if (this.imports[d.name] || defined.has(d.name)) continue;
       const params = d.params.map((p) => ({ type: this.resolveType(p.type), name: p.name, default: p.default }));
-      const sig = this.wasmSig(params, this.resolveType(d.retType));
+      const sig = this.wasmSig(params, this.resolveType(d.retType),d.isVarArgs);
       const idx = this.m.importFunc("env", d.name, sig.params, sig.results);
-      this.imports[d.name] = { index: idx, sig };
+      this.imports[d.name] = { index: idx, sig, declaration:d };
     }
   }
   registerFuncSig(d, bodyNode) {
@@ -468,7 +470,7 @@ class Codegen {
       type: this.resolveType(p.type), name: p.name, default: p.default,
     }));
     const retType = this.resolveType(d.retType);
-    const sig = this.wasmSig(params, retType);
+    const sig = this.wasmSig(params, retType,d.isVarArgs);
     let index;
     const existing = this.functions.get(d.name);
     if (existing && !existing.isImport && existing.slot) {
@@ -477,15 +479,19 @@ class Codegen {
       const slot = this.m.func(sig.params, sig.results, d.name);
       index = slot.index;
       this.functions.set(d.name, {
-        name: d.name, isImport: false, index, slot, params, retType, node: bodyNode,
+        name: d.name, isImport: false, index, slot, params, retType, isVarArgs:d.isVarArgs, node: bodyNode,
       });
       return;
     }
-    if (bodyNode) { existing.node = bodyNode; existing.params = params; existing.retType = retType; }
+    if (bodyNode) {
+      existing.node=bodyNode;existing.params=params;existing.retType=retType;
+      existing.isVarArgs=d.isVarArgs;
+    }
   }
-  wasmSig(params, retType) {
+  wasmSig(params, retType,isVarArgs=false) {
     return {
-      params: params.map((p) => (isFloat(this.resolveType(p.type)) ? VT.f64 : VT.i64)),
+      params: [...params.map((p) => (isFloat(this.resolveType(p.type)) ? VT.f64 : VT.i64)),
+        ...(isVarArgs?[VT.i64]:[])],
       results: isVoid(retType) ? [] : [isFloat(retType) ? VT.f64 : VT.i64],
     };
   }
@@ -623,7 +629,7 @@ class FnCtx {
     this.wlocalTypes = [];          // extra wasm local valtypes (beyond params)
     this.frameSize = 0;
     this.scratch = {};              // cached scratch local indices
-    this.paramCount = fn.params.length;
+    this.paramCount = fn.params.length+(fn.isVarArgs?1:0);
 
     // params occupy wasm locals 0..n-1
     this.nextWLocal = this.paramCount;
@@ -670,6 +676,11 @@ class FnCtx {
         this.locals.set(p.name, { kind: "wlocal", windex: i, type: ty });
       }
     });
+    if (this.fn.isVarArgs) {
+      const windex=this.fn.params.length;
+      this.locals.set("argc",{kind:"refslot",windex,offset:0,type:T.I64});
+      this.locals.set("argv",{kind:"refslot",windex,offset:8,type:arrayOf(T.I64,127)});
+    }
   }
   allocSlot(size, align) {
     this.frameSize = align8(this.frameSize, align) + size;
@@ -754,6 +765,10 @@ class FnCtx {
   }
 
   pushSlotAddr(d) {
+    if (d.kind==="refslot") {
+      this.f.local_get(d.windex).i64_const(d.offset).op("i64_add");
+      return;
+    }
     // address = fp_base + (frameSize - offset)   [slots packed from base upward]
     this.f.local_get(this.fpLocal());
     this.f.i64_const(this.frameSize - d.offset);
@@ -1227,7 +1242,7 @@ class FnCtx {
           if (node.operand.kind==="Ident" && !this.locals.has(node.operand.name) &&
               !this.cg.globals.has(node.operand.name)) {
             const fn=this.cg.functions.get(node.operand.name);
-            if (fn) return funcPtr(fn.retType,fn.params);
+            if (fn) return funcPtr(fn.retType,fn.params,fn.isVarArgs);
           }
           return ptrTo(this.peekType(node.operand));
         }
@@ -1357,7 +1372,7 @@ class FnCtx {
       case "Ident": {
         const L = this.locals.get(node.name);
         if (L) {
-          if (L.kind === "slot") { this.pushSlotAddr(L); return this.cg.resolveType(L.type); }
+          if (L.kind === "slot" || L.kind==="refslot") { this.pushSlotAddr(L); return this.cg.resolveType(L.type); }
           if (L.kind === "reflocal") { this.f.local_get(L.windex); return this.cg.resolveType(L.type); }
           this.err(node, "cannot take address of register local '" + node.name + "'");
         }
@@ -1733,7 +1748,7 @@ class FnCtx {
             this.err(node, "Unresolved function: " + fn.name);
           this.f.references.add(fn.index);
           this.f.i64_const(this.cg.functionAddress(fn));
-          return funcPtr(fn.retType,fn.params);
+          return funcPtr(fn.retType,fn.params,fn.isVarArgs);
         }
       }
       const t = this.genAddr(node.operand);
@@ -1806,11 +1821,12 @@ class FnCtx {
   genCall(node) {
     const callee = node.callee,type=this.peekType(callee);
     if (isFuncPtr(type)) {
-      const target=this.newWLocal(VT.i32),sig=this.cg.wasmSig(type.params,type.retType);
+      const target=this.newWLocal(VT.i32),sig=this.cg.wasmSig(type.params,type.retType,type.isVarArgs);
       this.genExpr(callee);
       this.f.op("i32_wrap_i64").local_set(target);
-      this.emitArgs(type.params,node.args,node);
+      const bytes=this.emitArgs(type.params,node.args,node,type.isVarArgs);
       this.f.local_get(target).call_indirect(this.cg.m.typeIndex(sig.params,sig.results));
+      this.releaseArgs(bytes);
       //A null-only callback still needs a table so a call traps at runtime.
       if (!this.cg.m.table) this.cg.m.setTable(1);
       return type.retType;
@@ -1884,8 +1900,9 @@ class FnCtx {
   emitCall(fn, args, node) {
     if (!this.cg.lenient && !fn.isImport && !fn.node)
       this.err(node, "Unresolved function: " + fn.name);
-    this.emitArgs(fn.params||[],args,node);
+    const bytes=this.emitArgs(fn.params||[],args,node,fn.isVarArgs);
     this.f.call(fn.index);
+    this.releaseArgs(bytes);
     return fn.retType;
   }
 
@@ -1907,13 +1924,45 @@ class FnCtx {
     }
   }
 
-  emitArgs(params,args,node) {
+  releaseArgs(bytes) {
+    if (bytes) this.f.global_get(this.cg.spGlobal).i64_const(bytes)
+      .op("i64_add").global_set(this.cg.spGlobal);
+  }
+
+  emitArgs(params,args,node,isVarArgs=false) {
     const values=params.map((p,i)=>args[i]??this.cg.defaultValues.get(p.default)??p.default),
       types=params.map(p=>this.cg.resolveType(p.type));
     if (!this.cg.lenient && values.some(value=>value==null))
       this.err(node,"Missing required function argument");
-    if (!this.cg.lenient && args.length>params.length)
+    if (!this.cg.lenient && !isVarArgs && args.length>params.length)
       this.err(node,"Too many function arguments");
+    if (isVarArgs) {
+      const extra=args.slice(params.length);
+      if (extra.some(value=>value==null)) this.err(node,"Missing variable argument");
+      const extraLocals=extra.map(()=>this.newWLocal(VT.i64)),
+        locals=types.map(type=>this.newWLocal(wasmValType(type)));
+      for (let i=extra.length-1;i>=0;i--) {
+        const type=this.genExpr(extra[i]);
+        if (isVoid(type)) this.f.i64_const(0);
+        else if (isFloat(type)) this.f.op("i64_reinterpret_f64");
+        this.f.local_set(extraLocals[i]);
+      }
+      for (let i=values.length-1;i>=0;i--) {
+        if (values[i]!=null) this.genExprCoerce(values[i],types[i]);
+        else this.pushZero(types[i]);
+        this.f.local_set(locals[i]);
+      }
+      const bytes=(extra.length+1)*8;
+      this.f.global_get(this.cg.spGlobal).i64_const(bytes).op("i64_sub")
+        .global_set(this.cg.spGlobal);
+      this.f.global_get(this.cg.spGlobal).op("i32_wrap_i64").i64_const(extra.length)
+        .store("i64_store",0,3);
+      extraLocals.forEach((local,i)=>this.f.global_get(this.cg.spGlobal)
+        .op("i32_wrap_i64").local_get(local).store("i64_store",(i+1)*8,3));
+      locals.forEach(local=>this.f.local_get(local));
+      this.f.global_get(this.cg.spGlobal);
+      return bytes;
+    }
     const push=i=>values[i]!=null?this.genExprCoerce(values[i],types[i]):this.pushZero(types[i]);
     //Native PrsFunCall assembles argument blocks from right to left.
     if (values.every(value=>this.pureExpr(value)) && args.length<=params.length) {
