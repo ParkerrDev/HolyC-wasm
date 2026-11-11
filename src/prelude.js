@@ -25,6 +25,7 @@ import {DIR_TYPES_SRC,DIR_SRC} from "./dir-prelude.js";
 import {FILE_SRC} from "./file-prelude.js";
 import {TASK_INTERFACE,TASK_SCHEDULE_SRC} from "./task-schedule.js";
 import {DOC_TYPES_SRC,WINDOW_SRC} from "./window-prelude.js";
+import {DOC_NAV_SRC} from "./doc-nav.js";
 import {DOC_INIT_TYPES_SRC,DOC_INIT_SRC} from "./doc-init.js";
 import {DOC_ENTRY_TYPES_SRC} from "./doc-entry.js";
 import {FIFO_TYPES_SRC,FIFO_SRC} from "./fifo-prelude.js";
@@ -765,6 +766,7 @@ ${LEX_TOKEN_DATA_SRC}
 ${LEX_TOKEN_DIAG_SRC}
 ${LEX_TOKEN_SRC}
 ${DOC_INIT_SRC}
+${DOC_NAV_SRC}
 
 public I64 DistSqrI64(I64 x1,I64 y1,I64 x2,I64 y2)
 {

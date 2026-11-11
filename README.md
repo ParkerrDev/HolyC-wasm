@@ -1409,3 +1409,21 @@ DocNew, DocRst, DocRecalc, native DocClear, full document output and the window
 manager remain separate unfinished dependencies. In particular, DocRst calls
 DocTop, which needs DocFormFwd and actual DocRecalc; DocNew also installs the real
 EdLeftClickLink callback. The initializer does not fabricate those operations.
+
+### Document base entries and form navigation
+
+DocEntryNewBase allocates the native 88-byte shortened entry for the document's
+mem_task and applies the real per-type defaults. DocFormFwd and DocFormBwd move
+through valid document queues with native form/link/skip/indent and sentinel
+behavior. After metadata startup, navigation allocates nothing. Only the cursor
+entry and column change; these routines do not calculate layout or render.
+
+`npm run test:doc-nav` checks 13,000 navigation cases, 344 byte layouts, real
+current/foreign-task ownership, allocation failure/retry, five session lifetimes
+and complete disposal. `node tests/doc-nav-oracle.mjs` repeats the source, library,
+wrapper, capture and output-bound stock/ported V5.03 proof. Native MHeapCtrl
+confirms allocation ownership; it is not exposed as a fabricated host heap ABI.
+The shortened entry must not be accessed as though it owned every full-record
+field. Native entry-type/queue preconditions and the existing allocator-span
+difference remain. DocTop/Rst/New/Recalc, link editing and native DocClear remain
+unavailable; the explicit KeyDev profile has no substitute clearing routine.

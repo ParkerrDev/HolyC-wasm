@@ -10,7 +10,7 @@ explicit KeyDev profile. Boot-only DocInit is not a callable refresh API.
 
 `Kernel/KDefine.HC` supplies DefineLoad/LstLoad and lookup operations.
 `Kernel/KHashB.HC` supplies HashDefineLstAdd. Runtime defines currently live in
-program-owned task tables. These tables contain neither the compiler's live
+program-owned task tables. These tables do not contain the compiler's live
 symbols. The document initializer loads its four measured standard lists;
 other kernel bootstrap lists remain absent. Runtime DefineLoad cannot
 alter already-compiled WASM or define an identifier for later compilation within
@@ -155,9 +155,26 @@ root-session bootstrap, not a public repeated DocInit implementation. Return
 address/debugger source links remain unavailable, and no live compiler symbol
 graph is introduced.
 
-The next concrete dependencies are DocEntryNewBase's default-mask use and the
-DocNew/Rst/Top/Recalc chain. DocTop invokes DocFormFwd and actual DocRecalc;
-DocClear emits a real CL command through DocPrint and recalculates. DocNew also
+A69 supplies the native DocEntryNewBase constructor and DocFormFwd/DocFormBwd.
+The constructor allocates the shortened 88-byte base record for doc->mem_task
+and applies the initialized type defaults, preserving native field truncation.
+Form navigation changes only cur_entry and cur_col; it uses the actual form
+bitmap, LINK/SKIP_IN_FORM flags and sentinel recovery. Native backward navigation
+also skips indent entries in the forward direction; the port preserves that
+measured behavior. There is no document creation or layout hidden in these APIs.
+
+The remaining concrete chain is DocNew/Rst/Top/Recalc. DocTop invokes the now
+available DocFormFwd and actual DocRecalc. DocClear emits a real CL command through DocPrint and recalculates. DocNew also
 installs EdLeftClickLink, whose file/compiler/UI behavior needs its own explicit
 capability boundary. None of these may be replaced with a silent callback or
 no-op layout routine merely to compile native games.
+
+A69 tests compare 13,000 navigation states and 344 complete base-entry byte
+layouts with both stock V5.03 and the port compiled by V5.03. A separate native
+MHeapCtrl witness verifies NULL/current/foreign task ownership; host tests use
+its actual allocation-owner sets, not a fabricated native heap header. Foreign
+children release their entries on exit. Five repeated sessions and every base
+constructor allocation failure preserve document bytes, task ownership and the
+stack, and permit immediate retry. Native allocator-failure injection is not
+claimed. The caller must supply valid native queues and an in-range entry type;
+these helpers do not validate or repair corrupted documents.
