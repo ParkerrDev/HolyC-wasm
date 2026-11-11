@@ -94,6 +94,18 @@ class CGr {
 CGr gr;
 
 //==================== math (host-backed) ====================
+I64 ToI64(F64 d)
+{//Convert and truncate toward zero.
+  I64 res=d;
+  return res;
+}
+
+F64 ToF64(I64 i)
+{//Convert the signed integer value.
+  F64 res=i;
+  return res;
+}
+
 F64 Sin(F64 x) { return __sin(x); }
 F64 Cos(F64 x) { return __cos(x); }
 F64 Tan(F64 x) { return __tan(x); }

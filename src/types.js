@@ -10,7 +10,7 @@ export function intType(bits, signed) { return { kind: "int", bits, signed }; }
 export const T = {
   U0: { kind: "void" },
   I0: { kind: "void" },
-  Bool: intType(8, false),
+  Bool: intType(8, true),
   I8: intType(8, true), U8: intType(8, false),
   I16: intType(16, true), U16: intType(16, false),
   I32: intType(32, true), U32: intType(32, false),
@@ -98,6 +98,8 @@ export function arithIsFloat(a, b) { return isFloat(a) || isFloat(b); }
 // Result type of binary arithmetic (HolyC mostly works in I64/F64).
 export function binResultType(a, b) {
   if (arithIsFloat(a, b)) return T.F64;
+  if (isArray(a)) a = ptrTo(a.of);
+  if (isArray(b)) b = ptrTo(b.of);
   // pointer arithmetic: ptr +/- int -> ptr
   if (isPtr(a) && isInt(b)) return a;
   if (isInt(a) && isPtr(b)) return b;

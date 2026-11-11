@@ -126,7 +126,7 @@ export class Gotos {
         if (s.cond) h.term = { kind: "cond", cond: s.cond, t: b, f: x };
         this.place(R, b); this.loopBody(R, s.body, x, st);
         this.place(R, st);
-        if (s.step) this.item(R, { kind: "ExprStmt", expr: s.step, line: s.line });
+        if (s.step) this.item(R, s.step);
         this.jmp(R, h); this.place(R, x);
         return;
       }

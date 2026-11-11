@@ -8,7 +8,19 @@ const STORAGE = new Set([
 ]);
 
 const ASSIGN_OPS = new Set(["=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>="]);
-const RELOPS = new Set(["<", ">", "<=", ">="]);
+// V5.03's binary operators (Compiler/CInit.HC:287-317): prec is tighter when
+// smaller; power and assignment group to the right.
+const BINOPS = new Map([
+  ["`", { prec: 0x10, right: true }], ["<<", { prec: 0x10 }], [">>", { prec: 0x10 }],
+  ["*", { prec: 0x14 }], ["/", { prec: 0x14 }], ["%", { prec: 0x14 }],
+  ["&", { prec: 0x18 }], ["^", { prec: 0x1C }], ["|", { prec: 0x20 }],
+  ["+", { prec: 0x24 }], ["-", { prec: 0x24 }],
+  ["<", { prec: 0x28 }], [">", { prec: 0x28 }], ["<=", { prec: 0x28 }], [">=", { prec: 0x28 }],
+  ["==", { prec: 0x2C }], ["!=", { prec: 0x2C }],
+  ["&&", { prec: 0x30 }], ["^^", { prec: 0x34 }], ["||", { prec: 0x38 }],
+]);
+const CMP_OPS = new Set(["<", ">", "<=", ">=", "==", "!="]);
+const LOGIC_OPS = new Set(["&&", "||", "^^"]);
 
 export class Parser {
   constructor(tokens, filename = "<src>", opts = {}) {
@@ -291,7 +303,23 @@ export class Parser {
     return mk("Block", { stmts }, tok);
   }
 
+  // V5.03 goes on to another statement after a comma (Compiler/PrsStmt.HC:
+  // 919-935), so a=1,b=2; is two statements, and both belong to an if that
+  // holds the first.
   parseStatement() {
+    const t = this.cur();
+    while (this.optP(","));
+    const s = this.parseOneStatement();
+    if (!this.isP(",")) return s;
+    const stmts = [s];
+    while (this.isP(",")) {
+      while (this.optP(","));
+      stmts.push(this.parseOneStatement());
+    }
+    return mk("Block", { stmts }, t);
+  }
+
+  parseOneStatement() {
     const t = this.cur();
 
     if (this.isP("{")) return this.parseBlock();
@@ -414,16 +442,23 @@ export class Parser {
     const cond = this.parseExpression(); this.eatP(")"); this.optP(";");
     return mk("DoWhile", { body, cond }, t);
   }
+  // The first and last parts are statements, as in V5.03 (Compiler/PrsStmt.HC:
+  // 529-564), so commas may join several: for (i=0,j=9;i<j;i++,j--).
   parseFor() {
     const t = this.next(); this.eatP("(");
     let init = null;
-    if (!this.isP(";")) {
-      if (this.looksLikeDecl()) { const d = this.parseDeclaration(false); init = mk("DeclStmt", { decls: Array.isArray(d) ? d : [d] }, t); }
-      else init = mk("ExprStmt", { expr: this.parseExpression() }, t);
-    }
-    this.optP(";");
+    if (!this.optP(";")) init = this.parseStatement();
     let cond = null; if (!this.isP(";")) cond = this.parseExpression(); this.eatP(";");
-    let step = null; if (!this.isP(")")) step = this.parseExpression(); this.eatP(")");
+    let step = null;
+    if (!this.isP(")")) {
+      const stmts = [];
+      do {
+        const et = this.cur();
+        stmts.push(mk("ExprStmt", { expr: this.parseExpression() }, et));
+      } while (this.optP(","));
+      step = stmts.length === 1 ? stmts[0] : mk("Block", { stmts }, t);
+    }
+    this.eatP(")");
     const body = this.parseStatement();
     return mk("For", { init, cond, step, body }, t);
   }
@@ -461,7 +496,7 @@ export class Parser {
   }
 
   // ====================================================================
-  // Expressions (precedence climbing)
+  // Expressions
   // ====================================================================
   parseExpression() { return this.parseAssignment(); }
 
@@ -476,8 +511,9 @@ export class Parser {
     return left;
   }
 
+  // ?: is not V5.03's (HolyC.DD:192). It binds between || and assignment.
   parseConditional() {
-    const cond = this.parseLogicalOr();
+    const cond = this.parseBinary();
     if (this.isP("?")) {
       const t = this.next();
       const then = this.parseAssignment();
@@ -488,69 +524,54 @@ export class Parser {
     return cond;
   }
 
-  binLevel(next, ops) {
-    let left = next.call(this);
-    while (this.cur().type === "punct" && ops.includes(this.cur().value)) {
-      const t = this.next();
-      const right = next.call(this);
-      left = mk("Binary", { op: t.value, left, right }, t);
+  // V5.03's operator loop (Compiler/PrsExp.HC:211-241): an operator waits on
+  // the stack while the next one binds tighter, or as tight and groups to the
+  // right. A compare that a later compare reduces shares its right operand
+  // with it, so a<b<c and a<b==c are chains.
+  parseBinary() {
+    const vals = [this.parseUnary()], ops = [];
+    const reduce = () => {
+      const o = ops.pop(), right = vals.pop(), left = vals.pop();
+      if (o.chained) {
+        vals.push(left.kind === "Chain"
+          ? mk("Chain", { ops: [...left.ops, o.op], operands: [...left.operands, right] }, left)
+          : mk("Chain", { ops: [left.op, o.op], operands: [left.left, left.right, right] }, left));
+      } else vals.push(mk(LOGIC_OPS.has(o.op) ? "Logical" : "Binary", { op: o.op, left, right }, o.tok));
+    };
+    while (true) {
+      const t = this.cur();
+      const b = t.type === "punct" && BINOPS.get(t.value);
+      if (!b) break;
+      this.next();
+      const op = { op: t.value, prec: b.prec, right: b.right, tok: t, chained: false };
+      while (ops.length) {
+        const top = ops[ops.length - 1];
+        if (op.prec === top.prec ? op.right : op.prec < top.prec) break;
+        reduce();
+        if (CMP_OPS.has(op.op) && CMP_OPS.has(top.op)) op.chained = true;
+      }
+      ops.push(op);
+      vals.push(this.parseUnary());
     }
-    return left;
+    while (ops.length) reduce();
+    return vals[0];
   }
 
-  parseLogicalOr() {
-    let left = this.parseLogicalAnd();
-    while (this.isP("||")) { const t = this.next(); const right = this.parseLogicalAnd(); left = mk("Logical", { op: "||", left, right }, t); }
-    return left;
-  }
-  parseLogicalAnd() {
-    let left = this.parseBitOr();
-    while (this.isP("&&")) { const t = this.next(); const right = this.parseBitOr(); left = mk("Logical", { op: "&&", left, right }, t); }
-    return left;
-  }
-  parseBitOr() { return this.binLevel(this.parseBitXor, ["|"]); }
-  parseBitXor() { return this.binLevel(this.parseBitAnd, ["^"]); }
-  parseBitAnd() { return this.binLevel(this.parseEquality, ["&"]); }
-  parseEquality() { return this.binLevel(this.parseRelational, ["==", "!="]); }
-
-  parseRelational() {
-    // HolyC chained range comparisons: a<b<c => (a<b)&&(b<c)
-    const operands = [this.parseShift()];
-    const ops = [];
-    while (this.cur().type === "punct" && RELOPS.has(this.cur().value)) {
-      ops.push(this.next().value);
-      operands.push(this.parseShift());
-    }
-    if (ops.length === 0) return operands[0];
-    if (ops.length === 1) return mk("Binary", { op: ops[0], left: operands[0], right: operands[1] });
-    // build conjunction (note: middle operands evaluated more than once)
-    let result = null;
-    for (let k = 0; k < ops.length; k++) {
-      const cmp = mk("Binary", { op: ops[k], left: operands[k], right: operands[k + 1] });
-      result = result ? mk("Logical", { op: "&&", left: result, right: cmp }) : cmp;
-    }
-    return result;
-  }
-
-  parseShift() { return this.binLevel(this.parseAdditive, ["<<", ">>"]); }
-  parseAdditive() { return this.binLevel(this.parseMultiplicative, ["+", "-"]); }
-  parseMultiplicative() { return this.binLevel(this.parsePower, ["*", "/", "%"]); }
-  parsePower() {
-    // backtick power, right associative: a`b
-    const left = this.parseUnary();
-    if (this.isP("`")) {
-      const t = this.next();
-      const right = this.parsePower();
-      return mk("Binary", { op: "`", left, right }, t);
-    }
-    return left;
+  // After a unary minus, power applies first: -a`b is -(a`b)
+  // (Compiler/PrsExp.HC:139-147).
+  parsePowerAfterMinus(left) {
+    if (!this.isP("`")) return left;
+    const t = this.next();
+    const right = this.parsePowerAfterMinus(this.parseUnary());
+    return mk("Binary", { op: "`", left, right }, t);
   }
 
   parseUnary() {
     const t = this.cur();
     if (t.type === "punct" && ["!", "~", "-", "+", "&", "*", "++", "--"].includes(t.value)) {
       this.next();
-      const operand = this.parseUnary();
+      let operand = this.parseUnary();
+      if (t.value === "-") operand = this.parsePowerAfterMinus(operand);
       return mk("Unary", { op: t.value, operand, prefix: true }, t);
     }
     if (this.isKw("sizeof")) {

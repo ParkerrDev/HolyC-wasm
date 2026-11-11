@@ -3,13 +3,10 @@
   "version": "0.1.0",
   "description": "A from-scratch HolyC -> WebAssembly compiler with a TempleOS graphics/sound runtime for the browser.",
   "type": "module",
-  "bin": {
-    "holyc": "cli/holyc.js"
-  },
   "scripts": {
     "test": "node tests/run.mjs",
-    "serve": "node web/server.js",
-    "selftest:wasm": "node src/wasm/emitter.selftest.js"
+    "test:oracle": "node tests/oracle.mjs --check",
+    "test:intrinsics": "node src/wasm/emitter.selftest.js && node src/atomic.selftest.mjs && node src/import.selftest.mjs"
   },
   "license": "MIT",
   "author": "Built with Claude Code"

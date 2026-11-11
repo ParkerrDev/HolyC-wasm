@@ -231,6 +231,8 @@ export class Func {
   }
   memory_grow() { this._op(OP.memory_grow); this.bytes.push(0x00); return this; }
   memory_size() { this._op(OP.memory_size); this.bytes.push(0x00); return this; }
+  memory_copy() { return this.raw(0xfc, 0x0a, 0, 0); }
+  memory_fill() { return this.raw(0xfc, 0x0b, 0); }
 
   // WASM threads atomic op: 0xFE prefix + uleb sub-opcode + memarg(align,offset).
   // align is the log2 of the access size (atomics REQUIRE natural alignment) - caller passes it.

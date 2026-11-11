@@ -27,7 +27,7 @@ export class Token {
 const PUNCT3 = ["<<=", ">>=", "...", "::"];
 const PUNCT2 = [
   "==", "!=", "<=", ">=", "&&", "||", "++", "--", "->",
-  "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<", ">>",
+  "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<", ">>", "^^",
 ];
 const PUNCT1 = "+-*/%=<>!&|^~?:.,;(){}[]`@#";
 
@@ -203,7 +203,7 @@ export function lex(src, filename = "<src>") {
       }
       let s = "";
       while (i < n && (isDigit(peek()) || peek() === "_")) { const d = adv(); if (d !== "_") s += d; }
-      if (peek() === ".") { isFloat = true; s += adv(); while (i < n && (isDigit(peek()) || peek() === "_")) { const d = adv(); if (d !== "_") s += d; } }
+      if (peek() === "." && peek(1) !== ".") { isFloat = true; s += adv(); while (i < n && (isDigit(peek()) || peek() === "_")) { const d = adv(); if (d !== "_") s += d; } }
       if (peek() === "e" || peek() === "E") {
         isFloat = true; s += adv();
         if (peek() === "+" || peek() === "-") s += adv();

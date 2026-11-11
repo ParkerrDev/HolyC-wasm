@@ -45,6 +45,7 @@ class Codegen {
     this.constEnv = {};         // name -> bigint, for #define-like enum constants
     this.data = [];             // {addr, bytes}
     this.strings = new Map();   // key -> addr
+    this.literals = new WeakMap();
     this.cursor = DATA_BASE;
     this.warnings = [];
     // Lenient mode (default ON): unknown kernel symbols/fields/calls become safe
@@ -83,6 +84,14 @@ class Codegen {
     const addr = this.alloc(arr.length, 1);
     this.data.push({ addr, bytes: arr });
     this.strings.set(key, addr);
+    return addr;
+  }
+
+  literalBytes(node) {
+    if (this.literals.has(node)) return this.literals.get(node);
+    const bytes = [...node.bytes, 0], addr = this.alloc(bytes.length, 1);
+    this.data.push({ addr, bytes });
+    this.literals.set(node, addr);
     return addr;
   }
 
@@ -153,15 +162,15 @@ class Codegen {
     const node = this.classes.get(name);
     if (!node) throw new CodegenError("unknown class " + name);
     const fields = new Map();
-    let off = 0, maxAlign = 1, maxSize = 0;
+    let off = 0, maxSize = 0;
     // base class members first
     if (node.base && this.classes.has(node.base)) {
       const base = this.layoutClass(node.base);
       for (const [fn, fi] of base.fields) fields.set(fn, { ...fi });
-      off = base.size; maxAlign = Math.max(maxAlign, base.align);
+      off = base.size;
     }
     // mark as in-progress to allow self-referential pointers
-    this.classLayouts.set(name, { size: 0, align: 8, fields, incomplete: true });
+    this.classLayouts.set(name, { size: 0, align: 1, fields, incomplete: true });
     for (const mem of node.members) {
       let ty = this.resolveType(mem.type);
       if (ty && ty.kind === "class" && !this.classes.has(ty.name)) {
@@ -169,20 +178,16 @@ class Codegen {
         else throw new CodegenError(`class ${name}: member '${mem.name}' has unknown class type '${ty.name}'`);
       }
       const sz = this.typeSize(ty);
-      const al = this.typeAlign(ty);
       if (node.isUnion) {
         fields.set(mem.name, { type: ty, offset: 0 });
         maxSize = Math.max(maxSize, sz);
-        maxAlign = Math.max(maxAlign, al);
       } else {
-        off = align8(off, al);
         fields.set(mem.name, { type: ty, offset: off });
         off += sz;
-        maxAlign = Math.max(maxAlign, al);
       }
     }
-    const size = node.isUnion ? align8(maxSize, maxAlign) : align8(off, maxAlign);
-    const layout = { size, align: maxAlign, fields, incomplete: false };
+    // V5.03 packs members (Compiler/PrsVar.HC), including a class's tail.
+    const layout = { size: node.isUnion ? maxSize : off, align: 1, fields, incomplete: false };
     this.classLayouts.set(name, layout);
     return layout;
   }
@@ -556,15 +561,6 @@ class FnCtx {
         this.emitStore(d.type);
       }
     }
-    // initialize slot locals with initializers
-    for (const [name, d] of this.locals) {
-      if (d.kind === "slot" && d.paramIndex == null && d.init != null) {
-        this.genStoreInit(d);
-      } else if (d.kind === "wlocal" && d.init != null) {
-        this.genExprCoerce(d.init, d.type);
-        this.f.local_set(d.windex);
-      }
-    }
   }
   restoreFrame() {
     if (this.frameSize === 0) return;
@@ -658,6 +654,16 @@ class FnCtx {
   }
   storeInitInto(pushAddr, type, init) {
     type = this.cg.resolveType(type);
+    if (isArray(type) && init.kind === "StrLit" && this.cg.typeSize(type.of) === 1) {
+      const size = this.cg.typeSize(type);
+      if (init.bytes.length > size) this.err(init, "string initializer exceeds array");
+      pushAddr(); this.f.op("i32_wrap_i64");
+      this.f.i32_const(0).i32_const(size).memory_fill();
+      pushAddr(); this.f.op("i32_wrap_i64");
+      this.f.i32_const(this.cg.literalBytes(init));
+      this.f.i32_const(Math.min(size, init.bytes.length + 1)).memory_copy();
+      return;
+    }
     if (init.kind === "InitList") {
       if (isArray(type)) {
         const et = type.of, esz = this.cg.typeSize(et);
@@ -685,10 +691,7 @@ class FnCtx {
     // data segment rather than thousands of per-element stores - instant to emit.
     if (g.init.kind === "InitList" && this.cg.tryStaticConstArray(g)) return;
     const pushAddr = () => this.f.i64_const(g.addr);
-    if (g.init.kind === "InitList") { this.storeInitInto(pushAddr, g.type, g.init); return; }
-    pushAddr(); this.f.op("i32_wrap_i64");
-    this.genExprCoerce(g.init, g.type);
-    this.emitStore(g.type);
+    this.storeInitInto(pushAddr, g.type, g.init);
   }
 
   genReturn(s) {
@@ -746,7 +749,7 @@ class FnCtx {
     this.genStmt(s.body);
     this.loops.pop();
     this.f.end(); this.popCtrl(); // cont
-    if (s.step) { const t = this.genExpr(s.step); this.dropIfValue(t); }
+    if (s.step) this.genStmt(s.step);
     this.f.br(this.rel(loop));
     this.f.end(); this.popCtrl(); // loop
     this.f.end(); this.popCtrl(); // brk
@@ -884,9 +887,20 @@ class FnCtx {
   }
 
   // ================================================== conditions
+  // The test of an if, while, do or for, as an i32. Here V5.03 skips the rest
+  // of && and || and of a chain of compares once the result is known
+  // (Compiler/OptLib.HC:230-357). Elsewhere it evaluates every operand
+  // (Doc/GuideLines.DD:79), which genTruth does.
   genCond(node) {
-    // leave i32 (1 if true)
     if (node.kind === "Unary" && node.op === "!") { this.genCond(node.operand); this.f.op("i32_eqz"); return; }
+    if (node.kind === "Chain") { this.genChain(node, true); return; }
+    const t = node.kind === "Logical" && node.op !== "^^" ? this.genShortCircuit(node) : this.genExpr(node);
+    if (isFloat(t)) { this.f.f64_const(0).op("f64_ne"); }
+    else { this.f.i64_const(0).op("i64_ne"); }
+  }
+
+  genTruth(node) {
+    if (node.kind === "Unary" && node.op === "!") { this.genTruth(node.operand); this.f.op("i32_eqz"); return; }
     const t = this.genExpr(node);
     if (isFloat(t)) { this.f.f64_const(0).op("f64_ne"); }
     else { this.f.i64_const(0).op("i64_ne"); }
@@ -931,14 +945,15 @@ class FnCtx {
   // genExpr pushes a value and returns its HolyC type
   genExpr(node) {
     switch (node.kind) {
-      case "IntLit": this.f.i64_const(node.value); return T.I64;
+      case "IntLit": this.f.i64_const(node.value); return literalType(node.value);
       case "FloatLit": this.f.f64_const(node.value); return T.F64;
-      case "CharLit": this.f.i64_const(node.value); return T.I64;
-      case "StrLit": { const a = this.cg.internBytes(node.bytes, true); this.f.i64_const(a); return ptrTo(T.U8); }
+      case "CharLit": this.f.i64_const(node.value); return literalType(node.value);
+      case "StrLit": { const a = this.cg.literalBytes(node); this.f.i64_const(a); return ptrTo(T.U8); }
       case "Ident": return this.genIdent(node);
       case "Assign": return this.genAssign(node);
       case "Binary": return this.genBinary(node);
       case "Logical": return this.genLogical(node);
+      case "Chain": this.genChain(node, false); this.f.op("i64_extend_i32_u"); return T.I64;
       case "Unary": return this.genUnary(node);
       case "Postfix": return this.genPostfix(node);
       case "Cond": return this.genCondExpr(node);
@@ -997,7 +1012,7 @@ class FnCtx {
   // Static type of an expression without emitting code (best-effort).
   peekType(node) {
     switch (node.kind) {
-      case "IntLit": case "CharLit": return T.I64;
+      case "IntLit": case "CharLit": return literalType(node.value);
       case "FloatLit": return T.F64;
       case "StrLit": return ptrTo(T.U8);
       case "Ident": {
@@ -1014,11 +1029,15 @@ class FnCtx {
         if ([">","<",">=","<=","==","!="].includes(node.op)) return T.I64;
         return binResultType(a, b);
       }
-      case "Logical": return T.I64;
+      case "Logical": case "Chain": return T.I64;
       case "Unary": {
         if (node.op === "&") return ptrTo(this.peekType(node.operand));
         if (node.op === "*") { const t = this.peekType(node.operand); return isPtr(t) || isArray(t) ? elemType(t) : T.I64; }
         if (node.op === "!") return T.I64;
+        if (node.op === "-") {
+          const t = this.peekType(node.operand);
+          return isInt(t) ? { ...t, signed: true } : t;
+        }
         return this.peekType(node.operand);
       }
       case "Postfix": return this.peekType(node.operand);
@@ -1231,6 +1250,8 @@ class FnCtx {
 
   genAssign(node) {
     const op = node.op;
+    if (isAggregate(this.cg.resolveType(this.peekType(node.target))))
+      this.err(node, "Invalid lval: aggregate assignment");
     const wl = this.wlocalTarget(node.target);
     if (wl) {
       const { L, type: t, own } = wl;
@@ -1276,16 +1297,24 @@ class FnCtx {
   combineToValue(base, pushLeft, leftType, valueNode) {
     const lr = this.cg.resolveType(leftType);
     const rPeek = this.cg.resolveType(this.peekType(valueNode));
+    if ((base === "+" || base === "-") && isPtr(lr) && isInt(rPeek)) {
+      pushLeft();
+      this.genExprCoerce(valueNode, T.I64);
+      const size = this.cg.typeSize(lr.to);
+      if (size !== 1) this.f.i64_const(size).op("i64_mul");
+      this.f.op(base === "+" ? "i64_add" : "i64_sub");
+      return lr;
+    }
     const floatArith = (isFloat(lr) || isFloat(rPeek)) && (base === "+" || base === "-" || base === "*" || base === "/");
     if (floatArith) {
       pushLeft();
-      if (!isFloat(lr)) this.f.op(isUnsigned(lr) ? "f64_convert_i64_u" : "f64_convert_i64_s");
+      if (!isFloat(lr)) this.f.op("f64_convert_i64_s");
       this.genExprCoerce(valueNode, T.F64);
       this.floatOp(base);
       return T.F64;
     }
     pushLeft();
-    if (isFloat(lr)) this.f.fc("i64_trunc_sat_f64_s");
+    if (isFloat(lr)) this.floatToInt();
     this.genExprCoerce(valueNode, T.I64);
     this.intOp(base, isUnsigned(lr));
     return T.I64;
@@ -1303,6 +1332,22 @@ class FnCtx {
     const rt = this.peekType(node.right);
     // pointer arithmetic
     const lr = this.cg.resolveType(lt), rr = this.cg.resolveType(rt);
+    if (node.op === "-" && (isPtr(lr) || isArray(lr)) && (isPtr(rr) || isArray(rr))) {
+      this.genExpr(node.left);
+      this.genExpr(node.right);
+      this.f.op("i64_sub");
+      const size = this.cg.typeSize(elemType(lr));
+      if (size !== 1) this.f.i64_const(size).op("i64_div_s");
+      return T.I64;
+    }
+    if (node.op === "+" && isInt(lr) && (isPtr(rr) || isArray(rr))) {
+      this.genExprCoerce(node.left, T.I64);
+      const size = this.cg.typeSize(elemType(rr));
+      if (size !== 1) this.f.i64_const(size).op("i64_mul");
+      this.genExpr(node.right);
+      this.f.op("i64_add");
+      return ptrTo(elemType(rr));
+    }
     if ((node.op === "+" || node.op === "-") && (isPtr(lr) || isArray(lr)) && isInt(rr)) {
       const elemT = elemType(lr); const esz = this.cg.typeSize(elemT);
       this.genExpr(node.left);
@@ -1329,7 +1374,7 @@ class FnCtx {
       } else {
         this.genExprCoerce(node.left, T.I64);
         this.genExprCoerce(node.right, T.I64);
-        const unsigned = isUnsigned(lr) && isUnsigned(rr);
+        const unsigned = isUnsigned(lr) || isUnsigned(rr);
         this.intCmp(node.op, unsigned);
       }
       this.f.op("i64_extend_i32_u");
@@ -1338,7 +1383,7 @@ class FnCtx {
     // integer op (coerce truncates any float operand)
     this.genExprCoerce(node.left, T.I64);
     this.genExprCoerce(node.right, T.I64);
-    this.intOp(node.op, (isUnsigned(lr) && isUnsigned(rr)) || isUnsigned(lr));
+    this.intOp(node.op, isUnsigned(lr) || isUnsigned(rr));
     // Propagate unsignedness (C "usual arithmetic conversions"): if either
     // operand is unsigned the result is unsigned, so a following comparison
     // (e.g. carry detection `(r & m) < (a & m)`) is done unsigned, not signed.
@@ -1392,7 +1437,14 @@ class FnCtx {
   }
 
   genLogical(node) {
-    // short-circuit; result i64 0/1
+    this.genTruth(node.left);
+    this.genTruth(node.right);
+    this.f.op(node.op === "&&" ? "i32_and" : node.op === "||" ? "i32_or" : "i32_xor");
+    this.f.op("i64_extend_i32_u");
+    return T.I64;
+  }
+
+  genShortCircuit(node) {
     this.genCond(node.left); // i32
     const m = this.pushCtrl(); this.f.if_(VT.i64);
     if (node.op === "&&") {
@@ -1404,6 +1456,35 @@ class FnCtx {
     }
     this.f.end(); this.popCtrl();
     return T.I64;
+  }
+
+  // a<b<c: each operand is evaluated once, in order, and compared with the
+  // next, and the results are anded (Compiler/PrsExp.HC:225-230). In a test
+  // (short), a compare that fails ends it. Leaves an i32.
+  genChain(node, short) {
+    const xs = node.operands, n = node.ops.length;
+    const ty = xs.map((x) => this.cg.resolveType(this.peekType(x)));
+    const keep = ty.map((t) => (isFloat(t) ? T.F64 : T.I64));
+    const tmp = [];
+    const pairFloat = (k) => isFloat(ty[k]) || isFloat(ty[k + 1]);
+    const operand = (i, want) => {
+      if (tmp[i] != null) this.f.local_get(tmp[i]);
+      else {
+        this.genExprCoerce(xs[i], keep[i]);
+        if (i > 0 && i < n) { tmp[i] = this.newWLocal(isFloat(keep[i]) ? VT.f64 : VT.i64); this.f.local_tee(tmp[i]); }
+      }
+      this.coerce(isFloat(keep[i]) ? T.F64 : isUnsigned(ty[i]) ? T.U64 : T.I64, want);
+    };
+    for (let k = 0; k < n; k++) {
+      if (k > 0 && short) { this.pushCtrl(); this.f.if_(VT.i32); }
+      const want = pairFloat(k) ? T.F64 : T.I64;
+      operand(k, want);
+      operand(k + 1, want);
+      if (pairFloat(k)) this.floatCmp(node.ops[k]);
+      else this.intCmp(node.ops[k], isUnsigned(ty[k]) || isUnsigned(ty[k + 1]));
+      if (k > 0 && !short) this.f.op("i32_and");
+    }
+    if (short) for (let k = 1; k < n; k++) { this.f.else_(); this.f.i32_const(0); this.f.end(); this.popCtrl(); }
   }
 
   genCondExpr(node) {
@@ -1438,13 +1519,13 @@ class FnCtx {
       this.f.op("i32_wrap_i64"); this.emitLoad(this.cg.resolveType(et));
       return et;
     }
-    if (node.op === "!") { this.genCond(node.operand); this.f.op("i32_eqz").op("i64_extend_i32_u"); return T.I64; }
+    if (node.op === "!") { this.genTruth(node.operand); this.f.op("i32_eqz").op("i64_extend_i32_u"); return T.I64; }
     if (node.op === "++" || node.op === "--") return this.genIncDec(node.operand, node.op, true);
     // - ~ +
     const t = this.genExpr(node.operand);
     const rt = this.cg.resolveType(t);
-    if (node.op === "-") { if (isFloat(rt)) this.f.op("f64_neg"); else { this.f.i64_const(-1).op("i64_mul"); } return rt; }
-    if (node.op === "~") { this.coerceTopTo(T.I64); this.f.i64_const(-1).op("i64_xor"); return T.I64; }
+    if (node.op === "-") { if (isFloat(rt)) this.f.op("f64_neg"); else { this.f.i64_const(-1).op("i64_mul"); } return this.peekType(node); }
+    if (node.op === "~") { this.coerceTopTo(T.I64); this.f.i64_const(-1).op("i64_xor"); return rt; }
     if (node.op === "+") return rt;
     this.err(node, "bad unary " + node.op);
   }
@@ -1460,7 +1541,8 @@ class FnCtx {
       const { L, type: t, own } = wl;
       const step = () => {
         this.f.local_get(L.windex); this.reinterpret(own, t);
-        if (isFloat(t)) this.f.f64_const(delta).op("f64_add"); else this.f.i64_const(delta).op("i64_add");
+        if (isFloat(t)) this.f.f64_const(delta).op("f64_add");
+        else this.f.i64_const(delta * (isPtr(t) ? this.cg.typeSize(t.to) : 1)).op("i64_add");
         this.reinterpret(t, own);
       };
       if (prefix) { step(); this.f.local_tee(L.windex); this.reinterpret(own, t); }
@@ -1475,7 +1557,8 @@ class FnCtx {
     // old value
     this.f.local_get(addr); this.emitLoad(t); this.f.local_tee(res);
     // new value = old + delta
-    if (isF) this.f.f64_const(delta).op("f64_add"); else this.f.i64_const(delta).op("i64_add");
+    if (isF) this.f.f64_const(delta).op("f64_add");
+    else this.f.i64_const(delta * (isPtr(t) ? this.cg.typeSize(t.to) : 1)).op("i64_add");
     const nv = isF ? this.scratchF64b() : this.scratchI64b();
     this.f.local_set(nv);           // consume the computed value into nv (no stack leak)
     // store new
@@ -1495,12 +1578,14 @@ class FnCtx {
       if (callee.name.startsWith("__a_")) { const r = this.genAtomic(callee.name, node.args); if (r) return r; }   // SMP intrinsic: native WASM atomic RMW (LOCK ops over shared memory)
       const fn = this.cg.functions.get(callee.name);
       if (fn) return this.emitCall(fn, node.args, node);
+      if (!this.cg.lenient) this.err(node, "Undefined identifier or unsupported indirect call: " + callee.name);
       // maybe a function-pointer variable -> unsupported indirect
       this.warnOnce("indirect/function-pointer call to '" + callee.name + "' not supported");
       // evaluate args for side effects then push 0
       for (const a of node.args) if (a) this.dropIfValue(this.genExpr(a));
       this.f.i64_const(0); return T.I64;
     }
+    if (!this.cg.lenient) this.err(node, "unsupported computed callee");
     this.warnOnce("computed callee not supported");
     this.f.i64_const(0); return T.I64;
   }
@@ -1524,6 +1609,8 @@ class FnCtx {
   }
 
   emitCall(fn, args, node) {
+    if (!this.cg.lenient && !fn.isImport && !fn.node)
+      this.err(node, "Unresolved function: " + fn.name);
     const params = fn.params || [];
     for (let i = 0; i < params.length; i++) {
       const p = params[i];
@@ -1559,9 +1646,17 @@ class FnCtx {
     const cF = isFloat(c), wF = isFloat(w);
     if (cF && wF) return w;
     if (!cF && !wF) { this.narrowInt(w); return w; }
-    if (!cF && wF) { this.f.op(isUnsigned(c) ? "f64_convert_i64_u" : "f64_convert_i64_s"); return w; }
+    if (!cF && wF) { this.f.op("f64_convert_i64_s"); return w; }
     // cF && !wF
-    this.f.fc("i64_trunc_sat_f64_s"); this.narrowInt(w); return w;
+    this.floatToInt(); this.narrowInt(w); return w;
+  }
+  floatToInt() {
+    //V5.03 uses signed FISTTP: invalid conversion gives integer indefinite.
+    const value = this.scratchF64();
+    this.f.local_tee(value).f64_const(9223372036854775808).op("f64_lt");
+    this.f.if_(VT.i64);
+    this.f.local_get(value).fc("i64_trunc_sat_f64_s");
+    this.f.else_().i64_const(-9223372036854775808n).end();
   }
   coerceTopTo(wantType) { /* value already correct width-ish; ensure narrow */ this.narrowInt(this.cg.resolveType(wantType)); }
   narrowInt(w) {
@@ -1596,3 +1691,4 @@ class FnCtx {
 
 function isCmp(op) { return [">","<",">=","<=","==","!="].includes(op); }
 function isUnsigned(t) { return t && t.kind === "int" && !t.signed; }
+function literalType(value) { return BigInt.asIntN(64, BigInt(value)) < 0n ? T.U64 : T.I64; }
