@@ -84,8 +84,14 @@ use native zero/hex escapes without C octal decoding. This does not replace the
 runtime Lex dependency.
 
 `Lex` depends on the character bitmaps, native numeric/escape/string rules,
-HashFind and nested define expansion. Local-variable lookup requires MemberFind
-and compiler class/member graphs. Operators use the native dual-U16 token
+HashFind and nested define expansion. A64 supplies exact class/member record
+layouts and MemberFind, MemberMetaFind, MemberMetaData, MemberClassBaseFind and
+MemberLstCmp
+over caller-owned graphs, including native inherited lookup and use counts.
+These allocation-free queries do not populate native compiler symbols or build
+their graphs; MemberAdd and recursive class/function destruction are absent.
+The source-bound native proof and child lifetime checks preserve that boundary.
+Operators use the native dual-U16 token
 lookup tables. Directives reach file includes, source metadata, conditional
 expression evaluation, compiler state and execution. Missing compiler symbols
 must not be replaced with arbitrary keyword numbers or ignored directives.

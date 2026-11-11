@@ -14,6 +14,7 @@ import {LEX_REM_SRC} from "./lex-rem.js";
 import {LEX_STRING_SRC} from "./lex-string.js";
 import {LEX_TYPES_SRC,LEX_BITMAP_SRC,LEX_GLOBALS_SRC,LEX_SRC} from "./lex-stream.js";
 import {CMP_TABLE_TYPES_SRC,CMP_TABLE_SRC} from "./cmp-tables.js";
+import {MEMBER_TYPES_SRC,MEMBER_SRC} from "./member.js";
 import {CMP_TYPES_SRC,CMP_SRC} from "./cmp-control.js";
 import {DEFINE_SRC} from "./define-prelude.js";
 import {TASK_TYPES_SRC,TASK_SRC} from "./task-prelude.js";
@@ -224,6 +225,7 @@ ${CMP_TYPES_SRC}
 ${CMP_TABLE_TYPES_SRC}
 ${LEX_TYPES_SRC}
 ${QUE_VECT_TYPES_SRC}
+${MEMBER_TYPES_SRC}
 CTask fs_storage;
 CTask *Fs;
 CTask *sys_winmgr_task;
@@ -745,6 +747,7 @@ ${FILE_SRC}
 ${HASH_SRC}
 ${DEFINE_SRC}
 ${CMP_SRC}
+${MEMBER_SRC}
 ${LEX_BITMAP_SRC}
 ${LEX_GLOBALS_SRC}
 ${CMP_TABLE_SRC}

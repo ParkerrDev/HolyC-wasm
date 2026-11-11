@@ -205,7 +205,7 @@ they referenced. Extern headers resolve to their next definition; each earlier
 call keeps the header/defaults visible when parsed. Output shortcuts similarly
 retain their Print/PutChars function, independently of same-named local variables.
 Runtime initialization and its exported host entry points retain prelude bindings.
-The 17 implemented private APIs recorded as native raw system exports have a
+The 18 implemented private APIs recorded as native raw system exports have a
 distinct first-extern rule: that header binds the original export, until a typed
 user declaration shadows it. This is function binding, not a populated native
 runtime symbol table or x86 code-address export.
@@ -1164,6 +1164,34 @@ initializer compiled by V5.03, with source/type/library/wrapper/capture/output
 hashes; `--record` refreshes that evidence. Allocation failures are host tests,
 not injected native failures. Native heap headers/spans and absent compiler
 graphs are outside this table-value and ownership proof.
+
+### Caller-owned member metadata
+
+MemberFind, MemberMetaFind, MemberMetaData, MemberClassBaseFind and MemberLstCmp
+operate on actual native records supplied by the caller. The complete layouts
+are present for CArrayDim (24 bytes), CMemberLstMeta (32), CMemberLst (144),
+CExternUsage (16), CHashClass (128) and CHashFun (168), including inherited fields
+and the native default/static-data union. MemberFind searches the member tree
+and base classes and increments only the matching member's U32 use count.
+Metadata results and class/member pointers remain borrowed.
+
+These queries allocate nothing and need no task backend. They do not create
+compiler symbols, populate task tables, build class/member graphs or own their
+records. MemberAdd, MemberLstNew, MemberLstDel, MemberLstSize, ClassMemberLstDel and
+CInit remain unavailable;
+HashDel still rejects compiler-owned class/function graphs before freeing fields.
+Callers must keep every referenced record and string alive throughout a query.
+
+`npm run test:member` checks 32,804 source-bound native layout/lookup/comparison
+decisions, including inherited and duplicate names, metadata, use-count wrapping,
+default flags, ignored flags and count/length boundaries. It verifies five
+lifetimes, allocation denial on the query path and parent-owned records shared
+with four child tasks, followed by complete session disposal. The browser task
+gate exercises the same borrowed-record lifetime. `node tests/member-oracle.mjs`
+repeats stock and renamed-port V5.03 behavior; `--record` refreshes the exact
+source/types/library/header/capture/output evidence. MemberLstCmp's private raw
+export is also measured by the function-export scan; MemberClassBaseFind already
+has a typed native header and must not be redeclared as an unresolved extern.
 
 ### Finite string chunks
 

@@ -8,6 +8,7 @@ import {recorded as hashRecorded} from './hash/cases.mjs';
 import {recorded as docRecorded} from './doc-entry/cases.mjs';
 import {recorded as defineRecorded} from './define/cases.mjs';
 import {recorded as cmpRecorded} from './cmp-control/cases.mjs';
+import {recorded as memberRecorded} from './member/cases.mjs';
 import {recorded as tablesRecorded} from './cmp-tables/cases.mjs';
 import {recorded as vectorRecorded} from './que-vector/cases.mjs';
 import {recorded as lexRecorded} from './lex-stream/cases.mjs';
@@ -34,6 +35,8 @@ try {
     expected:await readFile(new URL('v503/'+name+'.out',import.meta.url),'latin1')})));
   const hashTask=hashRecorded('HashTask');
   sources.push({name:'HashTask',source:hashTask.wasmSource,expected:hashTask.output});
+  const memberTask=memberRecorded('MemberTask');
+  sources.push({name:'MemberTask',source:memberTask.identity.nativeBindings+memberTask.source,expected:memberTask.output});
   const tableTask=tablesRecorded('CmpTableTask');
   sources.push({name:'CmpTableTask',source:tableTask.wasmSource,expected:tableTask.output});
   const vectorTask=vectorRecorded('QueVectorTask');

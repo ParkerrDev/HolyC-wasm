@@ -3,6 +3,6 @@
 export const RUNTIME_FUNCTION_EXPORTS=[
   "JobCtrlInit","JobQueDel","KDInputFilterPutKey","KDInputFilterPutS",
   "KDRawPutKey","KDRawPutS","KbdBuildSC","LexBackupLastChar","LexFilePop",
-  "LexFilePush","LexInStr","LexIncludeStr","MPrintQ","MPrintq","OutStr",
-  "SPutChar","UndefinedDefine",
+  "LexFilePush","LexInStr","LexIncludeStr","MPrintQ","MPrintq",
+  "MemberLstCmp","OutStr","SPutChar","UndefinedDefine",
 ];

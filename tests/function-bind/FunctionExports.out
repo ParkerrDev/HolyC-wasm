@@ -12,6 +12,7 @@ Export:LexInStr:0:0
 Export:LexIncludeStr:0:0
 Export:MPrintQ:0:0
 Export:MPrintq:0:0
+Export:MemberLstCmp:0:0
 Export:OutStr:0:0
 Export:SPutChar:0:0
 Export:UndefinedDefine:0:0

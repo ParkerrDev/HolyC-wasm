@@ -15,7 +15,7 @@
     "accelerator": "kvm",
     "version": "QEMU emulator version 11.1.2"
   },
-  "evidence": "/home/aphunt/Dev/GitHub/TempleOS/wt/HolyC-wasm-A1/tests/.oracle/qemu-iepgy17q",
+  "evidence": "/home/aphunt/Dev/GitHub/TempleOS/wt/HolyC-wasm-A1/tests/.oracle/qemu-gqkmdl0x",
   "sourceSha256": "0c7cd616971335385e16cdc650b49a9b7b1b5107842d6555e654854407a3f040",
   "nativePrefix": "Option(OPTf_WARN_HEADER_MISMATCH,OFF);\n",
   "inputSha256": "d5946e483b3914a27968ddf9872836bf6edd08af3364a702e962b8da5430f7a4",
