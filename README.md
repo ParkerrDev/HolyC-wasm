@@ -242,3 +242,8 @@ Bézier and B-spline callbacks. `GraphicsMath.HC` compares matrix values, point
 sequences, callback cancellation and degenerate symmetry behavior with the
 original compiler in QEMU. This supplies shared math for the remaining native
 3D raster and sprite work; it does not make those missing APIs available yet.
+
+The native numeric lexer permits an empty exponent (`1e` or `1e-` means 1.0)
+and consumes only a minus sign there. Consequently `1e+2` is the expression
+1.0 + 2, while `1e2` is 100.0. `FloatBoundary` records these token boundaries
+against V5.03 alongside the existing 623 floating-literal bit comparisons.

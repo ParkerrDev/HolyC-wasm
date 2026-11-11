@@ -234,7 +234,7 @@ export function lex(src, filename = "<src>") {
       if (peek() === "." && peek(1) !== ".") { isFloat = true; s += adv(); while (i < n && (isDigit(peek()) || peek() === "_")) { const d = adv(); if (d !== "_") s += d; } }
       if (peek() === "e" || peek() === "E") {
         isFloat = true; s += adv();
-        if (peek() === "+" || peek() === "-") s += adv();
+        if (peek() === "-") s += adv();
         while (i < n && isDigit(peek())) s += adv();
       }
       if (isFloat) {

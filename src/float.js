@@ -43,10 +43,10 @@ function Product(integer,scale)
 
 export function FloatLex(text)
 {//Compiler/Lex.HC accumulates signed I64 digits, then multiplies Pow10I64.
-  const match=/^(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(text);
+  const match=/^(\d*)(?:\.(\d*))?(?:[eE](-?\d*))?$/.exec(text);
   if (!match) throw new Error("Invalid HolyC floating literal: "+text);
   const integer=BigInt.asIntN(64,BigInt((match[1]||"0")+(match[2]||"")));
-  const exponent=BigInt.asIntN(64,BigInt(match[3]||"0"))-BigInt((match[2]||"").length);
+  const exponent=BigInt.asIntN(64,BigInt(match[3]==="-"?"0":match[3]||"0"))-BigInt((match[2]||"").length);
   if (exponent>308n) return Number(integer)*Infinity;
   if (exponent < -308n) return Number(integer)*0;
   return Product(integer,data.getBigUint64((Number(exponent)+308)*8,true));
