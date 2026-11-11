@@ -109,6 +109,7 @@ export function createHost(opts = {}) {
     __task_spawn:taskRequired,
     __task_kill:taskRequired,
     __task_wait:taskRequired,
+    __task_break:taskRequired,
     __task_exit:taskRequired,
     __task_stack_fail() {throw new RangeError("HolyC task shadow stack overflow");},
     __kbd_ctrl_alt(sc,ch,inIrq) {

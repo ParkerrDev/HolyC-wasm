@@ -255,7 +255,7 @@ presentation and refusal without a device adapter.
 ## Cooperative task backend
 
 Reachable `Spawn`, `Kill`, `Exit`, `GetMsg`, `GetKey`, `GetChar`, `PressAKey`
-or access to `kbd` requires
+`BreakUnlock`, or access to `kbd` requires
 `result.requiredCapabilities` to include `"task-continuations"`. An unreachable
 reference adds no requirement. The module also has a capability-only WASM start
 function: an ordinary host or a host without JSPI refuses instantiation before
@@ -280,6 +280,19 @@ messages, waits cooperatively, and preserves the final complete scan code.
 incorrect `(echo,do_scan)` GetChar signature is no longer supported. `GetChar`
 and `test:char` compare native waiting, return values and exact echo/prompt
 control sequences. Raw cursor editing remains explicitly unsupported.
+
+`Break`, `BreakLock` and `BreakUnlock` preserve native exception, message and
+flag behavior. `breakTask(target=0)` requests interruption of the focus task
+(or an explicit live task); it returns false for absent/inhibited focus. The
+first request clears a break lock and marks a pending break. Unlock delivers
+it; an additional request can interrupt immediately. Normal requests wake
+sleep/message waits and throw a typed, catchable `Break` inside that task.
+Shift-Esc mode emits its native key instead and preserves existing readiness,
+as does cross-task delivery by BreakUnlock. Explicit Suspend still wins.
+These operations cannot interrupt a non-yielding WASM loop. Hardware disk-lock
+release and CPU RIP replacement are outside this cooperative backend.
+`test:break` compares original QEMU lock/request behavior, repeated catch and
+stack/heap recovery, sleep/suspension, physical Ctrl-Alt-C and uncaught cleanup.
 
 Task audio uses a nonblocking `snd.tone(frequency)` adapter. The scheduler owns
 note duration and switches the tone off afterward; it never calls a legacy
@@ -328,8 +341,9 @@ record and deliver native key-down/up messages to `sys_focus_task` (initially
 Fs). Both held-key bitmaps, merged/unmerged scan identities, modifiers, repeats,
 lock keys, PrintScreen and Pause follow V5.03. `resetInput()` releases held
 physical keys and clears an incomplete prefix after focus loss or overflow.
-The host's `onControlAlt(sc,index,inIrq)` must explicitly handle native Ctrl-Alt
-system actions; without an adapter those actions throw. The index is 0–25 for
+The default task host handles Ctrl-Alt-C as a cooperative break request. An
+`onControlAlt(sc,index,inIrq)` adapter overrides that route and must handle all
+requested system actions explicitly; other unhandled actions throw. The index is 0–25 for
 registered letter actions and -1 for Ctrl-Alt-Delete. `onKeyboardLeds(sc)` is an
 optional physical-indicator notification. Hardware ports, macro recording,
 raw-cursor editing are not implemented by this host bridge. Native scan codes

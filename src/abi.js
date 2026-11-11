@@ -77,6 +77,7 @@ export const HOST_IMPORTS = {
   __task_require: {params: [], results: []},
   __task_spawn: {params: [I,I,I,I,I,I,I], results: [I]},
   __task_kill: {params: [I,I,I], results: [I]},
+  __task_break: {params: [I,I], results: []},
   __task_wait: {params: [I], results: []},
   __task_exit: {params: [], results: []},
   __task_stack_fail: {params: [], results: []},

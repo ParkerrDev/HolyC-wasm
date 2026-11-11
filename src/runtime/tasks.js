@@ -58,7 +58,7 @@ export function createTaskHost(opts={}) {
   }
   function mark(task) {
     if(task.status==='dead') return;
-    task.killed=true;fn().TaskHostKill(task.ptr);
+    task.killed=true;task.interrupt=task.breakWake=false;fn().TaskHostKill(task.ptr);
     schedule();
   }
   function finish(task,error) {
@@ -111,12 +111,19 @@ export function createTaskHost(opts={}) {
     const clock=now();
     for(let i=0;i<list.length;i++) {
       const task=list[(round+i)%list.length];
-      if(!task.killed && (fn().TaskHostFlags(task.ptr)&SUSPENDED || task.at>clock || task.condition && !task.condition())) continue;
+      if(!task.killed && (fn().TaskHostFlags(task.ptr)&SUSPENDED || !task.breakWake && (task.at>clock || task.condition && !task.condition()))) continue;
       round=(round+i+1)%list.length;
       enter(task);task.status='running';
+      let interrupted=null;
+      if(task.interrupt && !task.killed) {
+        task.interrupt=false;task.breakWake=false;
+        const sp=fn().__sp.value;
+        try {fn().Break();} catch(error) {interrupted=error;}
+        finally {fn().__sp.value=sp;}
+      }
       if(task.start) {
         const start=task.start;task.start=null;
-        if(task.killed) {finish(task,new TaskExit());schedule();return;}
+        if(task.killed || interrupted) {finish(task,interrupted??new TaskExit());schedule();return;}
         wasm.promising(start)(...task.args).then(value=>{
           if(task.next) {
             task.start=task.next;task.next=null;task.args=task.nextArgs;
@@ -126,7 +133,7 @@ export function createTaskHost(opts={}) {
       } else {
         const resolve=task.resume,reject=task.reject;
         task.resume=task.reject=null;task.condition=null;
-        if(task.killed) reject(new TaskExit());else resolve(task.value);
+        if(task.killed || interrupted) reject(interrupted??new TaskExit());else resolve(task.value);
       }
       return;
     }
@@ -170,6 +177,16 @@ export function createTaskHost(opts={}) {
   host.env.__scan_char=host.env.__get_char=legacyInput;
   host.env.__task_require=required;
   host.env.__task_spawn=spawn;
+  host.env.__task_break=(ptr,wake)=>{
+    const task=tasks.get(ptr);
+    if(!task || task.status==='dead' || task.killed) return;
+    task.interrupt=true;task.breakWake||=Boolean(wake);schedule();
+  };
+  const controlAlt=host.env.__kbd_ctrl_alt;
+  host.env.__kbd_ctrl_alt=(sc,ch,inIrq)=>{
+    if(ch===2n && !opts.onControlAlt) fn().TaskHostBreak(0n);
+    else controlAlt(sc,ch,inIrq);
+  };
   if(taskSupport(wasm)) {
     host.env.__sleep=new wasm.Suspending(wait);
     host.env.__yield=new wasm.Suspending(()=>wait());
@@ -232,6 +249,12 @@ export function createTaskHost(opts={}) {
     return device(()=>{for(const byte of bytes)fn().KbdHostByte(BigInt(byte));});
   };
   host.resetInput=()=>device(()=>fn().KbdHostReset());
+  host.breakTask=(target=0n)=>{
+    target=BigInt(target);
+    if(target && (!tasks.has(target) || tasks.get(target).status==='dead')) return false;
+    let accepted=false;
+    return device(()=>{accepted=Boolean(fn().TaskHostBreak(target));}) && accepted;
+  };
   host.stop=()=>{if(root && root.status!=='dead') mark(root);return root?.done??Promise.resolve();};
   host.snapshot=()=>{throw new Error('Suspended JSPI continuations cannot be serialized; use a HEMU full-machine snapshot for portable TempleOS state');};
   host.dispose=async()=>{

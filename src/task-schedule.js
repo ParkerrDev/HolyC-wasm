@@ -1,11 +1,11 @@
 export const TASK_INTERFACE={
   name:"task-continuations",
   globals:["kbd"],
-  imports:["__task_spawn","__task_kill","__task_wait","__task_exit"],
+  imports:["__task_spawn","__task_kill","__task_wait","__task_exit","__task_break"],
   check:"__task_require",
   exports:["TaskHostRoot","TaskHostEnter","TaskHostNew","TaskHostDone",
     "TaskHostFlags","TaskHostStk","TaskHostStkTop","TaskHostKill","TaskHostMsg","TaskHostEnd","TaskHostReady",
-    "KbdHostByte","KbdHostReset"],
+    "KbdHostByte","KbdHostReset","Break","TaskHostBreak"],
 };
 
 export const TASK_SCHEDULE_SRC=String.raw`
@@ -126,6 +126,56 @@ Bool TaskHostReady(CTask *task)
   if (task->parent_task && task->parent_task->popup_task==task)
     return TaskHostReady(task->parent_task);
   return FALSE;
+}
+
+U0 Break()
+{//Interrupt own task or send its configured Shift-Esc key.
+  if (Bt(&Fs->task_flags,TASKf_BREAK_TO_SHIFT_ESC))
+    Msg(MSG_KEY_DOWN,CH_SHIFT_ESC,0x20100000201);
+  else {
+    Fs->wake_jiffy=0;
+    TaskRstAwaitingMsg;
+    FlushMsgs;
+    throw('Break');
+  }
+}
+
+Bool BreakLock(CTask *task=NULL)
+{//Disable Ctrl-Alt-C until unlocked.
+  if (!task) task=Fs;
+  return !LBts(&task->task_flags,TASKf_BREAK_LOCKED);
+}
+
+Bool BreakUnlock(CTask *task=NULL)
+{//Enable Ctrl-Alt-C and issue a pending break.
+  Bool res;
+  if (!task) task=Fs;
+  res=LBtr(&task->task_flags,TASKf_BREAK_LOCKED);
+  if (LBtr(&task->task_flags,TASKf_PENDING_BREAK)) {
+    if (task==Fs)
+      Break;
+    else
+      __task_break(task,FALSE);
+  }
+  return res;
+}
+
+Bool TaskHostBreak(CTask *task=NULL)
+{//Request the native scheduler's focus-task interruption.
+  Bool wake;
+  if (!task) task=sys_focus_task;
+  if (!task || Bt(&task->win_inhibit,WIf_SELF_FOCUS)) return FALSE;
+  if (LBtr(&task->task_flags,TASKf_BREAK_LOCKED))
+    LBts(&task->task_flags,TASKf_PENDING_BREAK);
+  else {
+    wake=!Bt(&task->task_flags,TASKf_BREAK_TO_SHIFT_ESC);
+    if (wake) {
+      task->wake_jiffy=0;
+      TaskRstAwaitingMsg(task);
+    }
+    __task_break(task,wake);
+  }
+  return TRUE;
 }
 
 CTask *Spawn(U0 (*fp_start_addr)(U8 *data),U8 *data=NULL,U8 *task_name=NULL,
