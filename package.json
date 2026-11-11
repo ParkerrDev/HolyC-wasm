@@ -6,7 +6,7 @@
   "scripts": {
     "test": "node tests/run.mjs",
     "test:oracle": "node tests/oracle.mjs --check",
-    "test:intrinsics": "node src/wasm/emitter.selftest.js && node src/atomic.selftest.mjs && node src/import.selftest.mjs",
+    "test:intrinsics": "node src/wasm/emitter.selftest.js && node src/atomic.selftest.mjs && node src/import.selftest.mjs && node tests/atomic-publish.mjs",
     "test:document": "node tests/document.mjs",
     "test:strict": "node tests/strict.mjs",
     "test:callback": "node tests/callback.mjs",

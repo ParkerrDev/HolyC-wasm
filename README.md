@@ -266,6 +266,16 @@ ten same-instance runs, refusal before side effects, cross-task ownership,
 failed Spawn cleanup, stack bounds, full scan values and nested cancellation.
 `test:tasks-browser` runs both native fixtures under actual Chromium JSPI.
 
+The compiler's reserved WASM atomic intrinsics include
+`__a_load{8,16,32,64}(address)` and
+`__a_store{8,16,32,64}(address,value)`, alongside the existing RMW operations.
+Loads return an I64 bit pattern; narrow loads zero-extend. Stores truncate to
+their width and return U0. These are native WASM seq-cst atomic instructions,
+with no host imports or read-modify-write polling; naturally aligned addresses
+are required, and invalid alignment/bounds trap. These names are compiler
+extensions, not stock TempleOS APIs. `test:intrinsics` checks all widths and
+5,000 publication handshakes between two actual shared-memory WASM workers.
+
 `npm run test:heap` checks allocation lifetime, splitting/coalescing, cleared
 reuse, failed growth, full-memory restoration, legacy restoration and four
 workers allocating/freeing the same growing shared memory.
