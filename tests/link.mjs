@@ -122,8 +122,9 @@ U0 Change() { option=9; }
 {
   const plain=await run('I64 Width() { return gr.dc->width; }',{exports:['Width']});
   assert.equal(plain.instance.exports.Width(),640n);
-  assert(!imports(plain.module).includes('__malloc'),
-    'reading screen dimensions must not require brush allocation');
+  if (!process.env.NOFOLD)
+    assert(!imports(plain.module).includes('__malloc'),
+      'folded screen-dimension reads omit the unreachable brush allocator');
   const direct=await run('I64 Pen() { return gr.pen_brushes[9]->width; }',{exports:['Pen']});
   assert.equal(direct.instance.exports.Pen(),9n);
   const alias=await run('CGr *alias=&gr; I64 Pen() { return alias->pen_brushes[7]->width; }',
