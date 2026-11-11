@@ -60,7 +60,8 @@
     "test:doc-nav": "node tests/doc-nav.mjs && node tests/doc-base-fault.mjs",
     "test:doc-init": "node tests/doc-init.mjs && node tests/doc-init-fault.mjs && node tests/doc-init-startup.mjs",
     "test:local-storage": "node tests/local-storage.mjs && NOFOLD=1 node tests/local-storage.mjs && node tests/local-storage-negative.mjs && node tests/integer-register.mjs",
-    "test:static-local": "node tests/static-local.mjs && NOFOLD=1 node tests/static-local.mjs && node tests/static-local-negative.mjs"
+    "test:static-local": "node tests/static-local.mjs && NOFOLD=1 node tests/static-local.mjs && node tests/static-local-negative.mjs",
+    "test:return-width": "node tests/return-width.mjs && NOFOLD=1 node tests/return-width.mjs && node tests/return-width-negative.mjs && node tests/local-storage-regressions.mjs"
   },
   "license": "MIT",
   "author": "Built with Claude Code"

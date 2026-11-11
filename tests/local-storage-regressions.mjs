@@ -27,6 +27,6 @@ for(const test of tests){
  host.attach(instance);instance.exports.__main();
  const expected=values(test.proof.out),actual=values(output);assert.equal(actual.length,expected.length);
  const differences=expected.flatMap((line,i)=>line===actual[i]?[]:[{native:line,wasm:actual[i]}]);
- console.log(test.name,differences.length?'known mismatch':'matched',differences);
+ console.log(test.name,differences.length?'regression':'matched',differences);
  if(differences.length)process.exitCode=1;
 }

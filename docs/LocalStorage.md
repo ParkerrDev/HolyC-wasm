@@ -70,12 +70,11 @@ the register matrix's REG_NONE exclusion.
 
 `tests/probes/LocalReturnWidth.HC` captures another distinct rule: a function
 declared U8 can return 0x1000001FF from a register or direct I64 expression;
-a noreg U8 load returns 0xFF. Current WASM return lowering truncates all three
-to 0xFF. Its earlier array-cast register-scoring mismatch is fixed here. This
-return ABI correction remains separate from allocation.
-`node tests/local-storage-gaps.mjs` verifies both saved proofs and reports the
-remaining return differences with a failing exit status. `--native` repeats their
-original V5.03 values; this known-gap check is separate from the passing suite.
+a noreg U8 load returns 0xFF. The [return-width correction](ReturnWidth.md)
+matches those values independently from allocation. Its earlier array-cast
+register-scoring mismatch is also fixed.
+`node tests/local-storage-regressions.mjs` verifies both saved proofs and fails
+on any mismatch. `--native` repeats their original V5.03 values.
 
 Local aggregate initialization, explicit physical register assignments,
 compiler option changes that disable register allocation, complete native

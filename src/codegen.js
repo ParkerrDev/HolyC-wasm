@@ -1111,7 +1111,9 @@ class FnCtx {
 
   genReturn(s) {
     if (s.expr) {
-      this.genExprCoerce(s.expr, this.fn.retType);
+      // IC_RETURN_VAL moves integer results to 64-bit RAX. Memory operands
+      // already have their load width; the declared result does not truncate.
+      this.genExprCoerce(s.expr,isInt(this.fn.retType)?T.I64:this.fn.retType);
       this.restoreFrame();
       this.f.return_();
     } else {

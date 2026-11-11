@@ -22,5 +22,5 @@
   "outputSha256": "113a55a032d6dd5de55eead76bf03b6f21994292219dff54f293748170bd350d",
   "except": "",
   "out": "OptPass3 COCCompile PrsFun PrsGlblVarLst $RED$$BK,1$WARNING:$FG$$BK,0$ Using 64-bit reg var.\n $LK,\"FL:C:/ORACLE/F0000.HC,25\"$ 'res' in 'RgReturnLocal'\nVAL:0:0000000000000007\nVAL:1:00000001000001FF\nVAL:2:0000000100000200\nVAL:3:0000000100000201\nVAL:4:0000000100000202\nVAL:5:0000000100000203\nVAL:6:0000000500000A05\nVAL:7:00000001000001FF\nVAL:8:00000000000000FF\nVAL:9:00000001000001FF\nREG:RgArrayCast:value:12:16:8\nREG:RgArrayCast:a:10:-2:2\nREG:RgArrayCast:b:11:-4:2\nREG:RgArrayCast:c:7:-6:2\nREG:RgArrayCast:d:13:-8:2\nREG:RgArrayCast:e:6:-10:2\nREG:RgArrayCast:buf:-128:-24:8\nREG:RgReturnLocal:value:7:16:8\nREG:RgReturnLocal:res:6:-1:1\nREG:RgReturnMem:value:6:16:8\nREG:RgReturnMem:res:32:-1:1\nREG:RgReturnValue:value:6:16:8\n",
-  "scope": "Native narrow return declarations preserve a wide return value; memory loads still truncate. Host currently narrows every return. The array-cast allocation case is fixed separately."
+  "scope": "Native narrow return declarations preserve a wide return value; memory loads still truncate. Both this return witness and the earlier array-cast allocation case now match; physical U0 residual-register ABI remains separate."
 }

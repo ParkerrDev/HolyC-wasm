@@ -82,6 +82,8 @@ register selection, narrow spills, casts and compound expression results.
 [Static locals](docs/StaticLocals.md) initialize in declaration order and retain
 their cells across calls, recursion and child-task access; their code-heap and
 compiler-time automatic-local boundaries remain explicit.
+[Integer returns](docs/ReturnWidth.md) preserve native full-register values even
+for narrow declared return types; narrow memory operands retain their load width.
 
 Compile-known switch labels use signed 64-bit values. Reversed ranges are
 normalized before empty-case numbering; duplicate/overlapping cases, empty
