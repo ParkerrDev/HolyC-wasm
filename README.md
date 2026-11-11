@@ -35,6 +35,7 @@ npm run test:callback     # Imported callbacks and null pointer traps.
 npm run test:varargs      # Variadic ABI, nested calls and exception cleanup.
 npm run test:format       # Native formatting ownership and unavailable OS formats.
 npm run test:console      # Shared Print path, terminal presentation and repeated output.
+npm run test:keydev       # Scoped KeyDev/raw output, native ScrollLock, faults and ownership.
 npm run test:composites   # Text/mesh allocation failures, callbacks and recovery.
 npm run test:exception    # Cross-call unwinding and repeated stack cleanup.
 npm run test:oracle       # Boot V5.03 in QEMU and recheck the native results.
@@ -787,3 +788,66 @@ state, 144 calendar dates and final-length boundaries. Failure injection
 checks read/write ownership, unchanged replacement data and retry. The browser
 gate also runs native child file writes/reads twice, exports their bytes during
 GetKey suspension and verifies disposal releases all owned allocations.
+
+
+### Scoped KeyDev/raw output profile
+
+`compileHolyC(source,{runtimeProfile:'keydev'})` selects native `PutKey`/`PutS`
+chaining, `KeyDevAdd`/`KeyDevRem`, raw/input-filter handlers, `Raw`/`IsRaw`,
+`VGAFlush`, `Busy` and `RawPrint`. The default `console` profile remains a direct
+host text transport and does not acquire task or raw-screen dependencies. Unknown
+profile names, including the former private prototype name `terminal`, fail.
+Functions and initializers remain selected by actual reachability.
+
+The KeyDev queue uses the measured stock zero-priority sentinel and native
+positive-priority insertion/replacement algorithm. Zero and negative user
+priorities throw `KeyPrior` before allocation: native zero collides with the
+sentinel and negative priorities cannot precede it safely. This explicit host
+rejection does not reproduce those invalid native queue operations. The host initializes
+input filtering at `0x40000000`, raw output at `0x60000000`, and an explicit host
+text fallback at `0x7FFFFFFF`. That fallback is not DolDoc. There is no window
+manager, Ctrl-Alt callback registry or graphical terminal in this profile.
+`VGAFlush` sets the native semaphore; no window manager currently consumes it to
+restore a document after raw output. Leaving raw mode therefore does not promise
+a native window repaint.
+
+Reachable KeyDev printing requires the JSPI task/keyboard interface and the real
+packed-screen device (`gfx.indices`); missing continuation or display support
+fails before initialization. Raw output still uses the native packed cache and
+standard-font byte semantics documented above. Session-owned handlers and raw
+storage survive child task exit and are released by task-host disposal.
+
+`PutKey`/`PutS` honor Silent and focused ScrollLock. The scroll wait yields until
+another task or input device releases the lock; unfocused output does not wait.
+With ScrollLock off and the standard handlers, `RawPrint` formats, publishes raw
+pixels and busy-waits without scheduling another cooperative task. Custom output
+handlers can yield, and the ScrollLock path does yield. This is not CPU CLI,
+interrupt masking, SMP exclusion or general non-yielding output equivalence.
+Raw diagnostics retain native loosely timed `mS<<10` microseconds, not a precise
+millisecond deadline.
+
+`Busy` reads `__time_ms_checked`, a checked view of the host `timeMs` device.
+Thrown callbacks and nonfinite/non-number samples become a native `Clock`
+exception (`host.state.timerError` retains the host error); a backwards sample
+within a wait also throws `Clock`. A successful sample clears that host error.
+The device must advance monotonically while waiting; a frozen device cannot
+complete a busy wait. Existing `__time_ms` and the independent `__date_utc` import
+keep their prior contracts. New modules using `Busy` need the paired checked-time
+host; old modules and saved HEMU sessions keep their original imports.
+
+`RawPrint` restores raw/input-filter flags and frees its buffer when a HolyC
+exception escapes output or the clock. `Print` also frees its intermediate format
+buffer if a native KeyDev callback throws. These cleanup guarantees cover native
+exceptions, not arbitrary JavaScript exceptions thrown by custom graphics/text
+adapters. Failed runtime initialization remains poisoned, and disposing its task
+host releases partially initialized session allocations. DocEntry allocation
+failure behavior is not covered or promoted by this profile.
+
+`npm run test:keydev` checks seven original V5.03 QEMU fixtures, four repeated
+lifetimes each, startup capability/device rejection, allocation failure and
+callback/timer cleanup. `node tests/keydev-oracle.mjs` reruns native evidence;
+`--record` records it. Each proof binds fixture bytes, the exact native and WASM
+wrappers, native capture source and output hashes. Native raw-cache probes use a
+recorded test-only CLI wrapper to protect their temporary shared VGA/cache state;
+this wrapper is deliberately absent from the cooperative WASM run. Stock queue
+initialization and ScrollLock fixtures use the same wrapper on both backends.

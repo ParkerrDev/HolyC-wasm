@@ -210,7 +210,7 @@ U0 RawPutChar(I64 ch)
     }
     if (!(0<=row<GR_HEIGHT/FONT_HEIGHT) ||
 	!(0<=col<GR_WIDTH/FONT_WIDTH))
-      throw('RawBounds');
+      throw('RawBound');
     ptr1=text.raw_scrn_image+col+row*GR_WIDTH*FONT_HEIGHT>>3;
     ptr2=&text.font[ch&255];
     for (i=0;i<FONT_HEIGHT;i++) {

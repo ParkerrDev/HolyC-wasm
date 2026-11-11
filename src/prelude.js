@@ -18,6 +18,7 @@ import {FIFO_TYPES_SRC,FIFO_SRC} from "./fifo-prelude.js";
 import {KBD_SRC} from "./kbd-prelude.js";
 import {FONT} from "./runtime/font.js";
 import {RAW_SRC} from "./raw-prelude.js";
+import {CONSOLE_SRC} from "./console-prelude.js";
 import {STR_SRC} from "./str-prelude.js";
 import {GR_COMPOSITES_SRC} from "./gr-composites.js";
 import {SPRITE_TYPES_SRC,SPRITE_SRC} from "./gr-sprite.js";
@@ -45,7 +46,7 @@ export const RUNTIME_ADDRESSES=[
   {name:"sys_font_cyrillic",storage:"__sys_font_cyrillic"},
 ];
 
-export const PRELUDE_SRC = String.raw`
+export function Prelude(outputSrc=CONSOLE_SRC) {return String.raw`
 //==================== constants ====================
 #define NULL 0
 #define TRUE 1
@@ -640,12 +641,7 @@ U0 PutChars(U64 ch)
     ch>>=8;
   }
 }
-U0 PutKey(I64 ch=0,I64 sc=0)
-{
-  if (Bt(&Fs->display_flags,DISPLAYf_SILENT)) return;
-  if (sc&SCF_KEY_DESC) throw('KeyHost',TRUE);
-  if (ch) __putc(ch);
-}
+${outputSrc}
 U0 PutExcept(Bool catch_it=TRUE)
 {
   "Except:%c:\n",Fs->except_ch;
@@ -986,4 +982,6 @@ I64 StrCmp(U8 *a, U8 *b) {
   return a[i]-b[i];
 }
 ${RAW_SRC}
-`;
+`;}
+
+export const PRELUDE_SRC=Prelude();

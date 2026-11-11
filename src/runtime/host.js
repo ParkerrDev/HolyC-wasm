@@ -26,6 +26,7 @@ export function createHost(opts = {}) {
     timeMs: opts.timeMs || (() => Date.now()),
     dateMs: opts.dateMs || (() => Date.now()),
     clockError:null,
+    timerError:null,
     onFlip: opts.onFlip || null,
     onTick: opts.onTick || null,           // called before scan/sleep/yield (e.g. mouse mirror)
   };
@@ -113,6 +114,13 @@ export function createHost(opts = {}) {
     __scan_char() { if (state.onTick) state.onTick(); return BigInt(state.scanChar() | 0); },
     __get_char(echo, scan) { if (state.onTick) state.onTick(); return BigInt(state.getChar(Number(echo), Number(scan)) | 0); },
     __time_ms() { return state.timeMs(); },
+    __time_ms_checked() {
+      try {
+        const value=state.timeMs();
+        if(!Number.isFinite(value)) throw new RangeError('HolyC timer requires finite milliseconds');
+        state.timerError=null;return value;
+      } catch(cause) {state.timerError=cause;return NaN;}
+    },
     __date_utc() {
       try {
         const date=new Date(state.dateMs()),year=date.getUTCFullYear();

@@ -9,16 +9,23 @@ import { lex } from "./lexer.js";
 import { preprocess } from "./preprocess.js";
 import { parse } from "./parser.js";
 import { compile as codegen } from "./codegen.js";
-import { PRELUDE_SRC, RUNTIME_INITIALIZERS, RUNTIME_INTERFACES, RUNTIME_ADDRESSES } from "./prelude.js";
+import { PRELUDE_SRC, Prelude, RUNTIME_INITIALIZERS, RUNTIME_INTERFACES, RUNTIME_ADDRESSES } from "./prelude.js";
+import {KEYDEV_SRC} from "./keydev-prelude.js";
 import { FLOAT_CONVERT_SRC,FLOAT_MUL_I64 } from "./float-convert.js";
 
 export function compileHolyC(source, opts = {}) {
+  if (![undefined,'console','keydev'].includes(opts.runtimeProfile))
+    throw new Error('Unknown HolyC runtime profile: '+opts.runtimeProfile);
+  const keydev=opts.runtimeProfile==='keydev';
+  const prelude=keydev?Prelude(KEYDEV_SRC):PRELUDE_SRC;
+  const hooks=keydev?[...RUNTIME_INITIALIZERS,
+    {name:'KeyOutputHostInit',globals:['keydev']}]:RUNTIME_INITIALIZERS;
   const userName = opts.filename || "<holyc>";
   let tokens;
   if (opts.noPrelude) {
     tokens = lex(source, userName);
   } else {
-    const preToks = lex(PRELUDE_SRC, "<prelude>").filter((t) => t.type !== "eof");
+    const preToks = lex(prelude, "<prelude>").filter((t) => t.type !== "eof");
     const userToks = lex(source, userName);
     tokens = [...preToks, ...userToks];
   }
@@ -33,7 +40,7 @@ export function compileHolyC(source, opts = {}) {
   helper.name=FLOAT_MUL_I64;
   ast.decls.unshift(helper);ast.items.unshift(helper);
   const { bytes, warnings, dataEnd, globals, requiredCapabilities } = codegen(ast, {
-    ...opts,runtimeInitializers:opts.noPrelude?[]:RUNTIME_INITIALIZERS,
+    ...opts,runtimeInitializers:opts.noPrelude?[]:hooks,
     runtimeInterfaces:opts.noPrelude?[]:RUNTIME_INTERFACES,
     runtimeAddresses:opts.noPrelude?[]:RUNTIME_ADDRESSES});
   return { bytes, warnings, dataEnd, globals, requiredCapabilities, ast, diagnostics: ast.diagnostics || [] };
