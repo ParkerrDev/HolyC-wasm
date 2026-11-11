@@ -178,3 +178,57 @@ constructor allocation failure preserve document bytes, task ownership and the
 stack, and permit immediate retry. Native allocator-failure injection is not
 claimed. The caller must supply valid native queues and an in-range entry type;
 these helpers do not validate or repair corrupted documents.
+
+## Layout helpers before DocRecalc
+
+A70 adds DocWordWrapDel/Add, DocSplitTag, DocRecalcXY, DocTmpAttr, DocCharDist,
+DocDelToNum/Entry and DocEntryLink in the explicit KeyDev profile. These are the
+actual native helper algorithms, not a DocRecalc implementation. They operate on
+valid caller-owned queues/entries and preserve native type, flags, cursor,
+settings and ownership behavior. DocEntryLink only allocates a copy of the
+selected tag/aux string; it performs no link resolution or editor invocation.
+The profile retains real DocEntryDel/RawPrint diagnostics. Pure arithmetic
+helpers still have no device or allocation dependency when reached alone.
+
+DocSplitTag stages the cloned entry, suffix, replacement prefix and marker
+before changing the queue or source string. Native valid-path state remains
+identical; allocation failure leaves the input unchanged and frees only the
+pending owned allocations. A source-bound negative control runs the original
+helper with an actual host allocation failure and observes its unpublished
+clone leak. DocWordWrapDel preserves its native incremental contract: a failed
+later join retains completed joins or removed soft newlines. Each join allocates
+before replacing its tag; the queue remains valid and temporary ownership is
+released. This is not whole-operation rollback.
+
+A split strips the clone's allocation flags except its own new tag, retaining
+borrowed auxiliary pointers exactly as native. Shared bin use_cnt is not
+incremented by DocSplitTag. The proof gives the bin two references deliberately,
+checks the unchanged count after splitting, then deletes both references and
+checks complete disposal. It does not claim one deletion frees all clones or
+that arbitrary invalid text/bin ownership combinations are safe. Shortened
+base entries and full entries retain distinct valid field ranges; native
+allocator spans still differ from host spans. Valid nonnegative split indexes,
+proper owned strings/flags, nonzero page length and native queue invariants
+remain caller preconditions.
+
+The source-bound proof compares stock V5.03, copied original helpers and staged
+helpers compiled by V5.03: 9,841 coordinate/attribute/distance cases, 126 split
+states, 1,120 wrapping states, 1,680 deletion states, 72 link/null/empty cases,
+128 borrowed-field/bin cases and native foreign-task heap ownership. Five host
+lifetimes, current/foreign ownership, 48 actual allocation failures with retries
+and complete disposal cover the host layer. Native allocator-failure injection
+is not claimed. No screen rendering, data-refresh callbacks, editor, DocRecalc,
+DocTop/Rst/New or native DocClear is made available by these helpers.
+
+### Preserved small-integer promotion gap
+
+`tests/probes/SmallUnsignedPromotion.HC` and its native proof reduce the issue
+found in DocRecalcXY. For an I32 field -23 divided/reduced by a U16 field 12,
+original V5.03 returns -1 and -11. Current WASM returns 1537228672809129299 and 5
+because its binary lowering treats any unsigned operand as unsigned. An explicit
+I64 divisor returns the native -1/-11 on both backends. A70 widens only that
+modulo divisor; it does not change compiler-wide promotion or other unsigned
+expressions. Widening all header/footer expressions was rejected: an adversarial
+U16 65535 fixture exposes different native unsigned subtraction behavior. The
+full coordinate proof includes that case. Direct-expression parity remains an
+open compiler boundary, separately recorded from the passing helper contract.

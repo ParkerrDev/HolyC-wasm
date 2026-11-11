@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {compileHolyC} from '../src/compiler.js';
+import {createHost} from '../src/runtime/host.js';
+import {hash} from './doc-layout/cases.mjs';
+const source=readFileSync(new URL('probes/SmallUnsignedPromotion.HC',import.meta.url));
+const proof=JSON.parse(readFileSync(new URL('probes/SmallUnsignedPromotion.native.json',import.meta.url)));
+assert.equal(proof.sourceSha256,hash(source));assert.equal(proof.captureSha256,hash(readFileSync(new URL('oracle/QemuCapture.HC',import.meta.url))));
+assert.equal(proof.backend.engine,'qemu');assert.equal(proof.manifest.templeos,'V5.03');assert.equal(proof.except,'');
+assert.equal(proof.outputSha256,hash(Buffer.from(proof.out,'latin1')));
+let output='';const result=compileHolyC(source.toString('latin1'),{lenient:false});assert.deepEqual(result.warnings,[]);
+const host=createHost({ansi:false,onText:s=>output+=s});const instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});host.attach(instance);instance.exports.__main();
+assert.equal(output.split('\n')[1],proof.out.split('\n')[1]);
+console.log('Explicit I64 divisor matches native negative division/remainder. Direct small-type expression parity:',output===proof.out?'matched':'known compiler gap (not claimed)');

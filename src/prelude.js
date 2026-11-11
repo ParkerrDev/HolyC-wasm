@@ -747,7 +747,6 @@ ${TASK_SCHEDULE_SRC}
 ${FIFO_SRC}
 ${KBD_SRC}
 ${WINDOW_SRC}
-${docEntrySrc}
 ${DIR_SRC}
 ${FILE_SRC}
 ${HASH_SRC}
@@ -767,6 +766,7 @@ ${LEX_TOKEN_DIAG_SRC}
 ${LEX_TOKEN_SRC}
 ${DOC_INIT_SRC}
 ${DOC_NAV_SRC}
+${docEntrySrc}
 
 public I64 DistSqrI64(I64 x1,I64 y1,I64 x2,I64 y2)
 {

@@ -1427,3 +1427,29 @@ The shortened entry must not be accessed as though it owned every full-record
 field. Native entry-type/queue preconditions and the existing allocator-span
 difference remain. DocTop/Rst/New/Recalc, link editing and native DocClear remain
 unavailable; the explicit KeyDev profile has no substitute clearing routine.
+
+### Document layout helpers
+
+The explicit KeyDev profile supplies native DocSplitTag, DocWordWrapAdd/Del,
+DocRecalcXY, DocTmpAttr, DocCharDist, DocDelToNum/Entry and DocEntryLink. These
+operate on valid native document records; they do not supply DocRecalc, reset,
+clear, screen rendering or editor services. DocEntryLink returns an owned string
+copy without opening anything. Pure arithmetic reachability stays device-free.
+
+Splits stage all owned allocations before publishing a changed queue or source
+string. Failed later wrap joins preserve already-completed native joins, with
+no detached allocation leak. Cloned auxiliary fields remain borrowed and shared
+bin counts retain native behavior. See [the document dependency map](docs/DocInit.md)
+for caller invariants, shortened-record limits and explicit ownership boundaries.
+
+`npm run test:doc-layout` checks stock/copied/staged native results, five session
+lifetimes, 48 actual host allocation failures/retries and a negative control
+that catches the original split's unpublished-clone leak. Native foreign-task
+heap probes and host owner sets independently verify allocation ownership.
+`node tests/doc-layout-oracle.mjs` repeats the source-bound native proof.
+
+A measured compiler gap remains: I32 -23 divided/reduced by U16 12 gives native
+-1/-11 but current WASM 1537228672809129299/5. The source-bound
+SmallUnsignedPromotion probe records both. The layout helper explicitly widens
+only the modulo divisor, preserving native results without changing the broader
+compiler rule or the native unsigned header/footer expressions.

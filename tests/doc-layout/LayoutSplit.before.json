@@ -1,0 +1,7 @@
+{
+  "originalSha256": "6b72d581950f341f400f70bc0175adaa4e91eef637af76c27f4ec71bbeb8e14b",
+  "inputSha256": "84f06d92505dcceba19d7d1fec71f15b1206c2eb9cb4b4a691c0e16764011abb",
+  "fault": "Second allocation in original DocSplitTag: clone succeeds, suffix fails.",
+  "leakedAllocations": 1,
+  "scope": "Actual host allocator injection of original native source; this is not native QEMU allocator injection."
+}

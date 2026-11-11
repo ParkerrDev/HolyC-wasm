@@ -52,6 +52,7 @@
     "test:lex-report": "node tests/lex-report.mjs && node tests/lex-report-fault.mjs",
     "test:member": "node tests/member.mjs",
     "test:lex-token": "node tests/lex-token.mjs && node tests/lex-token-fault.mjs && node tests/lex-token-boundary.mjs",
+    "test:doc-layout": "node tests/doc-layout.mjs && node tests/doc-layout-fault.mjs && node tests/doc-layout-negative.mjs && node tests/doc-layout-promotion.mjs",
     "test:doc-nav": "node tests/doc-nav.mjs && node tests/doc-base-fault.mjs",
     "test:doc-init": "node tests/doc-init.mjs && node tests/doc-init-fault.mjs && node tests/doc-init-startup.mjs"
   },
