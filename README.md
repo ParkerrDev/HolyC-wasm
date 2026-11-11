@@ -347,3 +347,12 @@ checks recovery, zero leaks and explicit OS-format errors.
 V5.03 keeps some x87 intermediates wider than F64, while WASM narrows each F64
 operation. Five of its 64 `(Rand-0.5)*1e12` results differ by one ULP before
 formatting. The runtime does not claim full extended-precision parity.
+
+Anonymous unions inside classes preserve native packed offsets and expose their
+members through the enclosing class. A nested anonymous union begins at the
+enclosing union's current maximum size; subsequent ordinary members still
+overlay its original base. This is measured V5.03 behavior, not C union layout.
+`AnonymousUnion` verifies nested groups, inheritance, scalar overlays and writes.
+`SpriteLayout` checks the native sprite and mesh records, including CSprite's
+45-byte size and embedded payload offsets. These declarations prepare the
+sprite renderer; they do not implement Sprite3 rendering by themselves.

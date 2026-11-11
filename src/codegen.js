@@ -197,9 +197,12 @@ class Codegen {
 
   // ============================================================ classes
   collectClasses() {
-    for (const d of this.program.decls) {
-      if (d.kind === "ClassDecl" && d.name) this.classes.set(d.name, d);
-    }
+    const add=node=>{
+      if (node.kind!=="ClassDecl") return;
+      if (node.name) this.classes.set(node.name,node);
+      for (const child of node.nestedClasses??[]) add(child);
+    };
+    this.program.decls.forEach(add);
   }
 
   layoutClass(name) {
@@ -223,11 +226,14 @@ class Codegen {
         else throw new CodegenError(`class ${name}: member '${mem.name}' has unknown class type '${ty.name}'`);
       }
       const sz = this.typeSize(ty);
+      const offset=node.isUnion?(mem.anonymous?maxSize:0):off;
+      if (mem.anonymous) {
+        for (const [name,field] of this.layoutClass(ty.name).fields)
+          fields.set(name,{...field,offset:offset+field.offset});
+      } else fields.set(mem.name,{type:ty,offset});
       if (node.isUnion) {
-        fields.set(mem.name, { type: ty, offset: 0 });
-        maxSize = Math.max(maxSize, sz);
+        maxSize = Math.max(maxSize,offset+sz);
       } else {
-        fields.set(mem.name, { type: ty, offset: off });
         off += sz;
       }
     }

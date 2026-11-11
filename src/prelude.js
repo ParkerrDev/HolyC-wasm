@@ -9,6 +9,7 @@ import {GR_MATH_SRC} from "./gr-math.js";
 import {GR_TYPES_SRC,GR_SRC} from "./gr-prelude.js";
 import {FONT} from "./runtime/font.js";
 import {STR_SRC} from "./str-prelude.js";
+import {SPRITE_TYPES_SRC} from "./gr-sprite.js";
 
 // Runtime initialization is a dependency of the globals it establishes. The
 // compiler uses the same reachability graph for these hooks and ordinary calls.
@@ -160,6 +161,7 @@ class CMouse {
 
 //==================== device context ====================
 ${GR_TYPES_SRC}
+${SPRITE_TYPES_SRC}
 CDC gr_dc_storage;
 U8 gr_scrn_bitmap[GR_WIDTH*GR_HEIGHT];
 I64 gr_scrn_r[16];

@@ -34,6 +34,7 @@ export class Parser {
     this.globalNames=new Set();
     this.localNames=null;
     this.switchId=0;
+    this.anonymousId=0;
   }
 
   // --- token helpers ---
@@ -122,11 +123,15 @@ export class Parser {
   // ====================================================================
   // Class / union
   // ====================================================================
-  parseClass(scalarBase=null) {
+  parseClass(scalarBase=null,nested=false) {
     const kw = this.next(); // class|union
     const isUnion = kw.value === "union";
     let name = null;
     if (this.cur().type === "ident") name = this.next().value;
+    const anonymous=name===null;
+    if (nested && (!anonymous || !isUnion)) this.err("Expected anonymous union in class",kw);
+    if (anonymous && !nested) this.err("Expected type name",kw);
+    if (anonymous) name=`#anonymous:${this.anonymousId++}`;
     let base = null;
     if (this.optP(":")) { base = this.next().value; }
     // forward declaration: `class Name;` (no body) - register the name only.
@@ -137,9 +142,16 @@ export class Parser {
       if (name) this.classes.set(name, fwd);
       return fwd;
     }
-    const members = [];
+    const members = [],nestedClasses=[];
+    const addNested=child=>{
+      nestedClasses.push(child);
+      members.push({name:null,type:{kind:"classref",name:child.name},anonymous:true});
+    };
     this.eatP("{");
     while (!this.isP("}") && !this.atEnd()) {
+      if (this.isKw("union")) {
+        addNested(this.parseClass(null,true));continue;
+      }
       // member declaration: Type [*] name [array] ... ;
       const baseType = this.parseTypeSpec();
       do {
@@ -150,8 +162,9 @@ export class Parser {
       this.optP(";");
     }
     this.eatP("}");
-    const node = mk("ClassDecl", { name, base, members, isUnion,scalarBase }, kw);
+    const node = mk("ClassDecl", { name, base, members, isUnion,scalarBase,anonymous,nestedClasses }, kw);
     if (name) { this.typeNames.add(name); this.classes.set(name, node); }
+    if (nested) {node.vars=[];this.optP(";");return node;}
     // optional trailing variable declarators: } a, b;
     const vars = [];
     if (!this.isP(";")) {
