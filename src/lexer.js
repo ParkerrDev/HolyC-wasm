@@ -53,7 +53,7 @@ function isHex(c) {
 
 const SIMPLE_ESCAPES = {
   n: 10, t: 9, r: 13, "0": 0, "\\": 92, "'": 39, '"': 34,
-  b: 8, f: 12, a: 7, v: 11, d: 36, // \d -> '$' is handy in DolDoc-heavy code
+  "`": 96, d: 36,
 };
 
 export function lex(src, filename = "<src>") {
@@ -87,15 +87,8 @@ export function lex(src, filename = "<src>") {
       }
       return v;
     }
-    if (c >= "0" && c <= "7") {
-      // octal (rarely used); up to 3 digits
-      let v = 0, cnt = 0;
-      while (cnt < 3 && peek() >= "0" && peek() <= "7") { v = v * 8 + (adv().charCodeAt(0) - 48); cnt++; }
-      return v;
-    }
-    adv();
-    if (c in SIMPLE_ESCAPES) return SIMPLE_ESCAPES[c];
-    return c.charCodeAt(0); // unknown escape -> literal char
+    if (c in SIMPLE_ESCAPES) { adv(); return SIMPLE_ESCAPES[c]; }
+    return 92; //Native unknown escapes retain the backslash and unread byte.
   }
 
   // Skip a DolDoc $...$ command in code context. i points at the opening $.

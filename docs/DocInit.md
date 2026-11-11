@@ -71,10 +71,9 @@ runtime compiler state can be claimed.
 A60 adds the exact finite-stream `LexInStr` algorithm with source-bound native
 chunk/state tests. It preserves `done`, partial-buffer nontermination, embedded
 zero bytes, unknown-escape put-back, two-digit hex and dollar/nested-stream state,
-and allocates nothing. `LexFirstRem` still needs real QueVectU8 ownership. Source
-JS lexing remains a separate compiler path; its C-style \a/\b/\f/\v escapes
-currently differ from native backslash preservation and need a separate measured
-compatibility correction rather than changing this runtime algorithm.
+and allocates nothing. `LexFirstRem` still needs real QueVectU8 ownership. A61 separately corrects source JS lexing to preserve unknown backslashes and
+use native zero/hex escapes without C octal decoding. This does not replace the
+runtime Lex dependency.
 
 `Lex` depends on the character bitmaps, native numeric/escape/string rules,
 HashFind and nested define expansion. Local-variable lookup requires MemberFind

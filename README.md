@@ -522,6 +522,13 @@ now fail lexing instead of silently losing high bytes during 64-bit emission.
 CharBytes and four native rejection fixtures cover eight/nine-byte boundaries,
 embedded zeros, escaped/doubled dollars and raw CP437 high bytes.
 
+Source string/character escapes also use native byte rules: `\0`, escaped quotes,
+backtick, backslash, `\d`, `\n`, `\r`, `\t`, and at most two hex digits after
+`\x`/`\X`. There are no C octal escapes; `\012` means zero followed by `1` and `2`.
+Unknown escapes preserve the backslash and the following byte, so `\a` is two
+bytes, not BEL. EscapeBytes and EscapeWide record accepted bytes and the native
+eight-byte rejection after this expansion.
+
 The native numeric lexer permits an empty exponent (`1e` or `1e-` means 1.0)
 and consumes only a minus sign there. Consequently `1e+2` is the expression
 1.0 + 2, while `1e2` is 100.0. `FloatBoundary` records these token boundaries
@@ -1118,5 +1125,4 @@ across every byte/escape introducer, small/full/partial chunks, dollar state,
 nested streams and saved characters, then verifies five lifetimes and decoding
 with all allocation attempts denied. `node tests/lex-string-oracle.mjs` repeats
 the source-bound stock and renamed-port proof. This is string chunk decoding,
-not the general Lex tokenizer or completed DocInit. The older JS source lexer
-still has documented compatibility work beyond these runtime primitives.
+not the general Lex tokenizer or completed DocInit. The general source lexer and runtime tokenization remain separate implementations.
