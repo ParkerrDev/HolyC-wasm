@@ -12,7 +12,7 @@ function isDirectiveHash(tokens, idx) {
   if (!(t.type === "punct" && t.value === "#")) return false;
   // must be first token on its line
   if (idx === 0) return true;
-  return tokens[idx - 1].line !== t.line;
+  return (tokens[idx - 1].directiveLine??tokens[idx - 1].line) !== (t.directiveLine??t.line);
 }
 
 export function preprocess(tokens, opts = {}) {
@@ -54,11 +54,11 @@ export function preprocess(tokens, opts = {}) {
     if (skipBraceNext && !(t.type === "punct" && t.value === ";")) skipBraceNext = false;
 
     if (isDirectiveHash(tokens, i)) {
-      const line = t.line;
+      const line = t.directiveLine??t.line;
       // gather the rest of this line's tokens
       let j = i + 1;
       const lineToks = [];
-      while (j < tokens.length && tokens[j].line === line && tokens[j].type !== "eof") {
+      while (j < tokens.length && (tokens[j].directiveLine??tokens[j].line) === line && tokens[j].type !== "eof") {
         lineToks.push(tokens[j]); j++;
       }
       i = j;

@@ -29,6 +29,8 @@ WebAssembly imports; `src/abi.js` defines the browser runtime's host interface.
 ```sh
 npm test                 # Compare WASM behavior with recorded V5.03 results.
 npm run test:intrinsics   # Emitter, atomic memory operations and import linking.
+npm run test:document     # Full DolDoc input, sprite integrity and CP437 transport.
+npm run test:strict       # Unsupported assembly and unresolved callable symbols.
 npm run test:oracle       # Boot V5.03 in QEMU and recheck the native results.
 ```
 
@@ -39,6 +41,20 @@ strings, initialization, unsigned operations and signed floating conversion.
 Negative fixtures exercise native compile errors. Each fixture has native
 source/output hashes; changing it requires rerunning the oracle. These checks
 do not establish full TempleOS compatibility.
+
+Pass a complete source file as a `Uint8Array`, `ArrayBuffer` or Latin-1 byte
+string. DolDoc `$IB` inserts a private copy of the named binary record and `$IS`
+inserts its length. Text-only editor views must append the original binary tail
+before compilation. Missing records and truncated payloads are errors. Binary
+data extraction is supported; rendering TempleOS sprites remains a runtime gap.
+CP437 identifier bytes map to their Unicode names, and Greek Unicode character
+literals use CP437 values. Other Unicode characters outside CP437 are rejected.
+Cursor and nonbreaking-space document controls and continued source lines are
+read without truncating the rest of the program.
+
+`DolDoc.HC` embeds binary record 1 from TempleOS-Web's pinned TinkerOS Rocket.HC;
+its native test checks every payload byte, separate literal allocations and
+write isolation. It does not claim that the browser can draw the sprite yet.
 
 ## Native oracle
 

@@ -89,7 +89,8 @@ class Codegen {
 
   literalBytes(node) {
     if (this.literals.has(node)) return this.literals.get(node);
-    const bytes = [...node.bytes, 0], addr = this.alloc(bytes.length, 1);
+    const bytes = node.kind === "BinLit" ? node.bytes : [...node.bytes, 0];
+    const addr = this.alloc(bytes.length, 1);
     this.data.push({ addr, bytes });
     this.literals.set(node, addr);
     return addr;
@@ -127,7 +128,7 @@ class Codegen {
     for (const fn of this.functions.values()) {
       if (fn.isImport) continue;
       if (fn.node && fn.node.body) { this.genFunctionBody(fn); continue; }
-      // Prototype / extern with no body: emit a stub returning 0 so it links.
+      //Unused prototypes reserve a slot; strict references to them are errors.
       if (fn.slot) this.genStubBody(fn);
     }
     this.genRtInit();
@@ -144,7 +145,13 @@ class Codegen {
     this.m.exportGlobal("__core", this.coreGlobal);   // SMP: host sets each worker's core index here
     // functions the host calls back into (a runtime JIT's memory/step hooks, guest-execution entry points,
     // test probes): named by the caller via opts.exports - the compiler has no built-in list.
-    for (const nm of new Set(this.opts.exports || [])) { const fn = this.functions.get(nm); if (fn && fn.slot) this.m.exportFunc(nm, fn.slot.index); }
+    for (const nm of new Set(this.opts.exports || [])) {
+      const fn = this.functions.get(nm);
+      if (fn && fn.slot) {
+        if (!this.lenient && !fn.node) throw new CodegenError("Unresolved exported function: " + nm);
+        this.m.exportFunc(nm, fn.slot.index);
+      }
+    }
 
     const bytes = this.m.emit();
     return { bytes, warnings: this.warnings, dataEnd: this.cursor, globals: this.globals };
@@ -386,6 +393,11 @@ class Codegen {
   // Stub body for a prototype/extern function: ignore args, return 0 (or void).
   genStubBody(fn) {
     const f = new Func();
+    if (!this.lenient) {
+      f.unreachable();
+      fn.slot.setBody([], f);
+      return;
+    }
     if (!isVoid(fn.retType)) { isFloat(fn.retType) ? f.f64_const(0) : f.i64_const(0); }
     fn.slot.setBody([], f);
     this.warn(`extern/prototype '${fn.name}' has no body; stubbed (returns 0)`);
@@ -611,7 +623,9 @@ class FnCtx {
         if (this.fn.name === "__main") this.err(s, "No global labels");
         this.cg.warn(`Unused label '${s.name}'`);
         return;
-      case "AsmBlock": this.warnOnce("inline asm{} is not supported (x86-64); emitting trap"); this.f.unreachable(); return;
+      case "AsmBlock":
+        if (!this.cg.lenient) this.err(s, "x86 assembly is not supported by the WASM compiler");
+        this.warnOnce("inline asm{} is not supported (x86-64); emitting trap"); this.f.unreachable(); return;
       case "Goto": this.gotos.goto(s); return;
       case "ClassDecl": return; // local class decl: types only
       default: this.err(s, "unsupported statement " + s.kind);
@@ -948,7 +962,7 @@ class FnCtx {
       case "IntLit": this.f.i64_const(node.value); return literalType(node.value);
       case "FloatLit": this.f.f64_const(node.value); return T.F64;
       case "CharLit": this.f.i64_const(node.value); return literalType(node.value);
-      case "StrLit": { const a = this.cg.literalBytes(node); this.f.i64_const(a); return ptrTo(T.U8); }
+      case "StrLit": case "BinLit": { const a = this.cg.literalBytes(node); this.f.i64_const(a); return ptrTo(T.U8); }
       case "Ident": return this.genIdent(node);
       case "Assign": return this.genAssign(node);
       case "Binary": return this.genBinary(node);
@@ -1014,7 +1028,7 @@ class FnCtx {
     switch (node.kind) {
       case "IntLit": case "CharLit": return literalType(node.value);
       case "FloatLit": return T.F64;
-      case "StrLit": return ptrTo(T.U8);
+      case "StrLit": case "BinLit": return ptrTo(T.U8);
       case "Ident": {
         const L = this.locals.get(node.name); if (L) return this.cg.resolveType(L.type);
         const G = this.cg.globals.get(node.name); if (G) return G.type;
@@ -1505,6 +1519,8 @@ class FnCtx {
       if (node.operand.kind === "Ident") {
         const fn = this.cg.functions.get(node.operand.name);
         if (fn && !this.locals.has(node.operand.name) && !this.cg.globals.has(node.operand.name)) {
+          if (!this.cg.lenient && !fn.node && !fn.isImport)
+            this.err(node, "Unresolved function: " + fn.name);
           this.f.i64_const(fn.index); return ptrTo(T.U0);
         }
       }

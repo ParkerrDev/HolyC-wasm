@@ -61,7 +61,7 @@ export class Parser {
       try {
         if (this.isP(";")) { this.next(); continue; }
         // top-level inline asm block
-        if (this.isKw("asm")) { this.parseAsmBlock(); continue; }
+        if (this.isKw("asm")) { topStmts.push(this.parseAsmBlock()); continue; }
         // class/union declaration, possibly behind storage specifiers
         // (e.g. `public class Foo {...}` or forward decl `extern class Bar;`)
         let k = 0;
@@ -651,6 +651,7 @@ export class Parser {
 
   parsePrimary() {
     const t = this.cur();
+    if (t.type === "bin") { this.next(); return mk("BinLit", { bytes: t.value }, t); }
     if (t.type === "num") {
       this.next();
       if (t.value.kind === "float") return mk("FloatLit", { value: t.value.value }, t);

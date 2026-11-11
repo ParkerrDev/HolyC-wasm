@@ -15,6 +15,8 @@ export const PRELUDE_SRC = String.raw`
 #define GR_HEIGHT 480
 #define FONT_WIDTH 8
 #define FONT_HEIGHT 8
+#define TEXT_ROWS (GR_HEIGHT/FONT_HEIGHT)
+#define TEXT_COLS (GR_WIDTH/FONT_WIDTH)
 #define COLORS_NUM 16
 
 #define BLACK 0
@@ -52,7 +54,8 @@ export const PRELUDE_SRC = String.raw`
 #define CH_NEW_LINE '\n'
 
 //==================== math constants ====================
-F64 pi=3.14159265358979323846;
+#define pi (0x400921FB54442D18(F64))
+#define π pi
 F64 pi2=6.28318530717958647692;
 F64 sqrt2=1.41421356237309504880;
 F64 exp_1=2.71828182845904523536;

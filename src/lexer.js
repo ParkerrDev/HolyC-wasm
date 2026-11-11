@@ -6,12 +6,14 @@
 //   - numbers: decimal / 0x hex / 0b binary / floats (1.5 .5 1e3 1.2e-3)
 //   - "strings" with escapes + adjacent-literal concatenation; $$ -> literal $
 //   - 'char' constants, including multi-char packing (up to 8 bytes) used by HolyC
-//   - DolDoc $...$ commands in code context are stripped (document markup, not code)
-//   - trailing embedded DolDoc binary (sprite data) is tolerated: a NUL/control
-//     byte run in code context ends meaningful input.
+//   - DolDoc $IB/$IS expressions load binary records; other markup is skipped.
+//   - byte strings and Uint8Array input preserve CP437 text and binary payloads.
 //
 // Token shape: { type, value, text, line, col, pos, nchars? }
-//   type: 'num' | 'str' | 'char' | 'ident' | 'punct' | 'eof'
+//   type: 'num' | 'str' | 'bin' | 'char' | 'ident' | 'punct' | 'eof'
+
+import {DocBins} from "./doldoc.js";
+import {ByteString,Identifier,CharByte} from "./encoding.js";
 
 export class Token {
   constructor(type, value, text, line, col, pos) {
@@ -32,6 +34,7 @@ const PUNCT2 = [
 const PUNCT1 = "+-*/%=<>!&|^~?:.,;(){}[]`@#";
 
 function isIdentStart(c) {
+  if (c===undefined) return false;
   return (
     (c >= "a" && c <= "z") ||
     (c >= "A" && c <= "Z") ||
@@ -53,11 +56,14 @@ const SIMPLE_ESCAPES = {
 };
 
 export function lex(src, filename = "<src>") {
+  src=ByteString(src);
   const tokens = [];
   let i = 0;
   let line = 1;
   let col = 1;
   const n = src.length;
+  let bins;
+  const directiveLines=new Map();
 
   function err(msg) {
     throw new Error(`${filename}:${line}:${col}: lex error: ${msg}`);
@@ -94,12 +100,13 @@ export function lex(src, filename = "<src>") {
   // Skip a DolDoc $...$ command in code context. i points at the opening $.
   function skipDolDoc() {
     adv(); // opening $
+    let quoted=false;
     // close on the next un-escaped, non-doubled '$'
     while (i < n) {
       const c = peek();
       if (c === "\\") { adv(); if (i < n) adv(); continue; }
-      if (c === "$") {
-        if (peek(1) === "$") { adv(); adv(); continue; } // doubled inside command
+      if (c === '"') quoted=!quoted;
+      if (c === "$" && !quoted) {
         adv(); // closing $
         return;
       }
@@ -117,10 +124,20 @@ export function lex(src, filename = "<src>") {
       continue;
     }
 
-    // control byte (embedded binary) in code context -> stop lexing here.
     const code = c.charCodeAt(0);
-    if (code < 0x09 || (code > 0x0d && code < 0x20)) {
-      break;
+    if (!code) break;
+    if (code===0x05 || code===0x1F) { adv(); continue; }
+    if (code<0x09 || code>0x0D && code<0x20)
+      err("unsupported control byte 0x"+code.toString(16));
+
+    if (c==="\\") {
+      const logicalLine=directiveLines.get(line)??line;
+      adv();
+      while (peek()===" " || peek()==="\t" || peek()==="\r") adv();
+      if (peek()!=="\n") err("backslash outside a literal must continue a line");
+      adv();
+      directiveLines.set(line,logicalLine);
+      continue;
     }
 
     // comments
@@ -139,6 +156,17 @@ export function lex(src, filename = "<src>") {
     if (c === "$") {
       if (peek(1) === "$") { adv(); adv(); continue; } // stray $$ in code -> ignore
       skipDolDoc();
+      const command=src.slice(startPos+1,i-1);
+      const kind=/^(IB|IS)(?=,|$)/.exec(command)?.[1];
+      if (kind) {
+        if (/(?:^|,)BP=/.test(command)) err("external DolDoc binary link is not supported");
+        const number=/(?:^|,)BI=(\d+)(?:,|$)/.exec(command)?.[1];
+        bins??=DocBins(src,filename);
+        const bytes=bins.get(Number(number));
+        if (!bytes) err(`DolDoc binary ${number??"number"} is missing`);
+        tokens.push(new Token(kind==="IB"?"bin":"num",kind==="IB"?bytes:
+          {kind:"int",value:BigInt(bytes.length)},command,startLine,startCol,startPos));
+      }
       continue;
     }
 
@@ -150,12 +178,7 @@ export function lex(src, filename = "<src>") {
         let ch = peek();
         if (ch === "\\") { adv(); bytes.push(readEscape() & 0xff); continue; }
         if (ch === "$" && peek(1) === "$") { adv(); adv(); bytes.push(0x24); continue; }
-        // collect raw byte (encode unicode > 0x7f as utf-8 not needed; TempleOS is bytewise)
-        const cc = adv().charCodeAt(0);
-        if (cc <= 0xff) bytes.push(cc);
-        else { // encode as utf-8 best effort
-          for (const b of new TextEncoder().encode(ch)) bytes.push(b);
-        }
+        bytes.push(CharByte(adv()));
       }
       if (peek() === '"') adv(); else err("unterminated string");
       const text = String.fromCharCode(...bytes);
@@ -170,7 +193,7 @@ export function lex(src, filename = "<src>") {
       while (i < n && peek() !== "'") {
         if (peek() === "\\") { adv(); chars.push(readEscape() & 0xff); continue; }
         if (peek() === "$" && peek(1) === "$") { adv(); adv(); chars.push(0x24); continue; }
-        chars.push(adv().charCodeAt(0) & 0xff);
+        chars.push(CharByte(adv()));
       }
       if (peek() === "'") adv(); else err("unterminated char constant");
       // pack little-endian: first char is least significant byte
@@ -221,7 +244,7 @@ export function lex(src, filename = "<src>") {
     if (isIdentStart(c)) {
       let s = "";
       while (i < n && isIdentPart(peek())) s += adv();
-      tokens.push(new Token("ident", s, s, startLine, startCol, startPos));
+      tokens.push(new Token("ident", Identifier(s), s, startLine, startCol, startPos));
       continue;
     }
 
@@ -232,10 +255,10 @@ export function lex(src, filename = "<src>") {
     if (PUNCT2.includes(two)) { adv(); adv(); tokens.push(new Token("punct", two, two, startLine, startCol, startPos)); continue; }
     if (PUNCT1.includes(c)) { adv(); tokens.push(new Token("punct", c, c, startLine, startCol, startPos)); continue; }
 
-    // unknown char: skip (tolerant)
-    adv();
+    err("unexpected character "+JSON.stringify(c));
   }
 
   tokens.push(new Token("eof", null, "", line, col, i));
+  for (const token of tokens) token.directiveLine=directiveLines.get(token.line)??token.line;
   return tokens;
 }
