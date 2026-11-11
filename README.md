@@ -232,7 +232,8 @@ browser currently executes the full original window manager.
 
 ## Cooperative task backend
 
-Reachable `Spawn`, `Kill`, `Exit`, `GetMsg`, `GetKey` or access to `kbd` requires
+Reachable `Spawn`, `Kill`, `Exit`, `GetMsg`, `GetKey`, `GetChar`, `PressAKey`
+or access to `kbd` requires
 `result.requiredCapabilities` to include `"task-continuations"`. An unreachable
 reference adds no requirement. The module also has a capability-only WASM start
 function: an ordinary host or a host without JSPI refuses instantiation before
@@ -249,6 +250,18 @@ messages; the default target is the session root, and scan arguments can be
 session-owned storage, including after an error. A caller should handle errors
 from both the run and teardown promises. `onTaskError(error,task)` receives
 child faults; without that callback they are reported to the output adapter.
+
+`GetChar(I64 *_scan_code=NULL,Bool echo=TRUE,Bool raw_cursor=FALSE)` now has
+its real native signature. It ignores zero-character key-downs and non-key
+messages, waits cooperatively, and preserves the final complete scan code.
+`PressAKey()` displays the native prompt and returns that character. The former
+incorrect `(echo,do_scan)` GetChar signature is no longer supported. `GetChar`
+and `test:char` compare native waiting, return values and exact echo/prompt
+control sequences. Raw cursor editing remains explicitly unsupported.
+
+Task audio uses a nonblocking `snd.tone(frequency)` adapter. The scheduler owns
+note duration and switches the tone off afterward; it never calls a legacy
+blocking `snd.note`. A note-only adapter is rejected explicitly.
 
 Tasks have real suspended continuations, separate guarded shadow stacks, `Fs`
 and exception contexts, native parent/child links and message queues. Sleep,
@@ -276,14 +289,15 @@ rejects task sessions. HEMU's guest-machine snapshots remain the portable
 TempleOS full-state path, and HEMU builds do not acquire the JSPI requirement.
 Hosts without JSPI still need a genuine alternative continuation backend.
 Automatic window-manager dispatch and native settings/document allocation
-remain subsequent work. Legacy `ScanChar`, `GetChar`
-and `KeyGet` adapters are retained until existing browser consumers migrate;
-do not treat their old signatures as native input parity.
+remain subsequent work. Legacy `ScanChar` and `KeyGet` adapters are retained
+for unmigrated browser consumers and explicitly rejected by the task host; they are not native input
+parity. Native ScanChar's wait-for-release behavior is still pending. A caller
+can reject those legacy imports at launch before any program side effects.
 
 `Tasks` and `TaskExcept` compare original QEMU behavior. `test:tasks` also checks
 ten same-instance runs, refusal before side effects, cross-task ownership,
 failed Spawn cleanup, stack bounds, full scan values and nested cancellation.
-`test:tasks-browser` runs both native fixtures under actual Chromium JSPI and
+`test:tasks-browser` runs the native fixtures under actual Chromium JSPI and
 real browser key events through the site's shared physical-key mapping.
 
 `keyBytes(bytes)` accepts one complete PC set-1 packet of one to eight bytes.

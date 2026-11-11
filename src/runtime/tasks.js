@@ -166,6 +166,8 @@ export function createTaskHost(opts={}) {
     current.value=1n;
     return pending(current,0,()=>task.status==='dead' || !(fn().TaskHostFlags(task.ptr)&KILLED));
   }
+  const legacyInput=()=>{throw new Error('Legacy character adapters cannot run in a HolyC task session; use native GetKey/GetChar and set-1 packets');};
+  host.env.__scan_char=host.env.__get_char=legacyInput;
   host.env.__task_require=required;
   host.env.__task_spawn=spawn;
   if(taskSupport(wasm)) {
@@ -177,10 +179,11 @@ export function createTaskHost(opts={}) {
     });
     host.env.__task_kill=new wasm.Suspending(kill);
     host.env.__play_note=new wasm.Suspending(async(freq,ms)=>{
-      if(host.state.snd?.note) host.state.snd.note(freq,Number(ms));
-      else host.state.snd?.tone(freq);
+      if(host.state.snd?.note && !host.state.snd?.tone)
+        throw new Error('Cooperative sound requires a nonblocking tone adapter');
+      host.state.snd?.tone(freq);
       try {await wait(ms);}
-      finally {if(!host.state.snd?.note) host.state.snd?.tone(0);}
+      finally {host.state.snd?.tone(0);}
     });
   }
   host.env.__task_exit=()=>{mark(current);throw new TaskExit();};

@@ -593,9 +593,7 @@ I64 GetTSC() { I64 res=__time_ms()*1000000.0; return res; }
 
 //==================== input ====================
 I64 ScanChar() { return __scan_char(); }
-I64 GetChar(I64 echo=TRUE, I64 do_scan=TRUE) { return __get_char(echo,do_scan); }
 I64 KeyGet() { return __get_char(0,0); }
-U0 PressAKey() { __get_char(0,1); }
 
 //==================== console ====================
 U0 Putc(I64 ch) { __putc(ch); }

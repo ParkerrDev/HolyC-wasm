@@ -187,4 +187,20 @@ I64 GetKey(I64 *_scan_code=NULL,Bool echo=FALSE,Bool raw_cursor=FALSE)
   if (_scan_code) *_scan_code=sc;
   return ch;
 }
+
+I64 GetChar(I64 *_scan_code=NULL,Bool echo=TRUE,Bool raw_cursor=FALSE)
+{//Wait for a non-zero ASCII key, preserving its native scan code.
+  I64 ch;
+  do ch=GetKey(_scan_code,FALSE,raw_cursor);
+  while (!ch);
+  if (echo)
+    "$$PT$$%c$$FG$$",ch;
+  return ch;
+}
+
+I64 PressAKey()
+{//Print a prompt and wait for a non-zero ASCII key.
+  "$$BK,1$$PRESS A KEY$$BK,0$$\n";
+  return GetChar(,FALSE);
+}
 `;

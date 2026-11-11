@@ -21,7 +21,7 @@ const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless
 try {
   const page=await browser.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));
   await page.goto('http://127.0.0.1:'+server.address().port);
-  const sources=await Promise.all(['Tasks','TaskExcept'].map(async name=>({name,
+  const sources=await Promise.all(['Tasks','TaskExcept','GetChar'].map(async name=>({name,
     source:await readFile(new URL('v503/'+name+'.HC',import.meta.url),'latin1'),
     expected:await readFile(new URL('v503/'+name+'.out',import.meta.url),'latin1')})));
   const results=await page.evaluate(async fixtures=>{
@@ -68,5 +68,5 @@ try {
   assert.equal(await page.evaluate(()=>window.keyOutput),'0\n28\n31\n0\n97\n97\n27\n');
   await page.evaluate(async()=>{keyHost.resetInput();await keyHost.stop();await keyRun;await keyHost.dispose();});
   assert.deepEqual(errors,[]);
-  console.log('Browser JSPI: original native task lifecycle and cross-task exceptions match with no surviving child allocations; real browser keys deliver Shift-Escape/Space, arrows and repeat through set-1 decoding.');
+  console.log('Browser JSPI: original task lifecycle, cross-task exceptions and character waits match with no surviving child allocations; real browser keys deliver Shift-Escape/Space, arrows and repeat through set-1 decoding.');
 } finally {await browser.close();await new Promise(resolve=>server.close(resolve));}
