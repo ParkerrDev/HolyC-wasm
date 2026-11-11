@@ -1,9 +1,10 @@
 # Native document initialization dependencies
 
-This is a dependency map, not an implementation claim. The reference is the
-original TempleOS V5.03 release. A53 implements entry/bin ownership and insertion;
-A54 adds program-owned runtime defines. DocInit/New/Rst/Recalc/Clear and full
-DolDoc output remain unavailable in the explicit KeyDev profile.
+This maps implemented foundations and the remaining dependency chain. The
+reference is original TempleOS V5.03. A53 implements entry/bin ownership and
+insertion; A54 adds program-owned runtime defines; A56 adds compiler-control
+and finite byte-buffer ownership. DocInit/New/Rst/Recalc/Clear and full DolDoc
+output remain unavailable in the explicit KeyDev profile.
 
 ## Define and kernel bootstrap
 
@@ -27,18 +28,22 @@ of precomputed DolDoc flags as execution of DocInit.
 four hash-table pointers from Fs, chooses the identifier bitmap, pushes CLexFile,
 resolves a supplied filename through FileNameAbs (otherwise blkdev.tmp_filename)
 and attaches the input buffer. CCF_DONT_FREE_BUF borrows only the outer buffer.
-Nested include buffers still belong to their CLexFile nodes. CCF_PMT allocates a
-prompt buffer and requires a real command-line device; it cannot silently act
-like a finite string stream.
+Nested include buffers still belong to their CLexFile nodes. A56 implements
+this finite-buffer control path and exact record layouts. Constructor failure
+releases partial state without adopting the caller's buffer. Native CCF_PMT
+allocates a prompt buffer and requires a real command-line device; A56 rejects
+that mode before allocation rather than treating it as a finite stream.
 
 `LexFilePop` distinguishes byte buffers from LFSF_DOC documents; the latter
 requires real DocDel. `CmpCtrlDel` also releases parse snapshots, hash contexts,
-parser stack, current string/help index and dollar buffer. Constructor and
-stream-push failure paths need rollback tests before adoption. The full native
+parser stack, current string/help index and dollar buffer. A56 implements these
+byte-buffer lifetimes with 38 host allocation-failure/retry cases; document
+streams are rejected before destruction/size/pop mutations. The full native
 CCmpCtrl layout includes embedded CAbsCntsI64 and CCodeCtrl, not merely token,
 string and input-pointer fields. The source-bound native-only
-`tests/probes/LexLayout.HC` records representative sizes and offsets; it is not a
-WASM passing fixture. Original QEMU measured CCmpCtrl=472 bytes, CLexFile=80,
+`tests/probes/LexLayout.HC` records the earlier native-only measurement. A56's
+permanent CmpControl fixture checks all record field offsets and both native
+and host executions. Original QEMU measured CCmpCtrl=472 bytes, CLexFile=80,
 CLexHashTableContext=72 and CCodeCtrl=48. Key CCmpCtrl offsets are htc=144,
 hash_entry=216, cur_buf_ptr=256, lex_include_stk=264, opts=320, coc=392 and
 ps=440. Opaque pointer types can preserve layout, but an embedded record must
@@ -59,8 +64,10 @@ and compiler class/member graphs. Operators use the native dual-U16 token
 lookup tables. Directives reach file includes, source metadata, conditional
 expression evaluation, compiler state and execution. Missing compiler symbols
 must not be replaced with arbitrary keyword numbers or ignored directives.
-`LexPush/PopRestore/PopNoRestore` save actual stream state and retain the native
-restriction against crossing include boundaries. LexExcept/reporting also needs
+A56 implements `LexPush/PopRestore/PopNoRestore` over actual stream records,
+including the native U8 saved-character truncation and borrowed pointer fields.
+Allocation failure preserves the current state. The native restriction against
+crossing include boundaries remains. LexExcept/reporting also needs
 an explicit device contract; returning a token after a lexical failure is wrong.
 
 ## Actual DocInit and flag parsing

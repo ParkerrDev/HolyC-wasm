@@ -1014,3 +1014,40 @@ prefixes, exact/case flags and deterministic generated inputs. The browser task
 gate also runs the native define-child fixture and checks complete disposal.
 The remaining real DocInit/lexer/control dependencies are mapped in
 [docs/DocInit.md](docs/DocInit.md), without substituting fixed document metadata.
+
+
+### Compiler-control buffer ownership
+
+CmpCtrlNew/Del/Size, LexFilePush/Pop and LexBackupLastChar/Push/PopRestore/
+PopNoRestore provide the native control records and finite byte-buffer ownership
+needed by the later lexer. CCmpCtrl, CLexFile, CLexHashTableContext, CCodeCtrl and
+their embedded records have measured V5.03 sizes and offsets. The two identifier
+bitmaps preserve all 512 native bits, including CCF_KEEP_AT_SIGN selection.
+These APIs do not implement Lex, LexGetChar, runtime compilation or DocInit.
+
+A successful CmpCtrlNew owns its buffer unless CCF_DONT_FREE_BUF borrows it.
+A failed constructor leaves that input with the caller and releases its partial
+control, include record and filename. Only the outer buffer can be borrowed;
+nested buffers and each filename belong to their include records. Hash-context
+pointers borrow the current task's tables. Saved stream records also borrow their
+buffer/name pointers; deleting a save point frees only that record. LexPush stages
+allocation before changing the current stream, so allocation failure preserves
+its put-back state. Restoring across include boundaries remains invalid, as in
+native TempleOS. Saved `last_U16` really is a U8 field; its truncation is retained.
+
+CCF_PMT construction throws `LexMode` before allocation. LexFilePop, CmpCtrlDel
+and CmpCtrlSize reject document streams before releasing or changing ownership:
+real command-line and document lifetime devices remain absent. Empty save-point
+pops throw `LexState`. CmpCtrlSize counts the same fields as native, using actual
+backend MSize2 spans; it does not claim byte-identical native heap headers or
+count additional fields that the native size function omits. Filename resolution
+uses the documented virtual-volume contract.
+
+`npm run test:cmp-control` verifies 295,710 native layout/field/bitmap/save-state
+checks, parent/child ownership over repeated sessions and 38 host allocation
+failures with unchanged caller buffers, state, heap/stack and successful retries.
+`node tests/cmp-control-oracle.mjs` repeats original and renamed-ported native
+checks; `--record` updates source/type/wrapper/capture/output-bound evidence.
+The native harness declares the private exported LexFilePush/Pop functions with
+explicit extern prototypes; it does not replace their implementations. Actual
+Chromium task tests also verify child exit and complete session disposal.

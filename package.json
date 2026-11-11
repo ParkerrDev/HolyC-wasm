@@ -42,7 +42,8 @@
     "test:keydev": "node tests/keydev.mjs && node tests/keydev-fault.mjs",
     "test:hash": "node tests/hash.mjs && node tests/hash-fault.mjs",
     "test:doc-entry": "node tests/doc-entry.mjs && node tests/doc-copy-fault.mjs && node tests/doc-insert-fault.mjs && node tests/doc-foreign-fault.mjs",
-    "test:define": "node tests/define.mjs && node tests/define-fault.mjs"
+    "test:define": "node tests/define.mjs && node tests/define-fault.mjs",
+    "test:cmp-control": "node tests/cmp-control.mjs && node tests/cmp-control-fault.mjs"
   },
   "license": "MIT",
   "author": "Built with Claude Code"

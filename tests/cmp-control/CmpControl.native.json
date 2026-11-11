@@ -1,0 +1,39 @@
+{
+  "manifest": {
+    "templeos": "V5.03",
+    "web": "973091c4480d25b4c1544fa9ec9f7de004fa0c98",
+    "compiler": "7e7213397c5db64ffba6e4ebbf29cf8aa26b86a8",
+    "hemu": "3daa7135a3453a4ac93744a614aa532ac5d7e0bc",
+    "snapshotSha256": "99389d6deade3fae598862bdee1856e8157d62b1843fe901f3530014485ff3d6",
+    "diskSha256": "ca12b5604c2f1d9fe83a7f910ce131f0bf074e1d33f24aa68fd4fad34198d148",
+    "engineSha256": "cdf3df2c051687604f9451304f3af03cb5ef6d5efbf50be706a93b60443d42c3",
+    "rawSnapshotSha256": "659ae1818239778442da41c38cbf45c112669dc08830e29b06b99626d6586f0f",
+    "rawDiskSha256": "f8673e751d7e313b6552ac5688c31a4ea19148326a7d560b103217f004e1322a"
+  },
+  "backend": {
+    "engine": "qemu",
+    "accelerator": "kvm",
+    "version": "QEMU emulator version 11.1.2"
+  },
+  "evidence": "/home/aphunt/Dev/GitHub/TempleOS/wt/HolyC-wasm-A1/tests/.oracle/qemu-yv4xcrro",
+  "sourceSha256": "68f0c434e2952f839643e31c4696ca8347f51328a31c02ff88fc50a8c2b5fe5c",
+  "nativeBindings": "extern CLexFile *LexFilePush(CCmpCtrl *cc);\nextern CLexFile *LexFilePop(CCmpCtrl *cc);\n",
+  "typesSha256": "d312a8b88245b812cd3e1a30c79bcfb67de2d36d8b003f904bf017e4e3848ea0",
+  "librarySha256": "4a3f6a9f2ecb8cf4d6844ac745ee126501881809adbe7e1c74ca95eead56ae1c",
+  "inputSha256": [
+    "f02c318f936fd84ff858349b5b55aa9c50a412562c084614063cddf4ac11c38c",
+    "1a944f7b0ddd17fe7db5838f612b4fa08bcaadb11c877027e6a94f8c244e8301"
+  ],
+  "captureSha256": "baa39e21c404a0da05762f7630e2c10b3c52e7e16d305546b306254c35056317",
+  "results": [
+    {
+      "out": "CmpControl:40B8E35C8DD1D534:295710\n",
+      "except": ""
+    },
+    {
+      "out": "CmpControl:40B8E35C8DD1D534:295710\n",
+      "except": ""
+    }
+  ],
+  "outputSha256": "1804e6de77b34145c3310f75f2e9cf56c8e802226c7efdfbb18f74a9af41cd14"
+}

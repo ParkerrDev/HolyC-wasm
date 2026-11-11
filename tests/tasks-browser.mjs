@@ -7,6 +7,7 @@ import {recorded as keydevRecorded} from './keydev/cases.mjs';
 import {recorded as hashRecorded} from './hash/cases.mjs';
 import {recorded as docRecorded} from './doc-entry/cases.mjs';
 import {recorded as defineRecorded} from './define/cases.mjs';
+import {recorded as cmpRecorded} from './cmp-control/cases.mjs';
 const root=new URL('../',import.meta.url).pathname;
 const web=resolve(process.env.TEMPLEOS_WEB||'../TempleOS-Web');
 const {chromium}=await import(pathToFileURL(web+'/node_modules/playwright-core/index.mjs'));
@@ -30,6 +31,8 @@ try {
     expected:await readFile(new URL('v503/'+name+'.out',import.meta.url),'latin1')})));
   const hashTask=hashRecorded('HashTask');
   sources.push({name:'HashTask',source:hashTask.wasmSource,expected:hashTask.output});
+  const cmpTask=cmpRecorded('CmpTask');
+  sources.push({name:'CmpTask',source:cmpTask.wasmSource,expected:cmpTask.output});
   const defineTask=defineRecorded('DefineTask');
   sources.push({name:'DefineTask',source:defineTask.wasmSource,expected:defineTask.output});
   const results=await page.evaluate(async fixtures=>{
@@ -51,7 +54,9 @@ try {
   },sources);
   for(const result of results) {
     assert(result.match,result.name+': '+result.output);
-    assert.equal(result.tasks,1);assert.equal(result.allocations,['HashTask','DefineTask'].includes(result.name)?2:0);
+    assert.equal(result.tasks,1);
+    if(result.name==='CmpTask')assert(result.allocations>2,'native directory/hash state remains session-owned');
+    else assert.equal(result.allocations,['HashTask','DefineTask'].includes(result.name)?2:0);
     assert.equal(result.disposedAllocations,0);
   }
   const volumes=await Promise.all(['DirectoryTask','FileTask'].map(async name=>({name,
@@ -149,5 +154,5 @@ try {
   assert.equal(await page.evaluate(()=>window.keyOutput),'0\n28\n31\n0\n97\n97\n27\n');
   await page.evaluate(async()=>{keyHost.resetInput();await keyHost.stop();await keyRun;await keyHost.dispose();});
   assert.deepEqual(errors,[]);
-  console.log('Browser JSPI: original task lifecycle, cross-task exceptions, catchable breaks and character waits and native directory/byte-volume sessions match with no surviving child allocations; native task hash/define/document ownership, scoped KeyDev ScrollLock and raw canvas/GetKey behavior pass; real browser keys deliver Shift-Escape/Space, arrows and repeat through set-1 decoding.');
+  console.log('Browser JSPI: original task lifecycle, cross-task exceptions, catchable breaks and character waits and native directory/byte-volume sessions match with no surviving child allocations; native task hash/define/compiler-control/document ownership, scoped KeyDev ScrollLock and raw canvas/GetKey behavior pass; real browser keys deliver Shift-Escape/Space, arrows and repeat through set-1 decoding.');
 } finally {await browser.close();await new Promise(resolve=>server.close(resolve));}
