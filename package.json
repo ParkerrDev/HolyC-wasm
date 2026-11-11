@@ -34,7 +34,8 @@
     "test:window": "node tests/window.mjs && node tests/document-lock.mjs",
     "test:char": "node tests/char.mjs",
     "test:break": "node tests/break.mjs",
-    "test:fifo": "node tests/fifo.mjs"
+    "test:fifo": "node tests/fifo.mjs",
+    "test:global-binding": "node tests/global-binding.mjs && NOFOLD=1 node tests/global-binding.mjs"
   },
   "license": "MIT",
   "author": "Built with Claude Code"

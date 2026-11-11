@@ -504,6 +504,18 @@ is 21). Empty suffixes are allowed; integer accumulation wraps to 64 bits.
 Underscores begin separate identifiers, not digit separators. The eight native
 fixtures for these boundaries also cover `reg`/`noreg` as global, static-local
 and member names, while keeping their automatic-local qualifier behavior.
+Global variable redeclarations have distinct storage. Earlier functions,
+initializers, layout queries and captured defaults retain their original
+binding, including across includes. Each `extern` creates a forward binding;
+its next definition supplies the address, while earlier references retain the
+extern's declared load type. A superseded unresolved extern has address zero;
+reading that address is not a portable initialized value. The returned globals
+map exposes the latest declaration. Runtime device hooks retain their prelude
+bindings even when user code reuses names such as `gr`, `kbd` or `text`.
+The native `Global*` fixtures and `test:global-binding` cover these boundaries,
+including a global used before a later same-named local declaration. Function
+and class redefinition semantics remain separate compatibility work.
+
 Argument defaults capture their values once at their declaration, as V5.03
 compilation does. Nonconstant defaults, including function calls and callback
 types, use private cells in WASM memory; calls read the captured value. The

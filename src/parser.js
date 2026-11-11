@@ -32,6 +32,8 @@ export class Parser {
     this.typeNames = new Set(Object.keys(BASE_TYPES));
     this.classes = new Map(); // name -> ClassDecl
     this.globalNames=new Set();
+    this.globalBindings=new Map();
+    this.bindings=[];
     this.localNames=null;
     this.switchId=0;
     this.anonymousId=0;
@@ -95,7 +97,9 @@ export class Parser {
         this.resyncTopLevel();
       }
     }
-    return mk("Program", { decls, topStmts, items, diagnostics: this.diagnostics });
+    const program=mk("Program",{decls,topStmts,items,diagnostics:this.diagnostics});
+    this.finishGlobalBindings(program);
+    return program;
   }
 
   // After a parse error in resilient mode, advance to a plausible restart point:
@@ -118,6 +122,50 @@ export class Parser {
     if (t.type !== "ident") return false;
     if (t.value === "class" || t.value === "union") return true;
     return this.typeNames.has(t.value) && !this.isP(".",k+1);
+  }
+
+  // Native declarations create new storage; an extern is a distinct forward
+  // binding resolved only by its next definition. References keep their type.
+  globalBinding(name,type,storage,tok) {
+    let binding=this.globalBindings.get(name);
+    const external=storage.includes("extern") || storage.includes("_extern");
+    if (external || !binding || !binding.external) {
+      binding={id:this.bindings.length,name,type,external,filename:tok.filename,nodes:[]};
+      this.bindings.push(binding);this.globalBindings.set(name,binding);
+    } else {binding.external=false;binding.type=type;}
+    return binding;
+  }
+
+  bindReference(node) {
+    if (!this.localNames?.has(node.name)) {
+      const binding=this.globalBindings.get(node.name);
+      if (binding) {node.globalBinding=binding.id;node.globalType=binding.type;}
+    }
+    return node;
+  }
+
+  finishGlobalBindings(program) {
+    const runtimeBindings={};
+    for (const binding of this.bindings) {
+      binding.key=this.globalBindings.get(binding.name)===binding?binding.name:
+        "#global:"+binding.name+":"+binding.id;
+      if (binding.filename==="<prelude>") runtimeBindings[binding.name]=binding.key;
+      for (const node of binding.nodes) {
+        node.name=binding.key;node.sourceName=binding.name;
+        if (binding.key!==binding.name) node.internal=true;
+        if (node.storage?.some(s=>s==="extern" || s==="_extern") && !binding.external)
+          node.forwardGlobal=true;
+      }
+    }
+    const seen=new Set(),walk=node=>{
+      if (!node || typeof node!=="object" || seen.has(node)) return;
+      seen.add(node);
+      if (node.globalBinding!==undefined) node.name=this.bindings[node.globalBinding].key;
+      for (const value of Object.values(node))
+        if (Array.isArray(value)) value.forEach(walk);
+        else if (value && typeof value==="object") walk(value);
+    };
+    walk(program);program.runtimeBindings=runtimeBindings;
   }
 
   // ====================================================================
@@ -177,9 +225,12 @@ export class Parser {
           const dims = [];
           while (this.isP("[")) { this.next(); dims.push(this.parseConstIntish()); this.eatP("]"); }
           for (let d = dims.length - 1; d >= 0; d--) vt = arrayOf(vt, dims[d]);
+          const binding=this.localNames===null?this.globalBinding(vn,vt,[],kw):null;
           let init = null;
           if (this.optP("=")) init = this.parseInitializer();
-          vars.push(mk("VarDecl", { name: vn, type: vt, init, storage: [] }));
+          const variable=mk("VarDecl",{name:vn,type:vt,init,storage:[]},kw);
+          if (binding) {variable.globalBinding=binding.id;binding.nodes.push(variable);}
+          vars.push(variable);
         }
       } while (this.optP(","));
     }
@@ -235,10 +286,13 @@ export class Parser {
         this.funcNamesAdd?.(d.name);
         return fn;
       }
+      const binding=topLevel?this.globalBinding(d.name,d.type,storage,tok):null;
       const init=this.optP("=")?this.parseInitializer():null;
       if (!topLevel && d.type.kind==="funcptr" && init && !storage.includes("static"))
         this.err("V5.03 requires a separate assignment for a local function pointer",tok);
-      decls.push(mk("VarDecl",{...d,init,storage},tok));
+      const node=mk("VarDecl",{...d,init,storage},tok);
+      if (binding) {node.globalBinding=binding.id;binding.nodes.push(node);}
+      decls.push(node);
     } while (this.optP(","));
     this.optP(";");
     return decls;
@@ -633,7 +687,7 @@ export class Parser {
     if (op==="sizeof") while (this.optP("*")) stars++;
     else if (!fields.length) this.err("offset requires a member");
     while (parens--) this.eatP(")");
-    return mk(op==="sizeof"?"Sizeof":"Offset",{name,fields,stars},t);
+    return this.bindReference(mk(op==="sizeof"?"Sizeof":"Offset",{name,fields,stars},t));
   }
 
   parseTypeRef() {
@@ -698,7 +752,7 @@ export class Parser {
     if (t.type === "char") { this.next(); return mk("CharLit", { value: t.value, text: t.text, nchars: t.nchars }, t); }
     if (t.type === "ident") {
       this.next();
-      return mk("Ident", { name: t.value }, t);
+      return this.bindReference(mk("Ident",{name:t.value},t));
     }
     if (this.isP("(")) { this.next(); const e = this.parseExpression(); this.eatP(")"); return e; }
     this.err("unexpected token in expression");

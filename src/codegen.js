@@ -38,7 +38,11 @@ export function compile(programAst, opts = {}) {
 class Codegen {
   constructor(program, opts) {
     this.program = program;
-    this.opts = opts;
+    const binding=name=>program.runtimeBindings?.[name]??name;
+    const bind=api=>({...api,globals:api.globals?.map(binding),
+      fields:api.fields?.map(name=>{const [root,...path]=name.split(".");return [binding(root),...path].join(".");})});
+    this.opts={...opts,runtimeInitializers:opts.runtimeInitializers?.map(bind),
+      runtimeInterfaces:opts.runtimeInterfaces?.map(bind)};
     this.m = new Module();
     this.classes = new Map();   // name -> ClassDecl node
     this.classLayouts = new Map(); // name -> {size, align, fields:Map}
@@ -357,7 +361,7 @@ class Codegen {
   }
 
   layoutQuery(node,locals) {
-    let type=locals?.get(node.name)?.type || this.globals.get(node.name)?.type ||
+    let type=node.globalType || locals?.get(node.name)?.type || this.globals.get(node.name)?.type ||
       BASE_TYPES[node.name] || (this.classes.has(node.name)?{kind:"classref",name:node.name}:null);
     if (!type) throw new CodegenError(`${node.filename}:${node.line}: Invalid class or variable in ${node.kind}: ${node.name}`);
     type=this.resolveType(type,locals);
@@ -426,10 +430,12 @@ class Codegen {
     }
   }
   declareGlobal(d) {
-    if (this.globals.has(d.name)) return;
+    if (d.forwardGlobal || this.globals.has(d.name)) return;
     const ty = this.resolveType(d.type);
     let addr;
-    if (d.name in PINNED_GLOBALS) addr = PINNED_GLOBALS[d.name];
+    const runtimeName=d.sourceName??d.name;
+    if (d.storage?.some(s=>s==="extern" || s==="_extern")) addr=0;
+    else if (d.filename==="<prelude>" && runtimeName in PINNED_GLOBALS) addr=PINNED_GLOBALS[runtimeName];
     else addr = this.alloc(this.typeSize(ty), this.typeAlign(ty));
     this.globals.set(d.name, { addr, type: ty, init: d.init, node: d });
     // record simple integer constant for const-folding of later dims
@@ -1208,6 +1214,11 @@ class FnCtx {
     this.dropIfValue(this.emitCall(fn,[{kind:"IntLit",value}],null));
   }
 
+  // A reference parsed before a same-named local still names its global.
+  localBinding(node) {
+    return node.globalBinding===undefined?this.locals.get(node.name):undefined;
+  }
+
   // ================================================== expressions
   // genExpr pushes a value and returns its HolyC type
   genExpr(node) {
@@ -1250,7 +1261,7 @@ class FnCtx {
   inMemory(node) {
     switch (node.kind) {
       case "Ident": {
-        const L = this.locals.get(node.name);
+        const L = this.localBinding(node);
         if (L) return L.kind !== "wlocal";
         return this.cg.globals.has(node.name);
       }
@@ -1271,7 +1282,7 @@ class FnCtx {
     let type = null;
     while (node.kind === "Cast" && node.postfix) { type ??= this.cg.resolveType(node.type); node = node.operand; }
     if (node.kind !== "Ident") return null;
-    const L = this.locals.get(node.name);
+    const L = this.localBinding(node);
     if (!L || L.kind !== "wlocal") return null;
     return { L, type: type ?? this.cg.resolveType(L.type), own: this.cg.resolveType(L.type) };
   }
@@ -1283,8 +1294,8 @@ class FnCtx {
       case "FloatLit": return T.F64;
       case "StrLit": case "BinLit": return ptrTo(T.U8);
       case "Ident": {
-        const L = this.locals.get(node.name); if (L) return this.cg.resolveType(L.type);
-        const G = this.cg.globals.get(node.name); if (G) return G.type;
+        const L = this.localBinding(node); if (L) return this.cg.resolveType(L.type);
+        const G = this.cg.globals.get(node.name); if (G) return this.cg.resolveType(node.globalType??G.type);
         const fn = this.cg.functions.get(node.name); if (fn) return fn.retType;
         if (node.name in this.cg.constEnv) return T.I64;
         return T.I64;
@@ -1299,7 +1310,7 @@ class FnCtx {
       case "Logical": case "Chain": return T.I64;
       case "Unary": {
         if (node.op === "&") {
-          if (node.operand.kind==="Ident" && !this.locals.has(node.operand.name) &&
+          if (node.operand.kind==="Ident" && !this.localBinding(node.operand) &&
               !this.cg.globals.has(node.operand.name)) {
             const fn=this.cg.functions.get(node.operand.name);
             if (fn) return funcPtr(fn.retType,fn.params,fn.isVarArgs);
@@ -1350,7 +1361,7 @@ class FnCtx {
   }
 
   genIdent(node) {
-    const L = this.locals.get(node.name);
+    const L = this.localBinding(node);
     if (L) {
       if (L.kind === "wlocal") { this.f.local_get(L.windex); return this.cg.resolveType(L.type); }
       if (L.kind === "reflocal") { this.f.local_get(L.windex); return this.cg.resolveType(L.type); }
@@ -1362,7 +1373,7 @@ class FnCtx {
     const G = this.cg.globals.get(node.name);
     if (G) {
       (this.f.globalUses??=new Set()).add(node.name);
-      const t = G.type;
+      const t = this.cg.resolveType(node.globalType??G.type);
       if (isAggregate(t)) {
         (this.f.fieldUses??=new Set()).add(node.name+'.*');
         this.f.i64_const(G.addr);return t;
@@ -1391,11 +1402,11 @@ class FnCtx {
   addrConst(node) {
     try {
       if (node.kind === "Ident") {
-        if (this.locals.get(node.name)) return null;
+        if (this.localBinding(node)) return null;
         const G = this.cg.globals.get(node.name);
         if (!G) return null;
         (this.f.globalUses??=new Set()).add(node.name);
-        return { addr: Number(G.addr), type: G.type };
+        return {addr:Number(G.addr),type:this.cg.resolveType(node.globalType??G.type)};
       }
       if (node.kind === "Member" && !node.arrow) {
         const b = this.addrConst(node.base);
@@ -1426,12 +1437,12 @@ class FnCtx {
       if (root.kind==="Member") names.unshift(root.name);
       root=root.base;
     }
-    if (root.kind==="Ident" && !this.locals.has(root.name) && this.cg.globals.has(root.name))
+    if (root.kind==="Ident" && !this.localBinding(root) && this.cg.globals.has(root.name))
       (this.f.fieldUses??=new Set()).add(root.name+'.'+(names.join('.')||'*'));
     if (!NOFOLD) { const ac = this.addrConst(node); if (ac) { this.f.i64_const(ac.addr); return ac.type; } }
     switch (node.kind) {
       case "Ident": {
-        const L = this.locals.get(node.name);
+        const L = this.localBinding(node);
         if (L) {
           if (L.kind === "slot" || L.kind==="refslot") { this.pushSlotAddr(L); return this.cg.resolveType(L.type); }
           if (L.kind === "reflocal") { this.f.local_get(L.windex); return this.cg.resolveType(L.type); }
@@ -1440,7 +1451,7 @@ class FnCtx {
         const G = this.cg.globals.get(node.name);
         if (G) {
           (this.f.globalUses??=new Set()).add(node.name);
-          this.f.i64_const(G.addr);return G.type;
+          this.f.i64_const(G.addr);return this.cg.resolveType(node.globalType??G.type);
         }
         if (this.cg.lenient) { this.f.i64_const(this.cg.lenientGlobal(node.name)); return T.I64; }
         this.err(node, "cannot address undefined '" + node.name + "'");
@@ -1808,7 +1819,7 @@ class FnCtx {
       // address-of; function name -> id constant
       if (node.operand.kind === "Ident") {
         const fn = this.cg.functions.get(node.operand.name);
-        if (fn && !this.locals.has(node.operand.name) && !this.cg.globals.has(node.operand.name)) {
+        if (fn && !this.localBinding(node.operand) && !this.cg.globals.has(node.operand.name)) {
           if (!this.cg.lenient && !fn.node && !fn.isImport)
             this.err(node, "Unresolved function: " + fn.name);
           this.f.references.add(fn.index);
@@ -1979,7 +1990,7 @@ class FnCtx {
     switch (node.kind) {
       case "IntLit": case "CharLit": case "FloatLit": case "StrLit":
       case "BinLit": case "Sizeof": case "Offset": return true;
-      case "Ident": return this.locals.has(node.name) || this.cg.globals.has(node.name) ||
+      case "Ident": return !!this.localBinding(node) || this.cg.globals.has(node.name) ||
         !this.cg.functions.has(node.name);
       case "Unary": return !["++","--"].includes(node.op) && this.pureExpr(node.operand);
       case "Cast": return this.pureExpr(node.operand);
