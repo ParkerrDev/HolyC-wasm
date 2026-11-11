@@ -761,6 +761,7 @@ class FnCtx {
     this.wlocalTypes = [];          // extra wasm local valtypes (beyond params)
     this.frameSize = 0;
     this.scratch = {};              // cached scratch local indices
+    this.noZeroCompare = new WeakSet();
     this.paramCount = fn.params.length+(fn.isVarArgs?1:0);
 
     // params occupy wasm locals 0..n-1
@@ -1255,15 +1256,15 @@ class FnCtx {
     if (node.kind === "Unary" && node.op === "!") { this.genCond(node.operand); this.f.op("i32_eqz"); return; }
     if (node.kind === "Chain") { this.genChain(node, true); return; }
     const t = node.kind === "Logical" && node.op !== "^^" ? this.genShortCircuit(node) : this.genExpr(node);
-    if (isFloat(t)) { this.f.f64_const(0).op("f64_ne"); }
-    else { this.f.i64_const(0).op("i64_ne"); }
+    if (isFloat(t)) this.f.op("i64_reinterpret_f64");
+    this.f.i64_const(0).op("i64_ne");
   }
 
   genTruth(node) {
     if (node.kind === "Unary" && node.op === "!") { this.genTruth(node.operand); this.f.op("i32_eqz"); return; }
     const t = this.genExpr(node);
-    if (isFloat(t)) { this.f.f64_const(0).op("f64_ne"); }
-    else { this.f.i64_const(0).op("i64_ne"); }
+    if (isFloat(t)) this.f.op("i64_reinterpret_f64");
+    this.f.i64_const(0).op("i64_ne");
   }
 
   dropIfValue(t) { if (t && !isVoid(t)) this.f.drop(); }
@@ -1752,6 +1753,46 @@ class FnCtx {
     return bits && !(bits&(bits-1n))?BigInt(bits.toString(2).length-1):null;
   }
 
+  floatConstant(node) {
+    if (node.kind==="IntLit" || node.kind==="CharLit")
+      return Number(BigInt.asIntN(64,BigInt(node.value)));
+    if (node.kind==="FloatLit") return node.value;
+    if (!isFloat(this.cg.resolveType(this.peekType(node)))) return null;
+    if (node.kind==="Unary" && ["+","-"].includes(node.op)) {
+      const value=this.floatConstant(node.operand);
+      return value===null?null:node.op==="-"?-value:value;
+    }
+    if (node.kind==="Binary" && ["+","-","*","/"].includes(node.op)) {
+      const a=this.floatConstant(node.left),b=this.floatConstant(node.right);
+      if (a===null || b===null) return null;
+      const value=node.op==="+"?a+b:node.op==="-"?a-b:node.op==="*"?a*b:a/b;
+      return Number.isFinite(value)?value:null;
+    }
+    return null;
+  }
+
+  floatLoad(node) {
+    if (!isFloat(this.cg.resolveType(this.peekType(node)))) return false;
+    if (node.kind==="Ident") return !!this.localBinding(node) ||
+      this.cg.globals.has(node.name) && !this.exportedAddress(node);
+    if (node.kind==="Cast" && node.postfix) {
+      if (node.operand.kind==="Ident") return !!this.localBinding(node.operand) ||
+        this.cg.globals.has(node.operand.name) && !this.exportedAddress(node.operand);
+      return this.inMemory(node.operand);
+    }
+    return node.kind==="Index" || node.kind==="Member" ||
+      node.kind==="Unary" && node.op==="*";
+  }
+
+  zeroLoadCompare(node) {
+    // OptLib.HC only rewrites IC_LESS/IC_GREATER_EQU against +0. A
+    // following IC_PUSH_CMP or IC_AND_AND excludes the rewrite. Chains
+    // have their own lowering; the immediate right operand of && is marked.
+    if (!["<",">="].includes(node.op) || this.noZeroCompare.has(node)) return false;
+    return this.floatLoad(node.left) && Object.is(this.floatConstant(node.right),0) ||
+      this.floatLoad(node.right) && Object.is(this.floatConstant(node.left),0);
+  }
+
   genBinary(node) {
     if (node.op === "`") {
       // power -> __pow(f64,f64)
@@ -1799,8 +1840,13 @@ class FnCtx {
     if (isCmp(node.op)) {
       if (useFloat) {
         this.genExprCoerce(node.left, T.F64);
+        const bits=this.zeroLoadCompare(node);
+        if (bits) this.f.op("i64_reinterpret_f64");
         this.genExprCoerce(node.right, T.F64);
-        this.floatCmp(node.op);
+        if (bits) {
+          this.f.op("i64_reinterpret_f64");
+          this.intCmp(node.op,false);
+        } else this.floatCmp(node.op);
       } else {
         this.genExprCoerce(node.left, T.I64);
         this.genExprCoerce(node.right, T.I64);
@@ -1867,17 +1913,24 @@ class FnCtx {
     }
   }
   floatCmp(op) {
+    // Native ICCmp compares the promoted F64 representations for equality.
+    if (op==="==" || op==="!=") {
+      const right=this.scratchF64();
+      this.f.local_set(right).op("i64_reinterpret_f64")
+        .local_get(right).op("i64_reinterpret_f64");
+      this.intCmp(op,false);
+      return;
+    }
     switch (op) {
       case "<": this.f.op("f64_lt"); break;
       case ">": this.f.op("f64_gt"); break;
       case "<=": this.f.op("f64_le"); break;
       case ">=": this.f.op("f64_ge"); break;
-      case "==": this.f.op("f64_eq"); break;
-      case "!=": this.f.op("f64_ne"); break;
     }
   }
 
   genLogical(node) {
+    if (node.op==="&&") this.noZeroCompare.add(node.right);
     this.genTruth(node.left);
     this.genTruth(node.right);
     this.f.op(node.op === "&&" ? "i32_and" : node.op === "||" ? "i32_or" : "i32_xor");
@@ -1886,6 +1939,7 @@ class FnCtx {
   }
 
   genShortCircuit(node) {
+    if (node.op==="&&") this.noZeroCompare.add(node.right);
     this.genCond(node.left); // i32
     const m = this.pushCtrl(); this.f.if_(VT.i64);
     if (node.op === "&&") {

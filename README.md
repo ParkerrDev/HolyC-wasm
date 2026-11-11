@@ -167,6 +167,27 @@ still need task/window lifecycle, file services and other native APIs. The compi
 also has unsupported assembly, runtime-generated declarations and class-field
 `format` metadata. `#ifdef` currently tests macros only, unlike native symbol
 lookup; declaring a `kbd` variable does not yet activate `#ifdef kbd` branches.
+F64 truth tests and equality compare the promoted 64-bit representations, as
+V5.03 does: negative zero is true and differs from positive zero; a NaN equals
+the same stored NaN bits. `x!=x` is therefore not a native NaN test. The KeyDev
+clock guard checks exponent bits before using a clock reading. Native
+`OptLib.HC` also converts a direct F64 load compared with constant positive zero
+using `<` or `>=` into a signed integer-bit comparison. Comparisons against
+variable or negative zero, other relational operators, calls/arithmetic results,
+comparison chains and the immediate right operand of `&&` retain their distinct
+paths. Native optimization order also distinguishes floating `1.0-1.0` from
+integer `1-1` here; only the former receives that rewrite. The source-bound
+`FloatTruth` fixture covers these rules in value and
+branch contexts, fields/arrays/pointers/casts, signed zeros, finite values,
+infinities and NaN representations, with a recorded failing prior compiler.
+
+General unordered relational lowering remains incomplete. Native value and
+branch templates differ for NaNs, and native `if (0<d<1)` differs from its value
+expression at `d==1.0`. `tests/probes/FloatRelationalContexts.HC` preserves the
+original QEMU observations; it is not a passing WASM parity claim. Floating
+equality/truth compatibility does not establish complete native comparison
+or x87 execution equivalence.
+
 WebAssembly F64 arithmetic does not reproduce the full x87 extended-precision
 environment. Passing a compiler fixture does not prove a game's rendering,
 input, performance or behavior on QEMU, other virtual machines or bare metal.

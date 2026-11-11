@@ -183,10 +183,12 @@ U0 KeyOutputHostInit()
 U0 Busy(I64 uS)
 {//Busy-wait in microseconds on the host clock.
   F64 last=__time_ms_checked,end=last+uS/1000.0,now;
-  if (last!=last) throw('Clock');
+  if (last(U64)&0x7FF0000000000000==0x7FF0000000000000)
+    throw('Clock');
   do {
     now=__time_ms_checked;
-    if (now!=now || now<last) throw('Clock');
+    if (now(U64)&0x7FF0000000000000==0x7FF0000000000000 || now<last)
+      throw('Clock');
     last=now;
   } while (now<end);
 }

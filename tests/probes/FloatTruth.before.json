@@ -1,0 +1,13 @@
+{
+  "compiler": "ac354ad",
+  "source": "../v503/FloatTruth.HC",
+  "sourceSha256": "297cdddc16b97006c788d606b7bbd97dfd9ffef0272359a21b321d11df8fd375",
+  "nativeOutputSha256": "8470c9341365c9a928dd3bf666bab9d2bf70397237ac2b0f44a668811b62142a",
+  "outputSha256": "ceabbf7a6e8cfbb6e4bd5ca62d7339835bff94813dd973c24f532b6ed64ae382",
+  "firstMismatch": {
+    "line": 8,
+    "before": "1000100010",
+    "native": "0101010101"
+  },
+  "boundary": "Negative control: pre-correction compiler fails the source-bound native FloatTruth fixture."
+}
