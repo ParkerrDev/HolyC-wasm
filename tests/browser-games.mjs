@@ -31,7 +31,8 @@ try {
   await page.locator('#gmSearch').fill(name);
   const card=page.locator('.gm-card').filter({has:page.getByRole('heading',{name,exact:true})});
   await card.getByRole('button',{name:'Run in Browser',exact:true}).click();
-  await page.waitForFunction(()=>document.querySelector('#gameWinStatus').textContent.includes('compiled'),null,{timeout:30000});
+  try {await page.waitForFunction(()=>/HolyC-WASM: (compiled|running)/.test(document.querySelector('#gameWinStatus').textContent),null,{timeout:30000});}
+  catch(error) {throw new Error(name+' launch: '+await page.locator('#gameWinStatus').innerText()+'; '+await page.locator('#console').innerText(),{cause:error});}
   await page.waitForTimeout(1000);
   const before=await page.locator('#screen').evaluate(c=>{const data=c.getContext('2d').getImageData(0,0,640,480).data;let h=0;const colors=new Set();for(let i=0;i<data.length;i+=4){h=(Math.imul(h,65599)+data[i]+256*data[i+1]+65536*data[i+2])>>>0;colors.add(data[i]+256*data[i+1]+65536*data[i+2]);}return{hash:h,colors:colors.size};});
   assert(before.colors>=3,name+' draws visible colors');

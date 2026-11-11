@@ -7,6 +7,13 @@
 import {GR_TYPES_SRC,GR_SRC} from "./gr-prelude.js";
 import {FONT} from "./runtime/font.js";
 
+// Runtime initialization is a dependency of the globals it establishes. The
+// compiler uses the same reachability graph for these hooks and ordinary calls.
+export const RUNTIME_INITIALIZERS=[
+  {name:"__hcrt_init",always:true},
+  {name:"__hgr_init",globals:["gr","__gr_font"]},
+];
+
 export const PRELUDE_SRC = String.raw`
 //==================== constants ====================
 #define NULL 0
@@ -711,13 +718,17 @@ U8 *CAlloc(I64 size,CTask *mem_task=NULL)
 //==================== runtime init (called by __rt_init) ====================
 U0 __hcrt_init()
 {
-  I64 i,j,bits;
   Fs=&fs_storage;
   Fs->pix_width=__gr_width;
   Fs->pix_height=__gr_height;
   Fs->pix_right=Fs->pix_width-1;
   Fs->pix_bottom=Fs->pix_height-1;
   Fs->next_task=sys_winmgr_task=Fs;
+}
+
+U0 __hgr_init()
+{
+  I64 i,j,bits;
   gr.dc=&gr_dc_storage;
   gr.dc->width=gr.dc->width_internal=GR_WIDTH;
   gr.dc->height=GR_HEIGHT;

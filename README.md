@@ -209,3 +209,21 @@ this checkout's compiler/runtime, checks advancing rendered frames, and saves
 screenshots in `tests/.oracle/browser-games/`. Keyboard events are sent, but a
 changing animation does not prove they were accepted. This checks rendering
 and liveness; behavioral input and complete gameplay need separate tests.
+
+
+Runtime linkage checks every function body before removing unreachable code.
+Strict errors in an unused function still reject the program. Main, explicit
+`exports`, user global initializers, and referenced callbacks are roots;
+ordinary calls, global references, and runtime initialization hooks supply the
+dependencies. The prelude owns its hook metadata: task initialization always
+runs; graphics initialization runs when reachable code needs its globals.
+Unused imports and literal/constant data segments are omitted as well.
+
+`npm run test:link` covers omission of an unavailable host import, retained
+callback imports, strict errors in unused bodies, user initializer side effects
+and ordering, repeated initialization, graphics dependencies, and function index
+relocation across LEB128 widths. Named WASM exports remain stable, but numeric
+WASM function indices are private. HolyC callback values remain table slots.
+Static address reservations are currently retained even for omitted prelude
+globals and literals; this change reduces module bytes and initialization work,
+not the fixed memory/stack/heap layout or compiler parsing/type-checking work.

@@ -9,7 +9,7 @@ import { lex } from "./lexer.js";
 import { preprocess } from "./preprocess.js";
 import { parse } from "./parser.js";
 import { compile as codegen } from "./codegen.js";
-import { PRELUDE_SRC } from "./prelude.js";
+import { PRELUDE_SRC, RUNTIME_INITIALIZERS } from "./prelude.js";
 
 export function compileHolyC(source, opts = {}) {
   const userName = opts.filename || "<holyc>";
@@ -28,7 +28,7 @@ export function compileHolyC(source, opts = {}) {
     filename: userName,
   });
   const ast = parse(pp, userName, { resilient: opts.resilient });
-  const { bytes, warnings, dataEnd, globals } = codegen(ast, opts);
+  const { bytes, warnings, dataEnd, globals } = codegen(ast, {...opts,runtimeInitializers:opts.noPrelude?[]:RUNTIME_INITIALIZERS});
   return { bytes, warnings, dataEnd, globals, ast, diagnostics: ast.diagnostics || [] };
 }
 

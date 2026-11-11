@@ -12,6 +12,7 @@
     "test:callback": "node tests/callback.mjs",
     "test:exception": "node tests/exception.mjs",
     "test:heap": "node tests/heap.mjs",
+    "test:link": "node tests/link.mjs",
     "test:graphics": "node tests/graphics.mjs",
     "test:browser-games": "node tests/browser-games.mjs",
     "test:float-scale": "node tests/oracle-scale.mjs"

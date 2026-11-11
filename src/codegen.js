@@ -43,6 +43,7 @@ class Codegen {
     this.functionAddresses=new Map();
     this.functions = new Map(); // name -> fn record
     this.globals = new Map();   // name -> {addr, type}
+    this.globalInitializers=new Map();
     this.constEnv = {};         // name -> bigint, for #define-like enum constants
     this.data = [];             // {addr, bytes}
     this.strings = new Map();   // key -> addr
@@ -78,22 +79,28 @@ class Codegen {
     return a;
   }
 
-  internBytes(bytes, nulTerminate = true) {
+  internBytes(bytes, nulTerminate = true, owner) {
     const arr = nulTerminate ? [...bytes, 0] : [...bytes];
     const key = arr.join(",");
-    if (this.strings.has(key)) return this.strings.get(key);
+    if (this.strings.has(key)) {
+      const data=this.strings.get(key);data.owners.add(owner);return data.addr;
+    }
     const addr = this.alloc(arr.length, 1);
-    this.data.push({ addr, bytes: arr });
-    this.strings.set(key, addr);
+    const data={addr,bytes:arr,owners:new Set([owner])};
+    this.data.push(data);
+    this.strings.set(key,data);
     return addr;
   }
 
-  literalBytes(node) {
-    if (this.literals.has(node)) return this.literals.get(node);
+  literalBytes(node,owner) {
+    if (this.literals.has(node)) {
+      const data=this.literals.get(node);data.owners.add(owner);return data.addr;
+    }
     const bytes = node.kind === "BinLit" ? node.bytes : [...node.bytes, 0];
     const addr = this.alloc(bytes.length, 1);
-    this.data.push({ addr, bytes });
-    this.literals.set(node, addr);
+    const data={addr,bytes,owners:new Set([owner])};
+    this.data.push(data);
+    this.literals.set(node,data);
     return addr;
   }
 
@@ -132,17 +139,22 @@ class Codegen {
       //Unused prototypes reserve a slot; strict references to them are errors.
       if (fn.slot) this.genStubBody(fn);
     }
-    this.genRtInit();
+    const initContext=this.genGlobalInitializers();
     this.genMain();
+    const linked=this.reachable();
+    this.genRtInit(initContext,linked);
 
     if (this.functionAddresses.size) {
       this.m.setTable(this.functionAddresses.size+1);
-      this.m.addElement(1,[...this.functionAddresses.keys()]);
+      for (const [index,address] of this.functionAddresses)
+        if (linked.functions.has(index)) this.m.addElement(address,[index]);
       this.m.exportTable("__functions");
     }
 
     // emit static data
-    for (const d of this.data) this.m.addData(d.addr, d.bytes);
+    for (const d of this.data)
+      if ([...d.owners].some(owner=>linked.bodies.has(owner)))
+        this.m.addData(d.addr,d.bytes);
 
     // exports
     this.m.exportMemory("memory");
@@ -160,6 +172,7 @@ class Codegen {
       }
     }
 
+    this.m.linkFunctions(linked.functions);
     const bytes = this.m.emit();
     return { bytes, warnings: this.warnings, dataEnd: this.cursor, globals: this.globals };
   }
@@ -319,7 +332,7 @@ class Codegen {
   // the caller falls back to runtime stores) for float arrays, nested lists, or
   // any non-constant element. wasm memory is zero-initialized, so a partial
   // initializer leaves the remainder 0, matching C semantics.
-  tryStaticConstArray(g) {
+  tryStaticConstArray(g,owner) {
     const ty = this.resolveType(g.type);
     if (!isArray(ty)) return false;
     const et = this.resolveType(ty.of);
@@ -338,7 +351,7 @@ class Codegen {
       for (let b = 0; b < esz; b++) { bytes.push(Number(v & 0xffn)); v >>= 8n; }
     }
     if (bytes.length > cap) bytes.length = cap;       // never write past the global
-    this.data.push({ addr: g.addr, bytes });         // -> m.addData(addr, bytes)
+    this.data.push({addr:g.addr,bytes,owners:new Set([owner])});         // -> m.addData(addr, bytes)
     return true;
   }
 
@@ -434,26 +447,73 @@ class Codegen {
     this.warn(`extern/prototype '${fn.name}' has no body; stubbed (returns 0)`);
   }
 
-  genRtInit() {
-    const ctx = new FnCtx(this, { name: "__rt_init", params: [], retType: T.U0, node: { body: null } });
-    const f = ctx.f;
-    // RUN-ONCE guard: __main calls __rt_init on every invocation (per frame in the emulator), but
-    // global initializers must apply exactly once - re-running them silently reverted every mutated
-    // initialized global each frame (e.g. a scan cursor reset to its initial value 60×/s).
-    const guard = this.alloc(8, 8);
-    f.i64_const(guard); f.op("i32_wrap_i64"); f.load("i64_load", 0, 3); f.op("i64_eqz");
-    f.if_();
-    f.i64_const(guard); f.op("i32_wrap_i64"); f.i64_const(1); f.store("i64_store", 0, 3);
-    //Native tasks already exist when user global initializers execute.
-    const hook=this.functions.get("__hcrt_init");
-    if (hook && !hook.isImport) f.call(hook.index);
-    for (const g of this.globals.values()) {
+  genGlobalInitializers() {
+    const ctx=new FnCtx(this,{name:"__rt_init",params:[],retType:T.U0,node:{body:null}});
+    for (const [name,g] of this.globals) {
       if (g.init==null) continue;
+      ctx.f=new Func();
       ctx.genGlobalInit(g);
+      this.globalInitializers.set(name,ctx.f);
     }
+    return ctx;
+  }
+
+  reachable() {
+    const functions=new Set(),globals=new Set(),bodies=new Set(),hooks=new Set();
+    const visitBody=body=>{
+      if (!body || bodies.has(body)) return;
+      bodies.add(body);
+      for (const index of body.references) visitFunction(index);
+      for (const name of body.globalUses || []) visitGlobal(name);
+    };
+    const visitFunction=index=>{
+      if (functions.has(index)) return;
+      functions.add(index);
+      visitBody(this.m.funcs[index-this.m.importFuncs.length]?.body);
+    };
+    const visitGlobal=name=>{
+      if (globals.has(name)) return;
+      globals.add(name);
+      visitBody(this.globalInitializers.get(name));
+    };
+    visitFunction(this.mainFn.index);
+    visitFunction(this.rtInit.index);
+    for (const name of this.opts.exports || []) {
+      const fn=this.functions.get(name);
+      if (fn) visitFunction(fn.index);
+    }
+    // User globals are observable through the returned address map, and their
+    // initializers may have side effects even when no function reads the value.
+    for (const [name,g] of this.globals)
+      if (g.node?.filename!=="<prelude>") visitGlobal(name);
+    let changed=true;
+    while (changed) {
+      changed=false;
+      for (const hook of this.opts.runtimeInitializers || []) {
+        if (hooks.has(hook.name)) continue;
+        if (!hook.always && !hook.globals.some(name=>globals.has(name))) continue;
+        const fn=this.functions.get(hook.name);
+        if (!fn) throw new CodegenError("Missing runtime initializer: "+hook.name);
+        hooks.add(hook.name);
+        visitFunction(fn.index);
+        changed=true;
+      }
+    }
+    return {functions,globals,bodies,hooks};
+  }
+
+  genRtInit(ctx,linked) {
+    const f=ctx.f=new Func(),guard=this.alloc(8,8);
+    f.i64_const(guard).op("i32_wrap_i64").load("i64_load",0,3).op("i64_eqz").if_();
+    f.i64_const(guard).op("i32_wrap_i64").i64_const(1).store("i64_store",0,3);
+    // Tasks and the selected runtime facilities exist before user initializers.
+    for (const hook of this.opts.runtimeInitializers || [])
+      if (linked.hooks.has(hook.name)) f.call(this.functions.get(hook.name).index);
+    for (const [name,body] of this.globalInitializers)
+      if (linked.globals.has(name)) f.append(body);
     f.end();
     ctx.endFrameFallthrough();
-    this.rtInit.setBody(ctx.localDecls(), f);
+    this.rtInit.setBody(ctx.localDecls(),f);
   }
 
   genMain() {
@@ -685,7 +745,7 @@ class FnCtx {
       pushAddr(); this.f.op("i32_wrap_i64");
       this.f.i32_const(0).i32_const(size).memory_fill();
       pushAddr(); this.f.op("i32_wrap_i64");
-      this.f.i32_const(this.cg.literalBytes(init));
+      this.f.i32_const(this.cg.literalBytes(init,this.f));
       this.f.i32_const(Math.min(size, init.bytes.length + 1)).memory_copy();
       return;
     }
@@ -714,7 +774,7 @@ class FnCtx {
   genGlobalInit(g) {
     // Constant integer arrays (sprite/bitmap data, tables) compile to one wasm
     // data segment rather than thousands of per-element stores - instant to emit.
-    if (g.init.kind === "InitList" && this.cg.tryStaticConstArray(g)) return;
+    if (g.init.kind === "InitList" && this.cg.tryStaticConstArray(g,this.f)) return;
     const pushAddr = () => this.f.i64_const(g.addr);
     this.storeInitInto(pushAddr, g.type, g.init);
   }
@@ -959,7 +1019,7 @@ class FnCtx {
 
   // ================================================== print
   genPrint(s) {
-    const fmtAddr=this.cg.internBytes(s.bytes,true),args=s.args.filter(arg=>arg!=null),
+    const fmtAddr=this.cg.internBytes(s.bytes,true,this.f),args=s.args.filter(arg=>arg!=null),
       values=[];
     //Stage every value before writing the shared argument buffer: an argument
     //may itself print, and native Print evaluates its arguments right to left.
@@ -983,7 +1043,7 @@ class FnCtx {
 
   genPutChars(bytes) {
     // print up to N raw bytes
-    const addr = this.cg.internBytes(bytes, false);
+    const addr = this.cg.internBytes(bytes,false,this.f);
     this.f.i64_const(addr); this.f.i64_const(bytes.length); this.f.call(this.cg.imports.__print_bytes.index);
   }
 
@@ -994,7 +1054,7 @@ class FnCtx {
       case "IntLit": this.f.i64_const(node.value); return literalType(node.value);
       case "FloatLit": this.f.f64_const(node.value); return T.F64;
       case "CharLit": this.f.i64_const(node.value); return literalType(node.value);
-      case "StrLit": case "BinLit": { const a = this.cg.literalBytes(node); this.f.i64_const(a); return ptrTo(T.U8); }
+      case "StrLit": case "BinLit": { const a = this.cg.literalBytes(node,this.f); this.f.i64_const(a); return ptrTo(T.U8); }
       case "Ident": return this.genIdent(node);
       case "Assign": return this.genAssign(node);
       case "Binary": return this.genBinary(node);
@@ -1140,6 +1200,7 @@ class FnCtx {
     }
     const G = this.cg.globals.get(node.name);
     if (G) {
+      (this.f.globalUses??=new Set()).add(node.name);
       const t = G.type;
       if (isAggregate(t)) { this.f.i64_const(G.addr); return t; }
       this.f.i64_const(G.addr); this.f.op("i32_wrap_i64"); this.emitLoad(t); return t;
@@ -1168,6 +1229,7 @@ class FnCtx {
         if (this.locals.get(node.name)) return null;
         const G = this.cg.globals.get(node.name);
         if (!G) return null;
+        (this.f.globalUses??=new Set()).add(node.name);
         return { addr: Number(G.addr), type: G.type };
       }
       if (node.kind === "Member" && !node.arrow) {
@@ -1203,7 +1265,10 @@ class FnCtx {
           this.err(node, "cannot take address of register local '" + node.name + "'");
         }
         const G = this.cg.globals.get(node.name);
-        if (G) { this.f.i64_const(G.addr); return G.type; }
+        if (G) {
+          (this.f.globalUses??=new Set()).add(node.name);
+          this.f.i64_const(G.addr);return G.type;
+        }
         if (this.cg.lenient) { this.f.i64_const(this.cg.lenientGlobal(node.name)); return T.I64; }
         this.err(node, "cannot address undefined '" + node.name + "'");
       }
@@ -1569,6 +1634,7 @@ class FnCtx {
         if (fn && !this.locals.has(node.operand.name) && !this.cg.globals.has(node.operand.name)) {
           if (!this.cg.lenient && !fn.node && !fn.isImport)
             this.err(node, "Unresolved function: " + fn.name);
+          this.f.references.add(fn.index);
           this.f.i64_const(this.cg.functionAddress(fn));
           return funcPtr(fn.retType,fn.params);
         }

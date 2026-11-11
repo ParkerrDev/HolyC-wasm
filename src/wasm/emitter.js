@@ -170,6 +170,8 @@ const FC = {
 export class Func {
   constructor() {
     this.bytes = [];
+    this.calls = [];
+    this.references = new Set();
   }
   _op(b) { this.bytes.push(b); return this; }
   raw(...bs) { for (const b of bs) this.bytes.push(b); return this; }
@@ -208,7 +210,36 @@ export class Func {
     return this;
   }
   return_() { return this._op(OP.return); }
-  call(i) { this._op(OP.call); this.bytes.push(...uleb(i)); return this; }
+  call(i) {
+    this._op(OP.call);
+    const bytes=uleb(i);
+    this.calls.push({offset:this.bytes.length,length:bytes.length,index:i});
+    this.references.add(i);
+    this.bytes.push(...bytes);
+    return this;
+  }
+  append(body) {
+    const offset=this.bytes.length;
+    for (const byte of body.bytes) this.bytes.push(byte);
+    for (const call of body.calls) this.calls.push({...call,offset:offset+call.offset});
+    for (const index of body.references) this.references.add(index);
+    return this;
+  }
+  remapCalls(indices) {
+    const bytes=[];
+    let start=0;
+    for (const call of this.calls) {
+      if (!indices.has(call.index)) throw new Error("Unlinked function "+call.index);
+      for (let i=start;i<call.offset;i++) bytes.push(this.bytes[i]);
+      const index=indices.get(call.index),encoded=uleb(index),offset=bytes.length;
+      bytes.push(...encoded);
+      start=call.offset+call.length;
+      Object.assign(call,{offset,length:encoded.length,index});
+    }
+    for (let i=start;i<this.bytes.length;i++) bytes.push(this.bytes[i]);
+    this.bytes=bytes;
+    this.references=new Set([...this.references].map(index=>indices.get(index)));
+  }
   call_indirect(typeIdx, tableIdx = 0) {
     this._op(OP.call_indirect);
     this.bytes.push(...uleb(typeIdx));
@@ -365,6 +396,27 @@ export class Module {
 
   addData(offset, bytes) {
     this.datas.push({ offset, bytes: bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes) });
+  }
+
+  // Bodies have already been checked. Link only reachable functions, retaining
+  // the relative order of imports/definitions and rewriting recorded call sites.
+  linkFunctions(live) {
+    const indices=new Map(),imports=[],funcs=[];
+    this.importFuncs.forEach((fn,index)=>{
+      if (live.has(index)) {indices.set(index,imports.length);imports.push(fn);}
+    });
+    this.funcs.forEach((fn,index)=>{
+      index+=this.importFuncs.length;
+      if (live.has(index)) {indices.set(index,imports.length+funcs.length);funcs.push(fn);}
+    });
+    for (const fn of funcs) fn.body.remapCalls(indices);
+    for (const entry of this.exports)
+      if (entry.kind===0) entry.index=indices.get(entry.index);
+    for (const element of this.elements)
+      element.funcIndices=element.funcIndices.map(index=>indices.get(index));
+    if (this.startIndex!==null) this.startIndex=indices.get(this.startIndex);
+    this.importFuncs=imports;
+    this.funcs=funcs;
   }
 
   emit() {
