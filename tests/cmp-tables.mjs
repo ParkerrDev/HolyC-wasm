@@ -91,5 +91,5 @@ try {
   }
 } finally {await task.host.dispose();}
 assert.equal(task.live.size,0);assert.equal(task.host.state.tasks[0].allocations,0);
-for(const name of ['CInit','CmpFillTables','Lex'])assert.throws(()=>compileHolyC(name+';',{lenient:false}),/undefined symbol/);
+for(const name of ['CInit','CmpFillTables'])assert.throws(()=>compileHolyC(name+';',{lenient:false}),/undefined symbol/);
 console.log(proof.output.trim(),'five lifetimes, six staged failures, typed/default/raw aliases, reset effects and allocation-free counters pass; compiler boot/graphs remain absent.');

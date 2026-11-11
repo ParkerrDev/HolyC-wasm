@@ -36,6 +36,6 @@ for(const name of ['__malloc','__malloc_for','__malloc_kernel'])
 const lineInstance=new WebAssembly.Instance(lineModule,{env:lineHost.env});lineHost.attach(lineInstance);
 lineInstance.exports.__main();assert.equal(lineInstance.exports.LexPutLine(0n,0n),undefined);
 assert.equal(attempts,0);assert.equal(output,'');
-for(const name of ['LexPutPos','LexWarn','LexExcept','Lex'])
+for(const name of ['LexPutPos','LexWarn','LexExcept'])
   assert.throws(()=>compileHolyC(name+';',{lenient:false}),/undefined symbol/);
-console.log('Reporting primitives preserve console independence; diagnostic orchestration and tokenization remain absent.');
+console.log('Reporting primitives preserve console independence; debugger diagnostic orchestration remains absent.');

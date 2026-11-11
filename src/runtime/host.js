@@ -7,6 +7,7 @@
 import { format, readCStr, bytesToLatin1, docText } from "./console.js";
 import { MS_ADDR, MS } from "../abi.js";
 import {fileBridge} from "./files.js";
+import {lexDiagnostics} from "./lex.js";
 import {Heap,LegacyHeap,HOST_HEAP_ABI} from "./heap.js";
 export {HOST_HEAP_ABI} from "./heap.js";
 
@@ -34,6 +35,11 @@ export function createHost(opts = {}) {
   let native=null;
   const files=fileBridge(opts.files,()=>native);
   Object.defineProperty(state,"filesystemError",{get:()=>files.error});
+  const lex=lexDiagnostics(()=>state.mem,opts.onLexError);
+  Object.defineProperties(state,{
+    lexError:{get:()=>lex.last},
+    lexDiagnosticError:{get:()=>lex.error},
+  });
 
   const heapAbi=opts.heapAbi??HOST_HEAP_ABI;
   if (heapAbi!==0 && heapAbi!==HOST_HEAP_ABI)
@@ -51,6 +57,7 @@ export function createHost(opts = {}) {
 
   const imports = {
     __rt_init_failed() {throw new Error("HolyC runtime initialization failed or reentered; create a fresh module instance before running it");},
+    __lex_error:lex.report,
     __puts:addr=>state.out(docText(readCStr(mem(),Number(addr)),{ansi:state.ansi})),
     __printf(fmtAddr, nargs) {
       const fb = readCStr(mem(), Number(fmtAddr));

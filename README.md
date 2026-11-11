@@ -1292,7 +1292,7 @@ host formatting buffers and permit retry. Already-emitted bytes are not rolled
 back. These host failure/cleanup guarantees are separate from the original
 native valid-output proof. `node tests/lex-report-oracle.mjs` repeats the stock
 and renamed-port comparison with source/type/library/capture/output hashes.
-LexPutPos, LexExcept, LexWarn, full runtime Lex and DocInit remain unavailable;
+LexPutPos, LexExcept, LexWarn, full compiler-controlled Lex and DocInit remain unavailable;
 native debugger, caller metadata, document output and Adam job dependencies
 must be supplied before those controllers can be implemented honestly.
 
@@ -1301,3 +1301,61 @@ prelude global is unused. This bitmap therefore adds 64 bytes to those program
 layouts and changes their address-dependent binaries. Unused literal/function
 elimination does not establish unused-global elimination. Consumer qualification
 must account for that layout change; no global-relocation change is bundled here.
+
+### Finite byte-token scanning
+
+Lex now scans the existing finite CCmpCtrl byte streams using native token,
+character-class and operator tables. It preserves native identifiers, caller-owned
+member/hash lookup, define-string expansion, integer bases, floating token syntax,
+strings and packed character constants, nested comments, byte classes, token
+flags, lookahead and input counters. This includes the actual default-token
+workload used by DocInit; it does not replace document initialization with fixed
+metadata. Runtime hash tables still contain no native compiler symbol graph.
+
+Interactive prompt and document streams are rejected before input mutation.
+Compiler directives without CCF_KEEP_SIGN_NUM raise LexCaps after consuming the
+marker, before loading files, evaluating expressions, changing definitions or
+calling debugger/Adam services. Native EOF behavior for unterminated strings and
+comments is preserved; it is not converted into invented syntax errors. LexExcept,
+LexWarn and LexPutPos remain unavailable.
+
+Malformed identifiers and character constants raise the native Compiler category
+and update error_cnt. The required __lex_error device copies bounded error data
+into host.state.lexError: category, reason, filename, line, byte offset, column,
+previous token and last token line. Numeric fields and the task address are BigInt;
+missing locations use -1. This is structured host diagnostics, not the native
+FixSet/source-link/error-window/debugger chain. createHost supplies the device;
+a custom host must provide it before instantiation. Optional onLexError observers
+must be synchronous. Their thrown errors or returned promises are recorded in
+host.state.lexDiagnosticError without bypassing HolyC exception cleanup. The
+session retains only the latest copied diagnostic, not pointers to freed controls.
+
+Token construction stages owned buffers before replacing cur_str. Allocation or
+HolyC echo-callback failure releases temporary string/define buffers; CmpCtrlDel releases
+any adopted include streams. Consumed source bytes, counters and already-delivered
+echo are not rolled back. Destroy/recreate a failed control before retrying unless
+the caller deliberately saved and restores its own input state. Compiler/control
+memory still follows the existing task allocator contract.
+
+`npm run test:lex-token` checks 212 source/flag cases and 3,268 token states
+against original-native and renamed-port output, plus three malformed-input
+locations, five session lifetimes, 11 actual allocation failures and 606 throwing
+HolyC echo callbacks, missing-device
+startup rejection, unsupported-capability nonmutation and failing diagnostic
+observers. `node tests/lex-token-oracle.mjs` repeats the source, wrapper, library,
+record-layout, capture and output-bound QEMU proof. The native malformed wrapper
+uses real LexExcept with captured output and Raw mode; host observer failure
+cleanup is a separate proof, not a claim about native debugger failure semantics.
+The native typed decimal bitmap adds 64 bytes under the existing declared-global
+layout rule, so unchanged consumer lengths do not imply unchanged binaries.
+
+Numeric-token parity remains bounded by the compiler's mixed I64/F64 arithmetic:
+`9007199254740993e-1` yields bits `430999999999999B` in original x87 Lex and
+`430999999999999A` here. Native multiplication retains the exact integer mantissa
+until F64 storage; WASM converts that integer to F64 first. The source-bound
+LexFloatPrecision probe preserves this known difference and related edge values.
+There is no one-value lexer workaround, full extended-precision claim or passing
+parity assertion for that excluded case. General output-device JavaScript traps
+also remain host traps; the 606 callback cleanup cases use actual HolyC throws in
+the KeyDev echo chain, while the separate diagnostic-observer tests cover the
+new structured host device.

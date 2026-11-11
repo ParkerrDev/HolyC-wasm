@@ -36,6 +36,6 @@ assert.deepEqual(count.requiredCapabilities,[]);
 assert(!WebAssembly.Module.imports(new WebAssembly.Module(count.bytes)).some(entry=>entry.name==='__malloc'));
 const countHost=createHost(),countInstance=new WebAssembly.Instance(new WebAssembly.Module(count.bytes),{env:countHost.env});
 countHost.attach(countInstance);countInstance.exports.__rt_init();assert.equal(countInstance.exports.Count(),0n);
-for(const name of ['Lex','CInit','CmpFillTables'])
+for(const name of ['CInit','CmpFillTables'])
   assert.throws(()=>compileHolyC(name+';',{lenient:false}),/undefined symbol/);
-console.log('Lexical counter has measured complete storage; compiler graphs, tokenization and CInit stay unavailable.');
+console.log('Lexical counter has measured complete storage; compiler graphs and CInit stay unavailable.');

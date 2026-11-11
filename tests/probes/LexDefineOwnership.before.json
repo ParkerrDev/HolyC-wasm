@@ -1,0 +1,14 @@
+{
+  "boundary": "Restoring the original untracked StrNew argument temporary leaks on the second real allocation failure. The same permanent fault test passes with staged buffer ownership.",
+  "mutation": {
+    "from": "buf2=StrNew(tmph(CHashDefineStr *)->data);\n\t    LexIncludeStr(cc,tmph->str,buf2,FALSE);\n\t    buf2=NULL;",
+    "to": "LexIncludeStr(cc,tmph->str,StrNew(tmph(CHashDefineStr *)->data),FALSE);"
+  },
+  "librarySha256": "6c381ed2f508dc9faddedd80bb50e3a7131bf9e626c5277a45ea32010b9e73a8",
+  "fixtureSha256": "7888768a713517c9ea981eabe46e5692c145e23599edaca6bdf37e9a63e13ad5",
+  "compiledSourceSha256": "f4e3f25063088d3d101e468d31ad2497638db58f3f73770c5f6b67dacfbf4f09",
+  "artifactSha256": "c8c4cdcce06ecf98beb72284d6ddc5c1d4cf720edc5ac093b143efbddb73938d",
+  "failedAllocation": 2,
+  "exception": "OutMem",
+  "leakedAllocations": 1
+}

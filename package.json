@@ -50,7 +50,8 @@
     "test:cmp-tables": "node tests/initializer-effects.mjs && node tests/cmp-tables.mjs",
     "test:function-bind": "node tests/function-bind.mjs",
     "test:lex-report": "node tests/lex-report.mjs && node tests/lex-report-fault.mjs",
-    "test:member": "node tests/member.mjs"
+    "test:member": "node tests/member.mjs",
+    "test:lex-token": "node tests/lex-token.mjs && node tests/lex-token-fault.mjs && node tests/lex-token-boundary.mjs"
   },
   "license": "MIT",
   "author": "Built with Claude Code"

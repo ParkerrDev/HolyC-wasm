@@ -50,6 +50,7 @@ const I = VT.i64, F = VT.f64;
 export const HOST_IMPORTS = {
   __printf:      { params: [I, I], results: [] },        // (fmtAddr, nargs)
   __rt_init_failed: {params: [], results: []},
+  __lex_error: {params: [I,I,I,I,I,I,I,I,I], results: []},
   __puts:        { params: [I], results: [] },
   __print_bytes: { params: [I, I], results: [] },        // (addr, n)
   __putc:        { params: [I], results: [] },           // (ch)
