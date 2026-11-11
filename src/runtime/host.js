@@ -111,6 +111,11 @@ export function createHost(opts = {}) {
     __task_wait:taskRequired,
     __task_exit:taskRequired,
     __task_stack_fail() {throw new RangeError("HolyC task shadow stack overflow");},
+    __kbd_ctrl_alt(sc,ch,inIrq) {
+      if(!opts.onControlAlt) throw new Error("TempleOS Ctrl-Alt system actions require a keyboard device adapter");
+      opts.onControlAlt(sc,Number(ch),Boolean(inIrq));
+    },
+    __kbd_leds:sc=>opts.onKeyboardLeds?.(sc),
 
     __malloc:size=>heap.malloc(size),
     __malloc_kernel:size=>heap.malloc(size),

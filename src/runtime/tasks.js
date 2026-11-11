@@ -211,16 +211,24 @@ export function createTaskHost(opts={}) {
   host.postMessage=(code,arg1=0n,arg2=0n,target=root?.ptr)=>{
     if(!root || root.status==='dead') return false;
     const task=tasks.get(BigInt(target));if(!task || task.killed) return false;
-    if(current) {
-      fn().TaskHostMsg(task.ptr,BigInt(code),BigInt(arg1),BigInt(arg2));
-      schedule();return true;
-    }
-    const saved=fn().__sp.value;
-    enter(root);
-    try {fn().TaskHostMsg(task.ptr,BigInt(code),BigInt(arg1),BigInt(arg2));}
-    finally {root.sp=fn().__sp.value;fn().__sp.value=saved;current=null;}
-    schedule();return true;
+    return device(()=>fn().TaskHostMsg(task.ptr,BigInt(code),BigInt(arg1),BigInt(arg2)));
   };
+  function device(action) {
+    if(!root || root.status==='dead') return false;
+    if(current) {action();schedule();return true;}
+    const saved=fn().__sp.value,stack=root.sp;
+    enter(root);
+    try {action();}
+    finally {root.sp=stack;fn().__sp.value=saved;current=null;}
+    schedule();return true;
+  }
+  host.keyBytes=bytes=>{
+    bytes=Array.from(bytes);
+    if(!bytes.length || bytes.length>8 || bytes.some(byte=>!Number.isInteger(byte) || byte<0 || byte>255))
+      throw new RangeError('A keyboard packet contains one to eight set-1 bytes');
+    return device(()=>{for(const byte of bytes)fn().KbdHostByte(BigInt(byte));});
+  };
+  host.resetInput=()=>device(()=>fn().KbdHostReset());
   host.stop=()=>{if(root && root.status!=='dead') mark(root);return root?.done??Promise.resolve();};
   host.snapshot=()=>{throw new Error('Suspended JSPI continuations cannot be serialized; use a HEMU full-machine snapshot for portable TempleOS state');};
   host.dispose=async()=>{

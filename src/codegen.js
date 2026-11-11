@@ -611,7 +611,9 @@ class Codegen {
     while (changed) {
       changed=false;
       for (const api of this.opts.runtimeInterfaces || []) {
-        if (interfaces.has(api) || !api.imports.some(name=>functions.has(this.imports[name]?.index))) continue;
+        if (interfaces.has(api) ||
+            !(api.imports||[]).some(name=>functions.has(this.imports[name]?.index)) &&
+            !(api.globals||[]).some(name=>globals.has(name))) continue;
         interfaces.add(api);
         for (const name of [api.check,...api.exports]) {
           const fn=this.functions.get(name);
@@ -1316,7 +1318,7 @@ class FnCtx {
     let bt = this.peekType(node.base);
     if (node.arrow && isPtr(bt)) bt = bt.to;
     bt = this.cg.resolveType(bt);
-    if (isInt(bt) && node.name in UNION_MEMBERS && !node.arrow) {
+    if (isInt(bt) && node.name in UNION_MEMBERS) {
       const sub = UNION_MEMBERS[node.name];
       return arrayOf(sub, Math.max(1, sizeof(bt) / sizeof(sub)));
     }
@@ -1488,6 +1490,10 @@ class FnCtx {
       bt = this.cg.resolveType(bt);
       const cls = isPtr(bt) ? this.cg.resolveType(bt.to) : bt;
       this.genExpr(node.base); // pointer value (base address)
+      if (isInt(cls) && node.name in UNION_MEMBERS) {
+        const sub=UNION_MEMBERS[node.name];
+        return arrayOf(sub,Math.max(1,sizeof(cls)/sizeof(sub)));
+      }
       const fld = this.fieldOf(cls, node.name);
       if (fld.offset) this.f.i64_const(fld.offset).op("i64_add");
       return fld.type;

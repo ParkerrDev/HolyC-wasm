@@ -130,7 +130,9 @@ with the same incorrect compiler behavior. QEMU/KVM exposed the mismatch.
 
 The browser runtime implements a subset of TempleOS APIs. Many stock programs
 still need task/window lifecycle, file services and other native APIs. The compiler
-also has unsupported assembly, runtime-generated declarations and other gaps.
+also has unsupported assembly, runtime-generated declarations and class-field
+`format` metadata. `#ifdef` currently tests macros only, unlike native symbol
+lookup; declaring a `kbd` variable does not yet activate `#ifdef kbd` branches.
 WebAssembly F64 arithmetic does not reproduce the full x87 extended-precision
 environment. Passing a compiler fixture does not prove a game's rendering,
 input, performance or behavior on QEMU, other virtual machines or bare metal.
@@ -213,7 +215,7 @@ input-filter task creation and macro recording are not implemented. The
 
 ## Cooperative task backend
 
-Reachable `Spawn`, `Kill`, `Exit`, `GetMsg` or `GetKey` requires
+Reachable `Spawn`, `Kill`, `Exit`, `GetMsg`, `GetKey` or access to `kbd` requires
 `result.requiredCapabilities` to include `"task-continuations"`. An unreachable
 reference adds no requirement. The module also has a capability-only WASM start
 function: an ordinary host or a host without JSPI refuses instantiation before
@@ -256,15 +258,46 @@ Suspended JSPI continuations cannot be serialized: `snapshot()` explicitly
 rejects task sessions. HEMU's guest-machine snapshots remain the portable
 TempleOS full-state path, and HEMU builds do not acquire the JSPI requirement.
 Hosts without JSPI still need a genuine alternative continuation backend.
-Window-manager draw dispatch, native settings/document state and physical
-keyboard packet delivery are subsequent work. Legacy `ScanChar`, `GetChar`
+Window-manager draw dispatch and native settings/document state are subsequent
+work. Legacy `ScanChar`, `GetChar`
 and `KeyGet` adapters are retained until existing browser consumers migrate;
 do not treat their old signatures as native input parity.
 
 `Tasks` and `TaskExcept` compare original QEMU behavior. `test:tasks` also checks
 ten same-instance runs, refusal before side effects, cross-task ownership,
 failed Spawn cleanup, stack bounds, full scan values and nested cancellation.
-`test:tasks-browser` runs both native fixtures under actual Chromium JSPI.
+`test:tasks-browser` runs both native fixtures under actual Chromium JSPI and
+real browser key events through the site's shared physical-key mapping.
+
+`keyBytes(bytes)` accepts one complete PC set-1 packet of one to eight bytes.
+Native `KbdBuildSC`, `Char2ScanCode` and `ScanCode2Char` update the public `kbd`
+record and deliver native key-down/up messages to `sys_focus_task` (initially
+Fs). Both held-key bitmaps, merged/unmerged scan identities, modifiers, repeats,
+lock keys, PrintScreen and Pause follow V5.03. `resetInput()` releases held
+physical keys and clears an incomplete prefix after focus loss or overflow.
+The host's `onControlAlt(sc,index,inIrq)` must explicitly handle native Ctrl-Alt
+system actions; without an adapter those actions throw. The index is 0–25 for
+registered letter actions and -1 for Ctrl-Alt-Delete. `onKeyboardLeds(sc)` is an
+optional physical-indicator notification. Hardware ports, macro recording,
+raw-cursor editing and a focus-less pending scan FIFO are not implemented by
+this host bridge.
+
+For a worker, `src/runtime/protocol.js` appends a bounded native packet ring to
+`makeControlSAB()` while preserving every legacy offset. `keyPacketPush(ctrl,
+bytes)` publishes the whole packet and returns false on overflow or an
+unacknowledged reset. The producer must also clear its local held-key sources
+when delivery fails. `keyPacketReset(ctrl)` requests reset on focus loss;
+`keyPacketRead(ctrl)` returns `{reset,packets,overflow}`. A reset discards pending
+bytes: call `host.resetInput()` before delivering later packets. `KEY_PACKET`
+exports the shared offsets including `WAKE`, an atomic notification counter.
+The worker must drain input while idle, using a message kick or asynchronous
+wait; the host's `onTick` runs at suspension and is not an idle polling loop.
+
+`Keyboard` compares 57,600 native character/decoder cases; the full original
+`KbdHndlr`/`KbdMsgsQue` probe also checks 44 physical packets, every held bitmap
+word and all queued message values. `test:keyboard` verifies those outputs,
+reset, explicit device effects, allocation-failure recovery, bounded transport,
+index wrap and 10,000 concurrent whole-packet publications.
 
 The compiler's reserved WASM atomic intrinsics include
 `__a_load{8,16,32,64}(address)` and

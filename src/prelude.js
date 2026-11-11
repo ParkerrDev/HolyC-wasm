@@ -10,6 +10,7 @@ import {GR_TYPES_SRC,GR_SRC} from "./gr-prelude.js";
 import {TASK_TYPES_SRC,TASK_SRC} from "./task-prelude.js";
 import {TASK_MESSAGE_SRC} from "./task-message.js";
 import {TASK_INTERFACE,TASK_SCHEDULE_SRC} from "./task-schedule.js";
+import {KBD_SRC} from "./kbd-prelude.js";
 import {FONT} from "./runtime/font.js";
 import {STR_SRC} from "./str-prelude.js";
 import {GR_COMPOSITES_SRC} from "./gr-composites.js";
@@ -19,6 +20,7 @@ import {SPRITE_TYPES_SRC,SPRITE_SRC} from "./gr-sprite.js";
 // compiler uses the same reachability graph for these hooks and ordinary calls.
 export const RUNTIME_INITIALIZERS=[
   {name:"__hcrt_init",always:true},
+  {name:"KbdHostInit",globals:["kbd"]},
   {name:"__hgr_init",globals:["gr","__gr_font"]},
   {name:"__hgr_pen_init",fields:["gr.pen_brushes","gr.collision_pen_brushes",
     "gr.even_pen_brushes","gr.odd_pen_brushes","gr.circle_lo","gr.circle_hi"]},
@@ -176,6 +178,8 @@ ${TASK_TYPES_SRC}
 CTask fs_storage;
 CTask *Fs;
 CTask *sys_winmgr_task;
+CTask *sys_focus_task;
+CKbdStateGlbls kbd;
 
 //==================== gr global ====================
 #define GR_PEN_BRUSHES_NUM 64
@@ -668,6 +672,7 @@ ${SPRITE_SRC}
 ${TASK_SRC}
 ${TASK_MESSAGE_SRC}
 ${TASK_SCHEDULE_SRC}
+${KBD_SRC}
 
 public I64 DistSqrI64(I64 x1,I64 y1,I64 x2,I64 y2)
 {
@@ -835,6 +840,7 @@ U0 __hcrt_init()
   Fs->pix_right=Fs->pix_width-1;
   Fs->pix_bottom=Fs->pix_height-1;
   Fs->next_task=Fs->last_task=sys_winmgr_task=Fs;
+  sys_focus_task=Fs;
   Fs->next_child_task=Fs->last_child_task=
         (&Fs->next_child_task)(U8 *)-offset(CTask.next_sibling_task);
   Fs->next_input_filter_task=Fs->last_input_filter_task=Fs;

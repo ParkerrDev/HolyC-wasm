@@ -25,7 +25,8 @@
     "test:core": "node tests/core.mjs",
     "test:messages": "node tests/messages.mjs",
     "test:tasks": "node tests/tasks.mjs",
-    "test:tasks-browser": "node tests/tasks-browser.mjs"
+    "test:tasks-browser": "node tests/tasks-browser.mjs",
+    "test:keyboard": "node tests/keyboard.mjs && node tests/key-protocol.mjs"
   },
   "license": "MIT",
   "author": "Built with Claude Code"

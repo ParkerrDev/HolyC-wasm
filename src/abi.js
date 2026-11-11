@@ -80,6 +80,8 @@ export const HOST_IMPORTS = {
   __task_wait: {params: [I], results: []},
   __task_exit: {params: [], results: []},
   __task_stack_fail: {params: [], results: []},
+  __kbd_ctrl_alt: {params: [I,I,I], results: []},
+  __kbd_leds: {params: [I], results: []},
 
   __malloc:      { params: [I], results: [I] },
   __malloc_kernel: {params: [I], results: [I]},

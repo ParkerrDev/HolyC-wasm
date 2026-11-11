@@ -1,9 +1,11 @@
 export const TASK_INTERFACE={
   name:"task-continuations",
+  globals:["kbd"],
   imports:["__task_spawn","__task_kill","__task_wait","__task_exit"],
   check:"__task_require",
   exports:["TaskHostRoot","TaskHostEnter","TaskHostNew","TaskHostDone",
-    "TaskHostFlags","TaskHostStk","TaskHostStkTop","TaskHostKill","TaskHostMsg","TaskHostEnd","TaskHostReady"],
+    "TaskHostFlags","TaskHostStk","TaskHostStkTop","TaskHostKill","TaskHostMsg","TaskHostEnd","TaskHostReady",
+    "KbdHostByte","KbdHostReset"],
 };
 
 export const TASK_SCHEDULE_SRC=String.raw`
