@@ -227,3 +227,11 @@ WASM function indices are private. HolyC callback values remain table slots.
 Static address reservations are currently retained even for omitted prelude
 globals and literals; this change reduces module bytes and initialization work,
 not the fixed memory/stack/heap layout or compiler parsing/type-checking work.
+
+Native layout queries accept class or variable names: `sizeof(CDC.palette)`,
+`offset(CDC.body)`, and the equivalent bare offset `CDC.body`. Nested members,
+array widths and pointer type widths are constants, including in array
+bounds and constant initializers. They do not evaluate an object. As in V5.03,
+`offset(ptr.member)` and C-style `sizeof(value+1)` are invalid. Local variables
+and parameters can shadow the `offset` and `sizeof` keywords. Native machine
+code size queries for functions are not implemented.

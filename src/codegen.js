@@ -239,20 +239,20 @@ class Codegen {
   }
 
   // Resolve classref types to {kind:'class', name} but keep pointers shallow.
-  resolveType(t) {
+  resolveType(t,locals) {
     if (!t) return T.I64;
     switch (t.kind) {
       case "classref": {
         const base=this.classes.get(t.name)?.scalarBase;
         return base?{...this.resolveType(base),name:t.name}:{kind:"class",name:t.name};
       }
-      case "ptr": return ptrTo(this.resolveType(t.to));
+      case "ptr": return ptrTo(this.resolveType(t.to,locals));
       case "funcptr": return funcPtr(this.resolveType(t.retType),
         t.params.map(p=>({...p,type:this.resolveType(p.type)})),t.isVarArgs);
       case "array": {
-        const of = this.resolveType(t.of);
+        const of = this.resolveType(t.of,locals);
         let count;
-        try { count = t.count == null ? 0 : foldDim(t.count, this.constEnv); }
+        try { count = t.count == null ? 0 : foldDim(t.count,this.constEnv,node=>this.layoutQuery(node,locals)); }
         catch (e) { if (this.lenient) { count = 1; this.warn("non-constant array dimension; assumed [1]"); } else throw e; }
         return arrayOf(of, count);
       }
@@ -307,6 +307,28 @@ class Codegen {
     this.constEnv["GR_HEIGHT"] = BigInt(GR_HEIGHT);
   }
 
+  layoutQuery(node,locals) {
+    let type=locals?.get(node.name)?.type || this.globals.get(node.name)?.type ||
+      BASE_TYPES[node.name] || (this.classes.has(node.name)?{kind:"classref",name:node.name}:null);
+    if (!type) throw new CodegenError(`${node.filename}:${node.line}: Invalid class or variable in ${node.kind}: ${node.name}`);
+    type=this.resolveType(type,locals);
+    let offset=0;
+    for (const name of node.fields) {
+      while (isArray(type)) type=this.resolveType(type.of,locals);
+      if (!type.name || !this.classes.has(type.name))
+        throw new CodegenError(`${node.filename}:${node.line}: Invalid member '${name}' in ${node.kind}`);
+      const field=this.layoutClass(type.name).fields.get(name);
+      if (!field) throw new CodegenError(`${node.filename}:${node.line}: Invalid member '${name}' in ${node.kind}`);
+      offset+=field.offset;
+      type=field.type;
+    }
+    return node.kind==="Offset"?offset:node.stars?8:this.typeSize(type);
+  }
+
+  fold(node,locals,env=this.constEnv) {
+    return foldConstInt(node,env,query=>this.layoutQuery(query,locals));
+  }
+
   // ============================================================ globals
   collectGlobals() {
     for (const d of this.program.decls) {
@@ -322,7 +344,7 @@ class Codegen {
     else addr = this.alloc(this.typeSize(ty), this.typeAlign(ty));
     this.globals.set(d.name, { addr, type: ty, init: d.init, node: d });
     // record simple integer constant for const-folding of later dims
-    const c = d.init && foldConstInt(d.init, this.constEnv);
+    const c = d.init && this.fold(d.init);
     if (c != null) this.constEnv[d.name] = c;
   }
 
@@ -345,7 +367,7 @@ class Codegen {
     const bytes = [];
     for (const el of init.elements) {
       if (el.kind === "InitList") return false;      // nested aggregate: fall back
-      const c = foldConstInt(el, this.constEnv);
+      const c = this.fold(el);
       if (c == null) return false;                   // non-constant element: fall back
       let v = BigInt.asUintN(64, c);
       for (let b = 0; b < esz; b++) { bytes.push(Number(v & 0xffn)); v >>= 8n; }
@@ -599,7 +621,7 @@ class FnCtx {
   collectLocals(node) {
     const visitDecl = (vd) => {
       if (this.locals.has(vd.name)) return;
-      const ty = this.cg.resolveType(vd.type);
+      const ty = this.cg.resolveType(vd.type,this.locals);
       if (isAggregate(ty) || this.addrTaken.has(vd.name) || this.needsUnionAddr(vd.name)) {
         const off = this.allocSlot(this.cg.typeSize(ty), this.cg.typeAlign(ty));
         this.locals.set(vd.name, { kind: "slot", offset: off, type: ty, init: vd.init });
@@ -921,8 +943,8 @@ class FnCtx {
         started = true;
         if (it.type === "default") labels.push({ isDefault: true, segIdx: segs.length });
         else {
-          let lo = it.lo ? foldConstInt(it.lo, this.cg.constEnv) : null;
-          let hi = it.hi ? foldConstInt(it.hi, this.cg.constEnv) : null;
+          let lo = it.lo ? this.cg.fold(it.lo,this.locals) : null;
+          let hi = it.hi ? this.cg.fold(it.hi,this.locals) : null;
           // Non-constant case value: keep the AST node for a runtime compare.
           const loExpr = (lo == null && it.lo) ? it.lo : null;
           if (lo == null && !loExpr) { lo = prev + 1n; }        // empty `case:` auto-number
@@ -1070,7 +1092,7 @@ class FnCtx {
         if (node.postfix) return this.genPostfixCast(node);
         const t = this.genExpr(node.operand); return this.coerce(t, this.cg.resolveType(node.type));
       }
-      case "Sizeof": { let sz = node.type ? this.cg.typeSize(this.cg.resolveType(node.type)) : this.cg.typeSize(this.peekType(node.expr)); if (!Number.isFinite(sz)) sz = 8; this.f.i64_const(sz); return T.I64; }
+      case "Sizeof": case "Offset": this.f.i64_const(this.cg.layoutQuery(node,this.locals));return T.I64;
       default: this.err(node, "unsupported expression " + node.kind);
     }
   }
@@ -1164,7 +1186,7 @@ class FnCtx {
       }
       case "Index": { const bt = this.peekType(node.base); return elemType(bt) || T.I64; }
       case "Member": return this.memberType(node);
-      case "Sizeof": return T.I64;
+      case "Sizeof": case "Offset": return T.I64;
       default: return T.I64;
     }
   }
@@ -1246,7 +1268,7 @@ class FnCtx {
         if (!b) return null;
         const bt = this.cg.resolveType(b.type);
         if (!isArray(bt)) return null;
-        const cidx = foldConstInt(node.index, this.cg.defines || {});
+        const cidx = this.cg.fold(node.index,this.locals,{});
         if (cidx === null || cidx === undefined) return null;
         return { addr: b.addr + Number(cidx) * this.cg.typeSize(bt.of), type: bt.of };
       }
@@ -1304,7 +1326,7 @@ class FnCtx {
     // constant index: fold idx*esz at compile time (a[0] adds NOTHING) - hot for the per-core
     // CPU-state pattern g_cpu_st[MY_CORE].f_reg[i], where a runtime 0*sizeof mul on every register
     // access cost the interpreter ~2x.
-    const cidx = foldConstInt(node.index, this.cg.defines || {});
+    const cidx = this.cg.fold(node.index,this.locals,{});
     if (cidx !== null && cidx !== undefined) {
       const off = Number(cidx) * esz;
       if (off) this.f.i64_const(off).op("i64_add");
@@ -1748,7 +1770,7 @@ class FnCtx {
       if (callee.name === "MyCore") { this.f.global_get(this.cg.coreGlobal); return T.I64; }   // SMP intrinsic: this worker's core index (per-instance WASM global)
       if (callee.name.startsWith("__a_")) { const r = this.genAtomic(callee.name, node.args); if (r) return r; }   // SMP intrinsic: native WASM atomic RMW (LOCK ops over shared memory)
       if (["Bt","Bts","Btr","Btc","LBts","LBtr","LBtc"].includes(callee.name)) {
-        const bit=foldConstInt(node.args[1]);
+        const bit=this.cg.fold(node.args[1],this.locals,{});
         //BackB.HC ICBitOps uses a 32-bit immediate operand for negative constants.
         if (bit!==null && bit<0n)
           node={...node,args:[node.args[0],{kind:"IntLit",value:BigInt.asUintN(5,bit)}]};
@@ -1796,7 +1818,7 @@ class FnCtx {
     if (!node) return true;
     switch (node.kind) {
       case "IntLit": case "CharLit": case "FloatLit": case "StrLit":
-      case "BinLit": case "Sizeof": return true;
+      case "BinLit": case "Sizeof": case "Offset": return true;
       case "Ident": return this.locals.has(node.name) || this.cg.globals.has(node.name) ||
         !this.cg.functions.has(node.name);
       case "Unary": return !["++","--"].includes(node.op) && this.pureExpr(node.operand);

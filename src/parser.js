@@ -30,6 +30,8 @@ export class Parser {
     this.opts = opts;
     this.typeNames = new Set(Object.keys(BASE_TYPES));
     this.classes = new Map(); // name -> ClassDecl
+    this.globalNames=new Set();
+    this.localNames=null;
   }
 
   // --- token helpers ---
@@ -109,7 +111,7 @@ export class Parser {
     const t = this.peek(k);
     if (t.type !== "ident") return false;
     if (t.value === "class" || t.value === "union") return true;
-    return this.typeNames.has(t.value);
+    return this.typeNames.has(t.value) && !this.isP(".",k+1);
   }
 
   // ====================================================================
@@ -153,6 +155,7 @@ export class Parser {
         while (this.optP("*")) vt = ptrTo(vt);
         if (this.cur().type === "ident") {
           const vn = this.next().value;
+          (this.localNames??this.globalNames).add(vn);
           const dims = [];
           while (this.isP("[")) { this.next(); dims.push(this.parseConstIntish()); this.eatP("]"); }
           for (let d = dims.length - 1; d >= 0; d--) vt = arrayOf(vt, dims[d]);
@@ -199,9 +202,15 @@ export class Parser {
     const decls=[];
     do {
       const tok=this.cur(),d=this.parseDeclarator(baseType);
+      (topLevel?this.globalNames:this.localNames??this.globalNames).add(d.name);
       if (this.isP("(")) {
         const {params,isVarArgs}=this.parseParams();
-        const body=this.isP("{")?this.parseBlock():null;
+        let body=null;
+        if (this.isP("{")) {
+          const outer=this.localNames;
+          this.localNames=new Set(params.map(p=>p.name));
+          try {body=this.parseBlock();} finally {this.localNames=outer;}
+        }
         if (!body) this.optP(";");
         const fn=mk("FuncDecl",{name:d.name,retType:d.type,params,body,
           storage,isVarArgs},tok);
@@ -569,16 +578,14 @@ export class Parser {
       if (t.value === "-") operand = this.parsePowerAfterMinus(operand);
       return mk("Unary", { op: t.value, operand, prefix: true }, t);
     }
-    if (this.isKw("sizeof")) {
+    if ((this.isKw("sizeof") || this.isKw("offset")) &&
+        !this.localNames?.has(t.value) && !this.globalNames.has(t.value)) {
       this.next();
-      if (this.isP("(") && this.isType(1)) {
-        this.next(); const ty = this.parseTypeRef(); this.eatP(")");
-        return mk("Sizeof", { type: ty }, t);
-      }
-      // sizeof expr
-      const operand = this.parseUnary();
-      return mk("Sizeof", { expr: operand }, t);
+      return this.parseLayoutQuery(t.value,t);
     }
+    if (this.isType() && this.isP(".",1) &&
+        !this.localNames?.has(t.value) && !this.globalNames.has(t.value))
+      return this.parseLayoutQuery("offset",t);
     // cast: (Type)expr
     if (this.isP("(") && this.isType(1)) {
       // look ahead to ensure it's a cast: ( Type [*]* )
@@ -594,6 +601,21 @@ export class Parser {
       this.i = save; // not a cast, backtrack
     }
     return this.parsePostfix();
+  }
+
+  parseLayoutQuery(op,t) {
+    let parens=0,stars=0;
+    while (this.optP("(")) parens++;
+    if (this.cur().type!=="ident") this.err("expected class or variable name");
+    const name=this.next().value,fields=[];
+    while (this.optP(".")) {
+      if (this.cur().type!=="ident") this.err("expected member name");
+      fields.push(this.next().value);
+    }
+    if (op==="sizeof") while (this.optP("*")) stars++;
+    else if (!fields.length) this.err("offset requires a member");
+    while (parens--) this.eatP(")");
+    return mk(op==="sizeof"?"Sizeof":"Offset",{name,fields,stars},t);
   }
 
   parseTypeRef() {

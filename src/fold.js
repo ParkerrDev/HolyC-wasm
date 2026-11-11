@@ -36,7 +36,7 @@ function Binary(op,a,b)
   return Integer(value,unsigned);
 }
 
-function Fold(node,env)
+function Fold(node,env,resolve)
 {//Keep the signedness and 64-bit wrap of the run-time expression.
   if (!node) return null;
   switch (node.kind) {
@@ -45,15 +45,19 @@ function Fold(node,env)
       return Integer(value,BigInt.asIntN(64,value)<0n);
     }
     case "Ident": return node.name in env?Integer(BigInt(env[node.name])):null;
+    case "Sizeof": case "Offset": {
+      const value=resolve?.(node);
+      return value==null?null:Integer(BigInt(value));
+    }
     case "Cast": {
-      const a=Fold(node.operand,env),t=node.type;
+      const a=Fold(node.operand,env,resolve),t=node.type;
       if (!a || t.kind!=="int") return null;
       if (node.postfix) return Integer(a.value,!t.signed);
       return Integer(t.signed?BigInt.asIntN(t.bits,a.value):
         BigInt.asUintN(t.bits,a.value),!t.signed);
     }
     case "Unary": {
-      const a=Fold(node.operand,env);
+      const a=Fold(node.operand,env,resolve);
       if (!a) return null;
       switch (node.op) {
         case "-": return Integer(-a.value);
@@ -64,39 +68,39 @@ function Fold(node,env)
       return null;
     }
     case "Binary": {
-      const a=Fold(node.left,env),b=Fold(node.right,env);
+      const a=Fold(node.left,env,resolve),b=Fold(node.right,env,resolve);
       return a && b?Binary(node.op,a,b):null;
     }
     case "Logical": {
-      const a=Fold(node.left,env),b=Fold(node.right,env);
+      const a=Fold(node.left,env,resolve),b=Fold(node.right,env,resolve);
       if (!a || !b) return null;
       const x=!!a.value,y=!!b.value;
       return Integer((node.op==="&&"?x&&y:node.op==="||"?x||y:x!==y)?1n:0n);
     }
     case "Chain": {
-      const values=node.operands.map(x=>Fold(x,env));
+      const values=node.operands.map(x=>Fold(x,env,resolve));
       if (values.some(v=>!v)) return null;
       return Integer(node.ops.every((op,i)=>Binary(op,values[i],values[i+1]).value)?1n:0n);
     }
     case "Cond": {
-      const a=Fold(node.cond,env);
-      return a?Fold(a.value?node.then:node.else,env):null;
+      const a=Fold(node.cond,env,resolve);
+      return a?Fold(a.value?node.then:node.else,env,resolve):null;
     }
     default: return null;
   }
 }
 
-export function foldConstInt(node,env={})
+export function foldConstInt(node,env={},resolve)
 {
-  return Fold(node,env)?.value??null;
+  return Fold(node,env,resolve)?.value??null;
 }
 
-export function foldDim(node,env={})
+export function foldDim(node,env={},resolve)
 {
   if (node==null) return null;
   if (typeof node==="number") return node;
   if (typeof node==="bigint") return Number(node);
-  const value=foldConstInt(node,env);
+  const value=foldConstInt(node,env,resolve);
   if (value==null) throw new Error("array dimension is not a constant integer at line "+(node.line||"?"));
   if (value<0n || value>BigInt(Number.MAX_SAFE_INTEGER))
     throw new Error("array dimension outside supported memory at line "+(node.line||"?"));
