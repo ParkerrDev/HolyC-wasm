@@ -803,6 +803,7 @@ U0 Refresh()
 U0 DocClear() {}
 U0 Free(U8 *p) { __free(p); }
 I64 MSize(U8 *p) { return __msize(p); }
+I64 MSize2(U8 *p) { return __msize2(p); }
 U8 *MAlloc(I64 size,CTask *mem_task=NULL)
 {
   U8 *res;
@@ -826,6 +827,28 @@ U8 *AMAlloc(I64 size)
 {//Allocate storage whose lifetime is independent of the caller task.
   U8 *res=__malloc_kernel(size);
   if (!res) throw('OutMem',TRUE);
+  return res;
+}
+
+U8 *MAllocIdent(U8 *src,CTask *mem_task=NULL)
+{//Copy the complete usable contents of a heap node.
+  U8 *res;
+  I64 size;
+  if (!src) return NULL;
+  size=MSize(src);
+  res=MAlloc(size,mem_task);
+  MemCpy(res,src,size);
+  return res;
+}
+
+U8 *AMAllocIdent(U8 *src)
+{//Copy a heap node into the session kernel's heap.
+  U8 *res;
+  I64 size;
+  if (!src) return NULL;
+  size=MSize(src);
+  res=AMAlloc(size);
+  MemCpy(res,src,size);
   return res;
 }
 

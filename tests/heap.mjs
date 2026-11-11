@@ -23,6 +23,7 @@ if (!isMainThread) {
     const size=100+(i*37)%2000,ptr=host.env.__malloc(BigInt(size));
     assert.notEqual(ptr,0n);
     assert.ok(host.env.__msize(ptr)>=BigInt(size));
+    assert.equal(host.env.__msize2(ptr),host.env.__msize(ptr)+32n);
     new Uint8Array(memory.buffer,Number(ptr),size).fill(id);
     blocks.push({ptr,size,value:id});
   }
@@ -88,6 +89,7 @@ if (!isMainThread) {
   const restored=attach(restoredMemory);
   restored.state.heapPtr=cursor;
   assert.equal(restored.env.__msize(last),host.env.__msize(last),"allocation capacity restores with RAM");
+  assert.equal(restored.env.__msize2(last),host.env.__msize2(last),"internal span restores with RAM");
   assert.equal(restored.env.__malloc(300n),hole,"restore the free list from RAM alone");
   filled(restoredMemory,last,400,91);
   for (const ptr of [first,hole,last]) restored.env.__free(ptr);

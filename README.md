@@ -252,6 +252,17 @@ VGA, while the full DAC table remains readable/writable. Initial DAC entries
 checks native DAC state, all shared entries, original planar conversion, RGBA
 presentation and refusal without a device adapter.
 
+`MAllocIdent(src,mem_task)` copies the source allocation's full usable capacity
+into the selected live task; `AMAllocIdent(src)` uses session kernel ownership.
+Both return NULL for a NULL source. `MSize2` reports the real internal span:
+this allocator uses a 32-byte header, while release V5.03 uses 16 bytes and
+has different capacity rounding. These sizes are deliberately not presented
+as binary heap-layout parity. Legacy heap ABI 0 cannot recover allocation
+sizes and rejects non-NULL MSize/MSize2 queries. Headers and snapshot ABI are
+unchanged; only new code using MSize2 requires the paired `__msize2` import.
+`test:alloc-ident` compares native copies, verifies native/current span bounds,
+and tests child/parent/session lifetime plus allocation failure and retry.
+
 ## Cooperative task backend
 
 Reachable `Spawn`, `Kill`, `Exit`, `GetMsg`, `GetKey`, `GetChar`, `PressAKey`

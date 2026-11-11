@@ -123,12 +123,12 @@ export class Heap
     } finally {this.leave();}
   }
 
-  size(ptr) {
+  size(ptr,internal=false) {
     ptr=Number(ptr);
     if (ptr===0) return 0n;
     this.enter();
     try {
-      return BigInt(this.allocation(ptr).span-HEADER);
+      return BigInt(this.allocation(ptr).span-(internal?0:HEADER));
     } finally {this.leave();}
   }
 
