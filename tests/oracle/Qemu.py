@@ -90,84 +90,86 @@ def run(config):
     write_files(cache / "templeos.raw", image, files)
     font_source = (cache / "web/holyc-wasm/src/runtime/font.js").read_text()
     font = base64.b64decode(re.search(r'const B64 = "([^"]+)"', font_source)[1])
-    command = [executable, "-machine", "pc", "-accel", accelerator,
-               "-cpu", "host" if accelerator == "kvm" else "max", "-m", "384M", "-smp", "1",
-               "-drive", f"file={image},format=raw,if=ide,index=0,snapshot=on",
-               "-vga", "std", "-display", "none", "-qmp",
-               f"unix:{work / 'qmp.sock'},server=on,wait=off", "-debugcon", f"file:{log}"]
-    with open(work / "qemu.log", "wb") as errors:
-        process = subprocess.Popen(command, stdout=errors, stderr=errors)
-        qmp = None
-        deadline = time.monotonic() + config.get("timeout", 180)
+    with tempfile.TemporaryDirectory(prefix="tos-qmp-") as transport:
+        qmp_path = Path(transport) / "qmp.sock"
+        command = [executable, "-machine", "pc", "-accel", accelerator,
+                   "-cpu", "host" if accelerator == "kvm" else "max", "-m", "384M", "-smp", "1",
+                   "-drive", f"file={image},format=raw,if=ide,index=0,snapshot=on",
+                   "-vga", "std", "-display", "none", "-qmp",
+                   f"unix:{qmp_path},server=on,wait=off", "-debugcon", f"file:{log}"]
+        with open(work / "qemu.log", "wb") as errors:
+            process = subprocess.Popen(command, stdout=errors, stderr=errors)
+            qmp = None
+            deadline = time.monotonic() + config.get("timeout", 180)
 
-        def wait(predicate, reason):
-            while time.monotonic() < deadline:
-                if process.poll() is not None:
-                    raise RuntimeError(f"QEMU exited {process.returncode}: {work / 'qemu.log'}")
-                if predicate():
-                    return
-                time.sleep(0.15)
-            raise TimeoutError(f"Timed out waiting for {reason}; evidence: {work}")
+            def wait(predicate, reason):
+                while time.monotonic() < deadline:
+                    if process.poll() is not None:
+                        raise RuntimeError(f"QEMU exited {process.returncode}: {work / 'qemu.log'}")
+                    if predicate():
+                        return
+                    time.sleep(0.15)
+                raise TimeoutError(f"Timed out waiting for {reason}; evidence: {work}")
 
-        def desktop():
-            qmp.command("screendump", {"filename": str(ppm)})
-            text = screen_text(ppm, font)
-            (work / "screen.txt").write_text(text)
-            return text
+            def desktop():
+                qmp.command("screendump", {"filename": str(ppm)})
+                text = screen_text(ppm, font)
+                (work / "screen.txt").write_text(text)
+                return text
 
-        try:
-            wait(lambda: (work / "qmp.sock").exists(), "QMP socket")
-            qmp = Qmp(work / "qmp.sock")
+            try:
+                wait(lambda: qmp_path.exists(), "QMP socket")
+                qmp = Qmp(qmp_path)
 
-            def boot_menu():
-                path = work / "vga.bin"
-                qmp.monitor(f'pmemsave 0xb8000 4000 "{path}"')
-                return b"Selection:" in path.read_bytes()[::2]
+                def boot_menu():
+                    path = work / "vga.bin"
+                    qmp.monitor(f'pmemsave 0xb8000 4000 "{path}"')
+                    return b"Selection:" in path.read_bytes()[::2]
 
-            wait(boot_menu, "TempleOS boot selection")
-            qmp.type("1\n")
-            wait(lambda: "Take Tour(y or n)?" in desktop(), "TempleOS shell")
-            time.sleep(0.5)
-            qmp.monitor("sendkey ctrl-alt-t 10")
-            time.sleep(0.5)
-            qmp.type('#include "C:/ORACLE/RUN.HC";\n')
-            def fixtures_done():
-                if not log.exists():
-                    return False
+                wait(boot_menu, "TempleOS boot selection")
+                qmp.type("1\n")
+                wait(lambda: "Take Tour(y or n)?" in desktop(), "TempleOS shell")
+                time.sleep(0.5)
+                qmp.monitor("sendkey ctrl-alt-t 10")
+                time.sleep(0.5)
+                qmp.type('#include "C:/ORACLE/RUN.HC";\n')
+                def fixtures_done():
+                    if not log.exists():
+                        return False
+                    data = log.read_bytes()
+                    fault = re.search(rb"(?:^|\n)Fault:0x[0-9A-Fa-f]+[^\n]*", data)
+                    if fault:
+                        raise RuntimeError(f"Native CPU {fault[0].strip().decode('latin1')}; evidence: {work}")
+                    return b"\x04" in data
+
+                wait(fixtures_done, "native fixtures")
                 data = log.read_bytes()
-                fault = re.search(rb"(?:^|\n)Fault:0x[0-9A-Fa-f]+[^\n]*", data)
-                if fault:
-                    raise RuntimeError(f"Native CPU {fault[0].strip().decode('latin1')}; evidence: {work}")
-                return b"\x04" in data
-
-            wait(fixtures_done, "native fixtures")
-            data = log.read_bytes()
-            results = []
-            for number in range(config["count"]):
-                start = (f"\x1e{number}:B\x1f").encode()
-                end = re.compile((f"\x1e{number}:E:([0-9A-F]+)\x1f").encode())
-                first = data.find(start)
-                last = end.search(data, first + len(start))
-                if first < 0 or not last:
-                    raise RuntimeError(f"Missing fixture {number} output: {log}")
-                exception = int(last[1], 16).to_bytes(8, "little").rstrip(b"\0").decode("latin1")
-                results.append({"out": data[first + len(start):last.start()].decode("latin1"),
-                                "except": exception})
-            return {"results": results, "backend": {"engine": "qemu", "accelerator": accelerator,
-                    "version": version}, "evidence": str(work)}
-        finally:
-            if process.poll() is None:
-                try:
-                    if qmp:
-                        qmp.command("quit")
-                except (OSError, RuntimeError):
-                    pass
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait()
-            image.unlink(missing_ok=True)
+                results = []
+                for number in range(config["count"]):
+                    start = (f"\x1e{number}:B\x1f").encode()
+                    end = re.compile((f"\x1e{number}:E:([0-9A-F]+)\x1f").encode())
+                    first = data.find(start)
+                    last = end.search(data, first + len(start))
+                    if first < 0 or not last:
+                        raise RuntimeError(f"Missing fixture {number} output: {log}")
+                    exception = int(last[1], 16).to_bytes(8, "little").rstrip(b"\0").decode("latin1")
+                    results.append({"out": data[first + len(start):last.start()].decode("latin1"),
+                                    "except": exception})
+                return {"results": results, "backend": {"engine": "qemu", "accelerator": accelerator,
+                        "version": version}, "evidence": str(work)}
+            finally:
+                if process.poll() is None:
+                    try:
+                        if qmp:
+                            qmp.command("quit")
+                    except (OSError, RuntimeError):
+                        pass
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+                image.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

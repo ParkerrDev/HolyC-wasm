@@ -46,6 +46,9 @@ Typed callbacks cover local/global variables, members, arrays, parameters,
 default arguments and native evaluation order. Direct calls and Print evaluate
 arguments right to left; an indirect call captures its target first. Nested
 printing cannot overwrite the outer call's staged argument values.
+Scalar-backed classes such as `U32 class CColorROPU32` retain their integer or
+F64 value operations and named fields. Layouts whose byte size differs from
+their underlying storage type remain unsupported in strict mode.
 Negative fixtures exercise native compile errors. Each fixture has native
 source/output hashes; changing it requires rerunning the oracle. These checks
 do not establish full TempleOS compatibility.
@@ -84,6 +87,8 @@ are read from sibling checkouts, or from these environment variables:
 | `HOLYC_ORACLE_COMPILER` | HolyC-wasm, with the pinned revision in Git history |
 
 The cache and small run logs/screenshots stay in ignored `tests/.oracle/`.
+Live QMP sockets use a short system temporary directory so long checkout paths
+do not exceed Unix socket path limits.
 Private writable disk copies are removed after each QEMU run. Original disk and
 snapshot files are never changed.
 

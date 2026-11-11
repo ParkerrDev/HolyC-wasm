@@ -208,6 +208,11 @@ class Codegen {
     }
     // V5.03 packs members (Compiler/PrsVar.HC), including a class's tail.
     const layout = { size: node.isUnion ? maxSize : off, align: 1, fields, incomplete: false };
+    if (node.scalarBase && layout.size!==sizeof(this.resolveType(node.scalarBase))) {
+      const message="Scalar class "+name+" has a different layout and storage width";
+      if (!this.lenient) throw new CodegenError(message+"; not yet supported");
+      this.warn(message);
+    }
     this.classLayouts.set(name, layout);
     return layout;
   }
@@ -216,7 +221,10 @@ class Codegen {
   resolveType(t) {
     if (!t) return T.I64;
     switch (t.kind) {
-      case "classref": return { kind: "class", name: t.name };
+      case "classref": {
+        const base=this.classes.get(t.name)?.scalarBase;
+        return base?{...this.resolveType(base),name:t.name}:{kind:"class",name:t.name};
+      }
       case "ptr": return ptrTo(this.resolveType(t.to));
       case "funcptr": return funcPtr(this.resolveType(t.retType),
         t.params.map(p=>({...p,type:this.resolveType(p.type)})),t.isVarArgs);
@@ -234,7 +242,7 @@ class Codegen {
 
   typeSize(t) {
     t = this.resolveType(t);
-    if (t.kind === "class") {
+    if (isClass(t)) {
       if (!this.classes.has(t.name)) return 8; // opaque/forward class -> one word
       return this.layoutClass(t.name).size;
     }
@@ -244,7 +252,7 @@ class Codegen {
   }
   typeAlign(t) {
     t = this.resolveType(t);
-    if (t.kind === "class") return this.layoutClass(t.name).align;
+    if (isClass(t)) return this.layoutClass(t.name).align;
     if (t.kind === "array") return this.typeAlign(t.of);
     if (isFloat(t)) return 8;
     return Math.min(sizeof(t), 8);
@@ -563,7 +571,7 @@ class FnCtx {
     const walk = (n) => {
       if (!n || typeof n !== "object") return;
       if (n.kind === "Unary" && n.op === "&") markRoot(n.operand);
-      if (n.kind === "Member" && n.name in UNION_MEMBERS && !n.arrow) markRoot(n.base);
+      if (n.kind === "Member" && !n.arrow) markRoot(n.base);
       for (const k in n) {
         const v = n[k];
         if (Array.isArray(v)) v.forEach(walk);

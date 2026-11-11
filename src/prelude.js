@@ -61,7 +61,55 @@ export const PRELUDE_SRC = String.raw`
 #define exp_1 (0x4005BF0A8B145769(F64))
 
 //==================== mouse struct (mirrors host writes at MS_ADDR) ====
-class CD3I32 { I32 x; I32 y; I32 z; };
+public class CD2I32
+{
+  I32 x,y;
+};
+
+public class CD3I32
+{
+  I32 x,y,z;
+};
+
+public class CD2I64
+{
+  I64 x,y;
+};
+
+public class CD3I64
+{
+  I64 x,y,z;
+};
+
+public class CD2
+{
+  F64 x,y;
+};
+
+public class CD3
+{
+  F64 x,y,z;
+};
+
+public U16 class CColorROPU16
+{
+  U8 color,rop;
+};
+
+public U32 class CColorROPU32
+{
+  CColorROPU16 c0,c1;
+};
+
+public U32 class CBGR24
+{
+  U8 b,g,r,pad;
+};
+
+public I64 class CBGR48
+{
+  U16 b,g,r,pad;
+};
 class CMouse {
   CD3I32 pos;
   I32 lb;

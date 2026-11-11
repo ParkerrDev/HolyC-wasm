@@ -40,8 +40,8 @@ export function isPtr(t) { return t.kind === "ptr"; }
 export function isFuncPtr(t) { return t.kind === "funcptr"; }
 export function isArray(t) { return t.kind === "array"; }
 export function isVoid(t) { return t.kind === "void"; }
-export function isClass(t) { return t.kind === "class"; }
-export function isAggregate(t) { return isArray(t) || isClass(t); }
+export function isClass(t) { return t.kind === "class" || !!t.name && (isInt(t) || isFloat(t)); }
+export function isAggregate(t) { return isArray(t) || t.kind === "class"; }
 export function isScalar(t) { return isInt(t) || isFloat(t) || isPtr(t) || isFuncPtr(t); }
 
 export function sizeof(t) {

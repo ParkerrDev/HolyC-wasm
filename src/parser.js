@@ -115,7 +115,7 @@ export class Parser {
   // ====================================================================
   // Class / union
   // ====================================================================
-  parseClass() {
+  parseClass(scalarBase=null) {
     const kw = this.next(); // class|union
     const isUnion = kw.value === "union";
     let name = null;
@@ -143,7 +143,7 @@ export class Parser {
       this.optP(";");
     }
     this.eatP("}");
-    const node = mk("ClassDecl", { name, base, members, isUnion }, kw);
+    const node = mk("ClassDecl", { name, base, members, isUnion,scalarBase }, kw);
     if (name) { this.typeNames.add(name); this.classes.set(name, node); }
     // optional trailing variable declarators: } a, b;
     const vars = [];
@@ -194,6 +194,7 @@ export class Parser {
     while (this.peek().type === "ident" && STORAGE.has(this.peek().value)) storage.push(this.next().value);
 
     const baseType = this.parseTypeSpec();
+    if (this.isKw("class") || this.isKw("union")) return this.parseClass(baseType);
 
     const decls=[];
     do {

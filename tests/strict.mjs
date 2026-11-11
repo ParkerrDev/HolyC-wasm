@@ -13,4 +13,6 @@ assert.deepEqual(unused.warnings,[],"an unused prototype is allowed");
 const label=compile("U0 F() { unused: return; } F;");
 assert(label.warnings.some(message=>message.includes("Unused label")));
 assert(WebAssembly.validate(label.bytes));
-console.log("Strict compilation rejects unsupported assembly and unresolved callable functions.");
+assert.throws(()=>compile("U32 class Tiny {U8 a;}; Tiny x;"),
+  /different layout and storage width/);
+console.log("Strict compilation rejects unsupported assembly, unresolved calls and mismatched scalar layouts.");
