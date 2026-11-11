@@ -1680,9 +1680,23 @@ class FnCtx {
     }
     pushLeft();
     if (isFloat(lr)) this.floatToInt();
-    pushRight(T.I64);
-    this.intOp(base, isUnsigned(lr));
+    const shift=(base==="/" || base==="%")?this.constantPowerShift(valueNode):null;
+    if (shift!=null) {
+      this.f.i64_const(base==="/"?shift:(1n<<shift)-1n);
+      this.intOp(base==="/"?">>":"&",isUnsigned(lr));
+    } else {
+      pushRight(T.I64);
+      this.intOp(base, isUnsigned(lr));
+    }
     return T.I64;
+  }
+
+  constantPowerShift(node) {
+    // Native OptPass012 rewrites literal powers of two, never mutable globals.
+    const value=this.cg.fold(node,this.locals,{});
+    if (value==null) return null;
+    const bits=BigInt.asUintN(64,value);
+    return bits && !(bits&(bits-1n))?BigInt(bits.toString(2).length-1):null;
   }
 
   genBinary(node) {
@@ -1744,12 +1758,22 @@ class FnCtx {
       return T.I64;
     }
     // integer op (coerce truncates any float operand)
-    this.genExprCoerce(node.left, T.I64);
-    this.genExprCoerce(node.right, T.I64);
-    this.intOp(node.op, isUnsigned(lr) || isUnsigned(rr));
-    // Propagate unsignedness (C "usual arithmetic conversions"): if either
-    // operand is unsigned the result is unsigned, so a following comparison
-    // (e.g. carry detection `(r & m) < (a & m)`) is done unsigned, not signed.
+    const emittedLeft=this.genExpr(node.left);
+    this.coerce(emittedLeft,T.I64);
+    const shift=node.op==="/" && this.cg.fold(node.left,this.locals,{})==null?
+      this.constantPowerShift(node.right):null;
+    if (shift!=null) {
+      this.f.i64_const(shift);
+      this.intOp(">>",isUnsigned(emittedLeft));
+    } else {
+      this.genExprCoerce(node.right, T.I64);
+      this.intOp(node.op,node.op===">>"?isUnsigned(emittedLeft) || isUnsigned(rr):
+        isUnsigned(lr) || isUnsigned(rr));
+    }
+    // Native constant division shifts the original left value. A later shift
+    // retains that emitted signedness; other results propagate unsigned operands.
+    if (shift!=null) return isUnsigned(emittedLeft)?T.U64:T.I64;
+    if (node.op===">>") return isUnsigned(emittedLeft) || isUnsigned(rr)?T.U64:T.I64;
     return (isUnsigned(lr) || isUnsigned(rr)) ? T.U64 : T.I64;
   }
 

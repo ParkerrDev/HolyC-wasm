@@ -58,6 +58,13 @@ Their caller-owned argument blocks are reentrant and released after normal
 returns or caught exceptions. A variadic WASM import/export has one hidden
 final I64 parameter pointing to the count followed by contiguous I64 arguments.
 This calling convention does not reproduce the native x86 machine stack.
+Original V5.03 optimization is observable in integer arithmetic: a variable
+divided by a constant power of two uses a shift, so signed negative values
+round down. Fully constant divisions and variable divisors truncate toward
+zero. Compound `/=` uses the same shift; `%=` by a constant power of two uses
+a mask, including signed operands. `PowerDivide` records these distinctions,
+unsigned operands, the sign-bit divisor and subsequent shifts/comparisons.
+
 Compile-known switch labels use signed 64-bit values. Reversed ranges are
 normalized before empty-case numbering; duplicate/overlapping cases, empty
 case sets and native-invalid table spans reject. Repeated `default` labels
