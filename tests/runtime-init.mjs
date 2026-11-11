@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {Hash} from './oracle/Prepare.mjs';
 import {compileHolyC} from '../src/compiler.js';
 import {compile} from '../src/codegen.js';
 import {parse} from '../src/parser.js';
@@ -7,12 +9,29 @@ import {createHost} from '../src/runtime/host.js';
 import {createTaskHost} from '../src/runtime/tasks.js';
 import {Framebuffer} from '../src/runtime/graphics.js';
 const poisoned=/initialization failed or reentered; create a fresh module instance/;
-function load(source,configure=()=>{}) {
-  const result=compileHolyC(source,{lenient:false});assert.deepEqual(result.warnings,[]);
+function load(source,configure=()=>{},options={}) {
+  const result=compileHolyC(source,{lenient:false,...options});assert.deepEqual(result.warnings,[]);
   const host=createHost({onText:()=>{}});let instance;
   configure(host,()=>instance?.exports);
   instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});host.attach(instance);
   return {result,host,fn:instance.exports};
+}
+for(const name of ['DeferredInit','DeferredDefault']) {
+  const source=readFileSync(new URL(`probes/${name}.HC`,import.meta.url));
+  const proof=JSON.parse(readFileSync(new URL(`probes/${name}.native.json`,import.meta.url)));
+  assert.equal(proof.sourceSha256,Hash(source));
+  assert.equal(proof.runnerSha256,Hash(readFileSync(new URL('oracle/Qemu.mjs',import.meta.url))));
+  assert.equal(proof.captureSha256,Hash(readFileSync(new URL('oracle/QemuCapture.HC',import.meta.url))));
+  assert.equal(proof.outputSha256,Hash(Buffer.from(proof.out,'latin1')));
+  assert.equal(proof.except,'Init');assert.equal(proof.backend.engine,'qemu');
+  let out='';
+  const result=compileHolyC(source.toString('latin1'),{lenient:false});
+  assert.deepEqual(result.warnings,[]);
+  const host=createHost({onText:s=>out+=s});
+  const instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});host.attach(instance);
+  assert.throws(()=>instance.exports.__main(),WebAssembly.Exception);
+  assert.equal(out,proof.out);
+  assert.throws(()=>instance.exports.__main(),poisoned);assert.equal(out,proof.out);
 }
 // A real graphics hook allocation fails before any user initializer or main.
 let fail=true,calls=0,effects=0;
@@ -53,6 +72,47 @@ Main;
   assert.throws(()=>test.fn.__main(),initial);assert.equal(count,1);assert.equal(main,0);
   assert.throws(()=>test.fn.__main(),poisoned);assert.equal(count,1);assert.equal(main,0);
 }
+// Deferred declarations must poison entry before any earlier top-level effects
+// repeat. Both global values and captured defaults use this declaration path.
+for(const declaration of ['I64 value=Fail;', 'I64 Value(I64 x=Fail){return x;}'])
+  for(const mode of ['typed','host','trap','reentrant']) {
+    let before=0,after=0,calls=0;
+    const source=`
+import I64 Before(); import I64 After(); import I64 Side();
+I64 Fail() {Side; ${mode==='typed'?"throw('Init');":mode==='trap'?'U8 *ptr=0xFFFFFFFF;return *ptr;':''} return 7;}
+Before;
+${declaration}
+After;
+`;
+    const test=load(source,(host,get)=>{
+      host.env.Before=()=>{before++;return 0n;};
+      host.env.After=()=>{after++;return 0n;};
+      host.env.Side=()=>{calls++;if(mode==='host')throw new Error('deferred host failure');
+        if(mode==='reentrant')get().__main();return 0n;};
+    });
+    const initial=mode==='typed'?WebAssembly.Exception:mode==='trap'?WebAssembly.RuntimeError:
+      mode==='host'?/deferred host failure/:poisoned;
+    assert.throws(()=>test.fn.__main(),initial);
+    assert.deepEqual([before,after,calls],[1,0,1]);
+    for(let i=0;i<2;i++) {
+      assert.throws(()=>test.fn.__main(),poisoned);
+      assert.throws(()=>test.fn.__rt_init(),poisoned);
+    }
+    assert.deepEqual([before,after,calls],[1,0,1]);
+  }
+// A deferred-only module also needs the guard even without prelude/init hooks.
+const deferredSource='import I64 Side(); import I64 Main(); Main; I64 value=Side; Main;';
+let side=0,main=0,failDeferred=true;
+const deferredConfig=host=>{
+  host.env.Side=()=>{side++;if(failDeferred)throw new Error('deferred');return 9n;};
+  host.env.Main=()=>{main++;return 0n;};
+};
+const deferred=load(deferredSource,deferredConfig,{noPrelude:true});
+assert.throws(()=>deferred.fn.__main(),/deferred/);failDeferred=false;
+assert.throws(()=>deferred.fn.__main(),poisoned);assert.deepEqual([side,main],[1,1]);
+const deferredFresh=load(deferredSource,deferredConfig,{noPrelude:true});
+deferredFresh.fn.__main();deferredFresh.fn.__main();
+assert.deepEqual([side,main],[2,5]);
 // A failed JSPI startup must poison later runs too, without entering main.
 let taskEffects=0;
 const taskResult=compileHolyC(hookSource+' I64 Waiter(){return GetKey;}',{lenient:false,exports:['Waiter']});
@@ -66,6 +126,15 @@ await assert.rejects(taskHost.run(),WebAssembly.Exception);taskFail=false;
 await assert.rejects(taskHost.run(),poisoned);assert.equal(taskEffects,0);
 await assert.rejects(taskHost.dispose(),poisoned);
 assert.equal(taskHost.state.heapPtr,taskHeap);
+const delayedTask=compileHolyC('import I64 Side(); Side; I64 value=Side; GetKey;',{lenient:false});
+const delayedHost=createTaskHost();let delayedCalls=0;
+delayedHost.env.Side=()=>{if(++delayedCalls===2)throw new Error('deferred task failure');return 7n;};
+const delayedInstance=new WebAssembly.Instance(new WebAssembly.Module(delayedTask.bytes),{env:delayedHost.env});
+delayedHost.attach(delayedInstance);const delayedHeap=delayedHost.state.heapPtr;
+await assert.rejects(delayedHost.run(),/deferred task failure/);
+await assert.rejects(delayedHost.run(),poisoned);assert.equal(delayedCalls,2);
+await assert.rejects(delayedHost.dispose(),poisoned);
+assert.equal(delayedHost.state.heapPtr,delayedHeap);
 // Controlled runtime data must initialize before its hook; user globals follow.
 const ast=parse(lex('I64 data=7; U0 Hook(){data+=1;} I64 observed=data; I64 Read(){return observed;}','init.hc'));
 ast.decls.find(node=>node.name==='data').filename='<prelude>';

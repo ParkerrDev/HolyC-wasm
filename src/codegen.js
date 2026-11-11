@@ -703,8 +703,8 @@ class Codegen {
   genRtInit(ctx,linked) {
     const f=ctx.f=new Func();
     const initializers=[...this.globalInitializers].filter(([name])=>linked.globals.has(name));
-    if (linked.hooks.size || initializers.length) {
-      const guard=this.alloc(8,8),fault=this.imports.__rt_init_failed.index;
+    if (linked.hooks.size || initializers.length || this.rtGuard!==undefined) {
+      const guard=this.rtGuard??=this.alloc(8,8),fault=this.imports.__rt_init_failed.index;
       const state=()=>f.i64_const(guard).op("i32_wrap_i64");
       state().load("i64_load",0,3).i64_const(2).op("i64_ne").if_();
       state().load("i64_load",0,3).op("i64_eqz").op("i32_eqz").if_();
@@ -961,9 +961,12 @@ class FnCtx {
       case "DeclStmt": this.genDeclStmt(s); return;
       case "GlobalInit": {
         const guard=this.cg.alloc(8,8),f=this.f;
+        const moduleGuard=this.cg.rtGuard??=this.cg.alloc(8,8);
         f.i64_const(guard).op("i32_wrap_i64").load("i64_load",0,3).op("i64_eqz").if_();
-        f.i64_const(guard).op("i32_wrap_i64").i64_const(1).store("i64_store",0,3);
+        f.i64_const(moduleGuard).op("i32_wrap_i64").i64_const(1).store("i64_store",0,3);
         for (const name of s.names) this.genGlobalInit(this.cg.globals.get(name));
+        f.i64_const(moduleGuard).op("i32_wrap_i64").i64_const(2).store("i64_store",0,3);
+        f.i64_const(guard).op("i32_wrap_i64").i64_const(1).store("i64_store",0,3);
         f.end();return;
       }
       case "ExprStmt": { const t = this.genExpr(s.expr); this.dropIfValue(t); return; }

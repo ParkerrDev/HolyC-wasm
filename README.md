@@ -130,6 +130,11 @@ import, which reports this state clearly. Initializer-free no-prelude modules
 remain self-contained. Full snapshots retain their embedded module and guard
 state; heap/snapshot formats are unchanged. `test:runtime-init` covers typed and
 host exceptions, traps, reentrancy, real allocation failure and JSPI startup.
+The same poison state covers declarations and captured defaults initialized
+after top-level statements. A failure there rejects the next entry before those
+earlier statements repeat. Successful deferred initialization still occurs once
+at its declaration position. This recovery policy does not claim native
+incremental recompilation or deletion of partially compiled functions.
 
 ## Native oracle
 
