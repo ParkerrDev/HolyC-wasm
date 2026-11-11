@@ -8,7 +8,7 @@ export const read=name=>readFileSync(new URL(name,import.meta.url),'latin1');
 const symbols=/\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b(DocInit|PrsDocFlags|PrsDocFlagSingle|doldoc)\b/g;
 const rename=(source,suffix)=>source.replace(symbols,(text,name)=>name?name+suffix:text);
 export function fixture(name) {
-  const source=read(name+'.HC'),nativeParser=read('NativeParser.HC'),nativeInit=read('NativeInit.HC');
+  const source=read(name+'.HC'),nativeParser=read('NativeParser.HC')+'\n',nativeInit=read('NativeInit.HC');
   const originalBefore='CDolDocGlbls doldocOriginal;\nMemSet(&doldocOriginal,0,sizeof(CDolDocGlbls));\n';
   const portBefore='CDolDocGlbls doldocHost;\nMemSet(&doldocHost,0,sizeof(CDolDocGlbls));\n';
   const originalInit='DocInitOriginal;\n',portInit='DocHostInit;\n';

@@ -37,4 +37,3 @@ I64 PrsDocFlags(CCmpCtrl *cc,I64 *_de_flags,U32 *_type)
   }
   return res;
 }
-
