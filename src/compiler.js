@@ -18,7 +18,7 @@ export function compileHolyC(source, opts = {}) {
   if (![undefined,'console','keydev'].includes(opts.runtimeProfile))
     throw new Error('Unknown HolyC runtime profile: '+opts.runtimeProfile);
   const keydev=opts.runtimeProfile==='keydev';
-  const prelude=keydev?Prelude(KEYDEV_SRC,DOC_ENTRY_SRC,false):PRELUDE_SRC;
+  const prelude=keydev?Prelude(KEYDEV_SRC,DOC_ENTRY_SRC):PRELUDE_SRC;
   const hooks=keydev?[...RUNTIME_INITIALIZERS,
     {name:'KeyOutputHostInit',globals:['keydev']}]:RUNTIME_INITIALIZERS;
   const userName = opts.filename || "<holyc>";

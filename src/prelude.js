@@ -50,7 +50,7 @@ export const RUNTIME_ADDRESSES=[
   {name:"sys_font_cyrillic",storage:"__sys_font_cyrillic"},
 ];
 
-export function Prelude(outputSrc=CONSOLE_SRC,docEntrySrc="",legacyDocClear=true) {return String.raw`
+export function Prelude(outputSrc=CONSOLE_SRC,docEntrySrc="") {return String.raw`
 //==================== constants ====================
 #define NULL 0
 #define TRUE 1
@@ -846,7 +846,6 @@ U0 Refresh()
   __gr_update(gr.dc->body,gr.dc->width_internal,0,0,gr.dc->width,gr.dc->height);
   __gr_flip;
 }
-${legacyDocClear?"U0 DocClear() {}":""}
 U0 Free(U8 *p) { __free(p); }
 I64 MSize(U8 *p) { return __msize(p); }
 I64 MSize2(U8 *p) { return __msize2(p); }

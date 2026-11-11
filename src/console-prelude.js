@@ -1,4 +1,7 @@
 export const CONSOLE_SRC=String.raw`
+//Legacy console compatibility; this does not clear a native document.
+U0 DocClear() {}
+
 U0 PutKey(I64 ch=0,I64 sc=0)
 {
   if (Bt(&Fs->display_flags,DISPLAYf_SILENT)) return;
