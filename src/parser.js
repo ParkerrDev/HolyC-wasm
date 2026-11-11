@@ -364,8 +364,12 @@ export class Parser {
   }
 
   parseDeclarator(baseType,unnamed=false,registers=false) {
-    let type=baseType,name=null,stars=0;
-    if (registers) while (this.isKw("reg") || this.isKw("noreg")) this.next();
+    let type=baseType,name=null,stars=0,registerHint=null;
+    if (registers) while (this.isKw("reg") || this.isKw("noreg")) {
+      registerHint=this.next().value==="reg"?"alloc":"none";
+      if (/^R(AX|BX|CX|DX|SI|DI|BP|SP|[89]|1[0-5])$/.test(this.cur().value))
+        this.err("Explicit x86 register allocation is unsupported");
+    }
     while (this.optP("*")) type=ptrTo(type);
     const callback=this.isP("(") && this.isP("*",1);
     if (callback) {
@@ -386,7 +390,7 @@ export class Parser {
       this.eatP("]");
     }
     for (let i=dims.length-1;i>=0;i--) type=arrayOf(type,dims[i]);
-    return {name,type};
+    return {name,type,registerHint};
   }
 
   parseParams() {
@@ -395,7 +399,13 @@ export class Parser {
     let isVarArgs=false;
     if (!this.isP(")")) do {
       if (this.optP("...")) {isVarArgs=true;break;}
+      let registerHint=null;
+      while (this.peek().type==="ident" && STORAGE.has(this.peek().value)) {
+        const value=this.next().value;
+        if (value==="reg" || value==="noreg") registerHint=value==="reg"?"alloc":"none";
+      }
       const d=this.parseDeclarator(this.parseTypeSpec(),true,true);
+      d.registerHint??=registerHint;
       if (d.type.kind==="array") this.err("No arrays in fun args");
       d.default=this.optP("=")?this.parseAssignment():null;
       params.push(d);

@@ -77,7 +77,8 @@ runtime arithmetic, immediate folding and comparison signedness. Integer chains
 carry the preceding comparison class; constant rewrites retain native pass-order
 comparison flags. `npm run test:integer-promotion` checks original native matrices
 and four executable negative controls. See [integer type evidence](docs/IntegerTypes.md)
-for scope and the separate narrow register-local width gap.
+for scope. [Native local storage](docs/LocalStorage.md) separately covers
+register selection, narrow spills, casts and compound expression results.
 
 Compile-known switch labels use signed 64-bit values. Reversed ranges are
 normalized before empty-case numbering; duplicate/overlapping cases, empty
@@ -203,6 +204,12 @@ or x87 execution equivalence.
 WebAssembly F64 arithmetic does not reproduce the full x87 extended-precision
 environment. Passing a compiler fixture does not prove a game's rendering,
 input, performance or behavior on QEMU, other virtual machines or bare metal.
+
+The compiler also preserves native register-local width using measured
+reference scoring and spill selection. `test:local-storage` compares 4,220
+values and 2,699 native register assignments, including try/catch, address
+escape, unnamed parameters and memory-result distinctions. See
+[local storage and its remaining static/return boundaries](docs/LocalStorage.md).
 
 Fresh WebAssembly memory and register locals start at zero. Native HolyC
 storage can contain old data: initialize pointers and counters explicitly.
@@ -1490,7 +1497,7 @@ Primitive mixed-width arithmetic now follows original V5.03 raw-type selection:
 I32 -23 divided/reduced by U16 12 gives -1/-11 directly. The source-bound
 SmallUnsignedPromotion gate requires the direct and explicitly widened forms to
 match. The layout helper's earlier explicit divisor remains native-equivalent;
-[integer type evidence and remaining register-local limits](docs/IntegerTypes.md)
+[integer type evidence and remaining limits](docs/IntegerTypes.md)
 are recorded separately from document ownership/layout behavior.
 
 ### Normal document layout

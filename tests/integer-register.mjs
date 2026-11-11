@@ -16,6 +16,5 @@ const proof=JSON.parse(readFileSync(proofUrl));
 for(const [key,value] of Object.entries(identity))assert.equal(proof[key],value);
 assert.equal(proof.backend.engine,'qemu');assert.equal(proof.manifest.templeos,'V5.03');assert.equal(proof.except,'');
 assert.equal(proof.outputSha256,hash(Buffer.from(proof.out,'latin1')));
-assert.equal(output.match(/^Memory:.*$/m)[0],proof.out.match(/^Memory:.*$/m)[0]);
-console.log('Native:',JSON.stringify(proof.out),'WASM:',JSON.stringify(output));
-console.log(output===proof.out?'Register-local gap now matches this witness.':'Known register-local width gap remains; not counted as promotion parity.');
+assert.equal(output,proof.out);
+console.log('Original native register/memory/product witness matched.');

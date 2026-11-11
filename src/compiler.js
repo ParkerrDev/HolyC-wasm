@@ -46,11 +46,11 @@ export function compileHolyC(source, opts = {}) {
   const helper=parse(lex(FLOAT_CONVERT_SRC,"<compiler>")).decls[0];
   helper.name=FLOAT_MUL_I64;
   ast.decls.unshift(helper);ast.items.unshift(helper);
-  const { bytes, warnings, dataEnd, globals, requiredCapabilities } = codegen(ast, {
+  const { bytes, warnings, dataEnd, globals, requiredCapabilities,localRegisters } = codegen(ast, {
     ...opts,runtimeInitializers:opts.noPrelude?[]:hooks,
     runtimeInterfaces:opts.noPrelude?[]:RUNTIME_INTERFACES,
     runtimeAddresses:opts.noPrelude?[]:RUNTIME_ADDRESSES});
-  return { bytes, warnings, dataEnd, globals, requiredCapabilities, ast, diagnostics: ast.diagnostics || [] };
+  return { bytes, warnings, dataEnd, globals, requiredCapabilities,...(localRegisters?{localRegisters}:{}), ast, diagnostics: ast.diagnostics || [] };
 }
 
 export { lex, preprocess, parse };

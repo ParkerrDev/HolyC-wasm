@@ -67,14 +67,13 @@ fixture suite remain gates for signed shift, masking and constant behavior.
 
 ## Remaining boundaries
 
-Native register allocation can keep 64 bits in a narrow local. The separate
-`tests/probes/NarrowRegister.HC` witness returns 65559 from a U16 local and
-70368744177664 from an I32 product local; the current host returns 23 and 0.
-Both return 23 after a U16 memory store. `node tests/integer-register-gap.mjs`
-reports this explicitly, and `--record` repeats the original native proof.
-These are deliberately narrow locals, despite the normal I64 style rule.
-They are not counted among passing arithmetic-promotion decisions. Reproducing
-native register allocation/truncation is a separate compiler task.
+Native register allocation can keep 64 bits in a narrow local. This now has a
+separate [local-storage implementation and native proof](LocalStorage.md).
+The original U16/I32 register witness returns 65559 and 70368744177664 in both
+backends; its U16 memory store returns 23. `node tests/integer-register.mjs`
+asserts all three, and `--record` repeats the original native proof. These are
+not counted among the 9,488 arithmetic-promotion decisions. Static persistence
+and narrow function-return width remain explicit, separately captured gaps.
 
 The matrix covers the eight primitive integer classes. User-derived numeric
 classes, complete optimizer reassociation, all mixed floating/pointer chains,

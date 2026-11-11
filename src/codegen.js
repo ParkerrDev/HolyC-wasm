@@ -24,6 +24,7 @@ import {
 } from "./abi.js";
 import { foldConstInt, foldDim } from "./fold.js";
 import { usesGoto, Gotos } from "./goto.js";
+import {nativeRegisters} from "./local-storage.js";
 import { FLOAT_MUL_I64 } from "./float-convert.js";
 
 const PINNED_GLOBALS = { ms: MS_ADDR };
@@ -65,6 +66,7 @@ class Codegen {
     this.literals = new WeakMap();
     this.cursor = DATA_BASE;
     this.warnings = [];
+    this.localRegisters=opts.traceLocals?new Map():undefined;
     // Lenient mode (default ON): unknown kernel symbols/fields/calls become safe
     // fallbacks so whole programs compile & run, with unsupported features as
     // documented no-ops. Strict tests pass {lenient:false} to surface real bugs.
@@ -204,7 +206,8 @@ class Codegen {
     const bytes = this.m.emit();
     const globals=new Map([...this.globals].filter(([,g])=>!g.node?.internal));
     return { bytes, warnings: this.warnings, dataEnd: this.cursor, globals,
-      requiredCapabilities:[...linked.interfaces].map(api=>api.name) };
+      requiredCapabilities:[...linked.interfaces].map(api=>api.name),
+      ...(this.localRegisters?{localRegisters:this.localRegisters}:{}) };
   }
 
   exceptionTag() {
@@ -540,7 +543,7 @@ class Codegen {
         this.imports[d.name]={...this.imports[d.sourceName],declaration:d};
         continue;
       }
-      const params = d.params.map((p) => ({ type: this.resolveType(p.type), name: p.name, default: p.default }));
+      const params = d.params.map((p) => ({ type: this.resolveType(p.type), name: p.name, default: p.default, registerHint:p.registerHint }));
       const sig = this.wasmSig(params, this.resolveType(d.retType),d.isVarArgs);
       const idx = this.m.importFunc("env", d.sourceName??d.name, sig.params, sig.results);
       this.imports[d.name] = { index: idx, sig, declaration:d };
@@ -548,7 +551,7 @@ class Codegen {
   }
   registerFuncSig(d, bodyNode) {
     const params = d.params.map((p) => ({
-      type: this.resolveType(p.type), name: p.name, default: p.default,
+      type: this.resolveType(p.type), name: p.name, default: p.default, registerHint:p.registerHint,
     }));
     const retType = this.resolveType(d.retType);
     const sig = this.wasmSig(params, retType,d.isVarArgs);
@@ -772,6 +775,45 @@ class FnCtx {
     if (fn.node && fn.node.body) this.findAddrTaken(fn.node.body, this.addrTaken);
     this.assignParams();
     if (fn.node && fn.node.body) this.collectLocals(fn.node.body);
+    const narrowCasts=new Set();
+    const casts=n=>{
+      if (!n || typeof n!=="object") return;
+      if (n.kind==="Cast" && n.postfix && n.operand.kind==="Ident") {
+        const d=this.localBinding(n.operand),type=this.cg.resolveType(n.type);
+        if (d && isInt(type) && type.bits<this.cg.typeSize(d.type)*8)
+          narrowCasts.add(n.operand.name);
+      }
+      for (const [key,value] of Object.entries(n)) {
+        if (["type","retType","globalType","functionType"].includes(key)) continue;
+        if (Array.isArray(value)) value.forEach(casts);
+        else if (value && typeof value==="object" && value.kind) casts(value);
+      }
+    };
+    casts(fn.node?.body);
+    const registers=nativeRegisters(fn,this.locals,this.addrTaken,n=>this.cg.fold(n,this.locals));
+    for (const {name,d,reg} of registers) {
+      d.nativeReg=reg>=0 && reg<16;
+      if (d.kind==="local") {
+        const memory=isAggregate(d.type) || this.addrTaken.has(name) ||
+          !d.nativeReg && (isInt(d.type) && d.type.bits<64 ||
+            d.registerHint==="none" || narrowCasts.has(name));
+        if (memory) {
+          d.kind="slot";
+          d.offset=this.allocSlot(this.cg.typeSize(d.type),this.cg.typeAlign(d.type));
+        } else {
+          d.kind="wlocal";
+          d.windex=this.newWLocal(wasmValType(d.type));
+        }
+      } else if (!d.nativeReg && d.kind==="wlocal" &&
+          (isInt(d.type) && d.type.bits<64 ||
+            d.registerHint==="none" || narrowCasts.has(name))) {
+        d.paramIndex=d.windex;
+        d.kind="slot";
+        d.offset=this.allocSlot(this.cg.typeSize(d.type),this.cg.typeAlign(d.type));
+      }
+    }
+    if (fn.node && this.cg.localRegisters)
+      this.cg.localRegisters.set(fn.name,registers.map(({name,reg})=>({name,reg})));
     this.gotos = fn.node && fn.node.body && usesGoto(fn.node.body) ? new Gotos(this, fn.node.body, fn.name === "__main") : null;
   }
 
@@ -801,12 +843,12 @@ class FnCtx {
       if (!p.name) return;
       const ty = this.cg.resolveType(p.type);
       if (isAggregate(ty)) {
-        this.locals.set(p.name, { kind: "reflocal", windex: i, type: ty });
+        this.locals.set(p.name, { kind: "reflocal", windex: i, type: ty,registerHint:p.registerHint });
       } else if (this.addrTaken.has(p.name)) {
         const off = this.allocSlot(this.cg.typeSize(ty), this.cg.typeAlign(ty));
-        this.locals.set(p.name, { kind: "slot", offset: off, type: ty, paramIndex: i });
+        this.locals.set(p.name, { kind: "slot", offset: off, type: ty, paramIndex: i,registerHint:p.registerHint });
       } else {
-        this.locals.set(p.name, { kind: "wlocal", windex: i, type: ty });
+        this.locals.set(p.name, { kind: "wlocal", windex: i, type: ty,registerHint:p.registerHint });
       }
     });
     if (this.fn.isVarArgs) {
@@ -823,14 +865,8 @@ class FnCtx {
     const visitDecl = (vd) => {
       if (this.locals.has(vd.name)) return;
       const ty = this.cg.resolveType(vd.type,this.locals);
-      if (isAggregate(ty) || this.addrTaken.has(vd.name) || this.needsUnionAddr(vd.name)) {
-        const off = this.allocSlot(this.cg.typeSize(ty), this.cg.typeAlign(ty));
-        this.locals.set(vd.name, { kind: "slot", offset: off, type: ty, init: vd.init });
-      } else {
-        const vt = isFloat(ty) ? VT.f64 : VT.i64;
-        const widx = this.newWLocal(vt);
-        this.locals.set(vd.name, { kind: "wlocal", windex: widx, type: ty, init: vd.init });
-      }
+      this.locals.set(vd.name,{kind:"local",type:ty,init:vd.init,
+        registerHint:vd.storage?.includes("static")?"none":vd.registerHint});
     };
     const walk = (n) => {
       if (!n || typeof n !== "object") return;
@@ -844,12 +880,14 @@ class FnCtx {
     };
     walk(node);
   }
-  needsUnionAddr(name) { return this.addrTaken.has(name); }
 
   findAddrTaken(node, set) {
     const markRoot = (n) => {
       while (n) {
-        if (n.kind === "Ident") { set.add(n.name); return; }
+        if (n.kind === "Ident") {
+          if (n.globalBinding===undefined && n.functionBinding===undefined) set.add(n.name);
+          return;
+        }
         if (n.kind === "Member") { n = n.base; continue; }
         if (n.kind === "Index") { n = n.base; continue; }
         if (n.kind === "Cast" && n.postfix) { n = n.operand; continue; }
@@ -964,7 +1002,7 @@ class FnCtx {
       if (!desc) continue;
       if (d.init == null) continue;
       if (desc.kind === "slot") this.genStoreInit(desc);
-      else { this.genExprCoerce(d.init, desc.type); this.f.local_set(desc.windex); }
+      else { this.genExprCoerce(d.init, desc.nativeReg && isInt(desc.type)?T.I64:desc.type); this.f.local_set(desc.windex); }
     }
   }
 
@@ -1664,11 +1702,11 @@ class FnCtx {
       this.err(node, "Invalid lval: aggregate assignment");
     const wl = this.wlocalTarget(node.target);
     if (wl) {
-      const { L, type: t, own } = wl;
-      if (op === "=") this.genExprCoerce(node.value, t);
+      const { L, type: t, own } = wl,storeType=L.nativeReg && isInt(t)?T.I64:t;
+      if (op === "=") this.genExprCoerce(node.value, storeType);
       else {
         const pushLeft = () => { this.f.local_get(L.windex); this.reinterpret(own, t); };
-        this.coerce(this.combineToValue(op.slice(0, -1), pushLeft, t, node.value), t);
+        this.coerce(this.combineToValue(op.slice(0, -1), pushLeft, t, node.value), storeType);
       }
       this.reinterpret(t, own);
       this.f.local_tee(L.windex);
@@ -1697,9 +1735,11 @@ class FnCtx {
       const base = op.slice(0, -1);
       this.f.local_get(addr); // address for the eventual store
       const vt = this.combineToValue(base, () => { this.f.local_get(addr); this.emitLoad(t); }, t, node.value);
-      this.coerce(vt, t);
       const res = isFloat(t) ? this.scratchF64() : this.scratchI64();
-      this.f.local_tee(res);
+      const wide=isInt(t) && ["*","<<"].includes(base);
+      if (wide) {
+        this.coerce(vt,T.I64);this.f.local_tee(res);this.narrowInt(t);
+      } else {this.coerce(vt,t);this.f.local_tee(res);}
       this.emitStore(t);
       this.f.local_get(res);
       return t;
@@ -2102,6 +2142,7 @@ class FnCtx {
         this.f.local_get(L.windex); this.reinterpret(own, t);
         if (isFloat(t)) this.f.f64_const(delta).op("f64_add");
         else this.f.i64_const(delta * (isPtr(t) ? this.cg.typeSize(t.to) : 1)).op("i64_add");
+        if (!L.nativeReg && isInt(t)) this.narrowInt(t);
         this.reinterpret(t, own);
       };
       if (prefix) { step(); this.f.local_tee(L.windex); this.reinterpret(own, t); }
@@ -2118,6 +2159,7 @@ class FnCtx {
     // new value = old + delta
     if (isF) this.f.f64_const(delta).op("f64_add");
     else this.f.i64_const(delta * (isPtr(t) ? this.cg.typeSize(t.to) : 1)).op("i64_add");
+    if (isInt(t)) this.narrowInt(t);
     const nv = isF ? this.scratchF64b() : this.scratchI64b();
     this.f.local_set(nv);           // consume the computed value into nv (no stack leak)
     // store new
