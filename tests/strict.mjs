@@ -7,6 +7,8 @@ assert.throws(()=>compile("U0 F() { asm { NOP } }"),/x86 assembly is not support
 assert.throws(()=>compile("I64 Missing(); Missing;"),/Unresolved function/);
 assert.throws(()=>compile("I64 Missing(); I64 p=&Missing;"),/Unresolved function/);
 assert.throws(()=>compile("I64 Missing();",{exports:["Missing"]}),/Unresolved exported function/);
+assert.throws(()=>compile("U0 Unused() { throw('Ownership'); }"),
+  /char constant limited to 8 bytes/,"unreachable oversized exception tags must fail too");
 const unused=compile("I64 Missing();");
 assert(WebAssembly.validate(unused.bytes));
 assert.deepEqual(unused.warnings,[],"an unused prototype is allowed");

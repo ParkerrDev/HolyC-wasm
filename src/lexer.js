@@ -201,6 +201,7 @@ export function lex(src, filename = "<src>") {
         chars.push(CharByte(adv()));
       }
       if (peek() === "'") adv(); else err("unterminated char constant");
+      if (chars.length > 8) err("char constant limited to 8 bytes");
       // pack little-endian: first char is least significant byte
       let val = 0n;
       for (let k = chars.length - 1; k >= 0; k--) val = (val << 8n) | BigInt(chars[k] & 0xff);

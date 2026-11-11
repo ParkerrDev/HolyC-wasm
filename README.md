@@ -515,6 +515,13 @@ sequences, callback cancellation and degenerate symmetry behavior with the
 original compiler in QEMU. The drawing primitives and sprite renderer share
 this math.
 
+Character constants are limited to eight decoded bytes, as in V5.03. Escapes
+and doubled DolDoc dollars count as their resulting byte, including zero bytes;
+the source spelling can be longer than eight characters. Oversized constants
+now fail lexing instead of silently losing high bytes during 64-bit emission.
+CharBytes and four native rejection fixtures cover eight/nine-byte boundaries,
+embedded zeros, escaped/doubled dollars and raw CP437 high bytes.
+
 The native numeric lexer permits an empty exponent (`1e` or `1e-` means 1.0)
 and consumes only a minus sign there. Consequently `1e+2` is the expression
 1.0 + 2, while `1e2` is 100.0. `FloatBoundary` records these token boundaries
