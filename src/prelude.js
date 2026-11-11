@@ -134,7 +134,8 @@ class CTask {
   U0 (*draw_it)(CTask *task,CDC *dc);
   U0 (*task_end_cb)();
   I64 win_inhibit;
-  I64 rand_seed,task_flags;
+  I64 rand_seed,task_flags,except_ch;
+  Bool catch_except;
 };
 CTask fs_storage;
 CTask *Fs;
@@ -526,7 +527,11 @@ U0 PressAKey() { __get_char(0,1); }
 //==================== console ====================
 U0 Putc(I64 ch) { __putc(ch); }
 U0 PutChars(I64 ch) { __putc(ch); }
-U0 PutExcept() { "$FG,4$Exception$FG$\n"; }
+U0 PutExcept(Bool catch_it=TRUE)
+{
+  "Except:%c:\n",Fs->except_ch;
+  Fs->catch_except=catch_it;
+}
 
 //==================== sound ====================
 F64 ona2freq_tab=0;

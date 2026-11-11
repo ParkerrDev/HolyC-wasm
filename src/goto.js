@@ -16,7 +16,7 @@ function stmtKids(s) {
   switch (s.kind) {
     case "Block": return s.stmts;
     case "If": return s.else ? [s.then, s.else] : [s.then];
-    case "While": case "DoWhile": case "For": case "Catch": return [s.body];
+    case "While": case "DoWhile": case "For": return [s.body];
     case "Switch": return s.items.filter((it) => it.type === "stmt").map((it) => it.stmt);
     case "TryCatch": return s.handler ? [s.body, s.handler] : [s.body];
   }
@@ -93,8 +93,7 @@ export class Gotos {
     const c = this.ctx;
     switch (s.kind) {
       case "Label": { const b = this.block(); this.place(R, b); this.labels.get(s.name).block = b; return; }
-      case "Block": for (const st of c.flattenTry(s.stmts)) this.lower(st, R); return;
-      case "Catch": this.lower(s.body, R); return;
+      case "Block": for (const st of s.stmts) this.lower(st, R); return;
       case "If": {
         const t = this.block(), e = s.else ? this.block() : null, j = this.block();
         this.open(R).term = { kind: "cond", cond: s.cond, t, f: e || j };

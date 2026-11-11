@@ -164,6 +164,14 @@ class Codegen {
     return { bytes, warnings: this.warnings, dataEnd: this.cursor, globals: this.globals };
   }
 
+  exceptionTag() {
+    if (this.exceptionTagIndex===undefined) {
+      this.exceptionTagIndex=this.m.addTag([VT.i64]);
+      this.m.exportTag("__exception_tag",this.exceptionTagIndex);
+    }
+    return this.exceptionTagIndex;
+  }
+
   functionAddress(fn) {
     if (!this.functionAddresses.has(fn.index))
       this.functionAddresses.set(fn.index,this.functionAddresses.size+1);
@@ -436,14 +444,13 @@ class Codegen {
     f.i64_const(guard); f.op("i32_wrap_i64"); f.load("i64_load", 0, 3); f.op("i64_eqz");
     f.if_();
     f.i64_const(guard); f.op("i32_wrap_i64"); f.i64_const(1); f.store("i64_store", 0, 3);
-    // initialize globals with initializers (in declaration order)
+    //Native tasks already exist when user global initializers execute.
+    const hook=this.functions.get("__hcrt_init");
+    if (hook && !hook.isImport) f.call(hook.index);
     for (const g of this.globals.values()) {
-      if (g.init == null) continue;
+      if (g.init==null) continue;
       ctx.genGlobalInit(g);
     }
-    // call the prelude's runtime-init hook if present (sets Fs, gr.dc, ...)
-    const hook = this.functions.get("__hcrt_init");
-    if (hook && !hook.isImport) f.call(hook.index);
     f.end();
     ctx.endFrameFallthrough();
     this.rtInit.setBody(ctx.localDecls(), f);
@@ -473,7 +480,6 @@ class FnCtx {
     this.f = new Func();
     this.ctrl = [];                 // structured-control markers (for branch depth)
     this.loops = [];                // {brk, cont}
-    this.tries = [];                // catch-target markers
     this.locals = new Map();        // name -> descriptor
     this.wlocalTypes = [];          // extra wasm local valtypes (beyond params)
     this.frameSize = 0;
@@ -624,7 +630,7 @@ class FnCtx {
   genStmt(s) {
     if (this.gotos && this.gotos.lowers(s)) { this.gotos.region(s); return; }
     switch (s.kind) {
-      case "Block": for (const st of this.flattenTry(s.stmts)) this.genStmt(st); return;
+      case "Block": for (const st of s.stmts) this.genStmt(st); return;
       case "Empty": return;
       case "DeclStmt": this.genDeclStmt(s); return;
       case "ExprStmt": { const t = this.genExpr(s.expr); this.dropIfValue(t); return; }
@@ -640,8 +646,6 @@ class FnCtx {
       case "Continue": { const L = this.loops[this.loops.length - 1]; if (!L) { if (this.cg.lenient) { this.warnOnce("continue outside loop; ignored"); return; } this.err(s, "continue outside loop"); } this.loopJump(L.cfg, L.cont); return; }
       case "Throw": this.genThrow(s); return;
       case "TryCatch": this.genTryCatch(s); return;
-      case "Try": this.genTryCatch({ body: s.body, handler: null, line: s.line }); return;
-      case "Catch": this.genStmt(s.body); return; // lone catch: just run it
       case "Label":
         if (this.fn.name === "__main") this.err(s, "No global labels");
         this.cg.warn(`Unused label '${s.name}'`);
@@ -658,22 +662,6 @@ class FnCtx {
   loopJump(cfg, to) { if (cfg) this.gotos.jump(to); else this.f.br(this.rel(to)); }
 
   warnOnce(msg) { if (!this._warned) this._warned = new Set(); if (!this._warned.has(msg)) { this._warned.add(msg); this.cg.warn(msg); } }
-
-  // Pair `Try` with following `Catch` inside a statement list.
-  flattenTry(stmts) {
-    const out = [];
-    for (let i = 0; i < stmts.length; i++) {
-      const s = stmts[i];
-      if (s.kind === "Try") {
-        const next = stmts[i + 1];
-        if (next && next.kind === "Catch") { out.push({ kind: "TryCatch", body: s.body, handler: next.body, line: s.line }); i++; continue; }
-        out.push({ kind: "TryCatch", body: s.body, handler: null, line: s.line }); continue;
-      }
-      out.push(s);
-    }
-    // expand: replace TryCatch via direct generation marker
-    return out.map((s) => (s.kind === "TryCatch" ? s : s));
-  }
 
   genDeclStmt(s) {
     for (const d of s.decls) {
@@ -792,24 +780,48 @@ class FnCtx {
     this.f.end(); this.popCtrl(); // brk
   }
 
-  genThrow(s) {
-    if (s.expr) { this.genExprCoerce(s.expr, T.I64); this.f.global_set(this.cg.excGlobal); }
-    if (this.tries.length) this.f.br(this.rel(this.tries[this.tries.length - 1]));
-    else this.f.unreachable();
+  exceptionField(name) {
+    if (!this.cg.globals.has("Fs")) return null;
+    return {kind:"Member",base:{kind:"Ident",name:"Fs"},name,arrow:true};
   }
 
-  // TryCatch appears via flattenTry
+  setExceptionField(name,pushValue) {
+    const field=this.exceptionField(name);
+    if (!field) return;
+    const type=this.genAddr(field);
+    this.f.op("i32_wrap_i64");
+    pushValue();
+    this.emitStore(type);
+  }
+
+  genThrow(s) {
+    if (s.noLog) this.dropIfValue(this.genExpr(s.noLog));
+    if (s.expr) this.genExprCoerce(s.expr,T.I64);
+    else this.f.i64_const(0);
+    this.f.global_set(this.cg.excGlobal);
+    this.setExceptionField("except_ch",()=>this.f.global_get(this.cg.excGlobal));
+    this.setExceptionField("catch_except",()=>this.f.i64_const(0));
+    this.f.global_get(this.cg.excGlobal).throw_(this.cg.exceptionTag());
+  }
+
   genTryCatch(s) {
-    // block $try_end { block $do_catch { <body; throw->br do_catch>; br try_end } <handler> }
-    const tryEnd = this.pushCtrl(); this.f.block();
-    const doCatch = this.pushCtrl(); this.f.block();
-    this.tries.push(doCatch);
+    const saved=this.newWLocal(VT.i64),tag=this.cg.exceptionTag();
+    this.f.global_get(this.cg.spGlobal).local_set(saved);
+    this.pushCtrl();this.f.try_();
     this.genStmt(s.body);
-    this.tries.pop();
-    this.f.br(this.rel(tryEnd));   // normal completion: skip handler
-    this.f.end(); this.popCtrl();  // do_catch
+    this.f.catch_(tag).global_set(this.cg.excGlobal);
+    //WASM unwinds its own stack. Restore the addressable HolyC locals too.
+    this.f.local_get(saved).global_set(this.cg.spGlobal);
     if (s.handler) this.genStmt(s.handler);
-    this.f.end(); this.popCtrl();  // try_end
+    const caught=this.exceptionField("catch_except");
+    if (caught) {
+      this.genTruth(caught);
+      this.f.op("i32_eqz");
+      this.pushCtrl();this.f.if_();
+    }
+    this.f.global_get(this.cg.excGlobal).throw_(tag);
+    if (caught) {this.f.end();this.popCtrl();}
+    this.f.end();this.popCtrl();
   }
 
   genSwitch(s) {

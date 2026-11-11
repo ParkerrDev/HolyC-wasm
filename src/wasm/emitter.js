@@ -101,6 +101,7 @@ export const OP = {
   block: 0x02, loop: 0x03, if: 0x04, else: 0x05, end: 0x0b,
   br: 0x0c, br_if: 0x0d, br_table: 0x0e, return: 0x0f,
   call: 0x10, call_indirect: 0x11,
+  try:0x06,catch:0x07,throw:0x08,
   drop: 0x1a, select: 0x1b,
   local_get: 0x20, local_set: 0x21, local_tee: 0x22,
   global_get: 0x23, global_set: 0x24,
@@ -192,6 +193,9 @@ export class Func {
   block(bt = EMPTY_BLOCK) { this._op(OP.block); this.bytes.push(bt & 0xff); return this; }
   loop(bt = EMPTY_BLOCK) { this._op(OP.loop); this.bytes.push(bt & 0xff); return this; }
   if_(bt = EMPTY_BLOCK) { this._op(OP.if); this.bytes.push(bt & 0xff); return this; }
+  try_(bt=EMPTY_BLOCK) {this._op(OP.try);this.bytes.push(bt&0xFF);return this;}
+  catch_(tag) {this._op(OP.catch);this.bytes.push(...uleb(tag));return this;}
+  throw_(tag) {this._op(OP.throw);this.bytes.push(...uleb(tag));return this;}
   else_() { return this._op(OP.else); }
   end() { return this._op(OP.end); }
   br(d) { this._op(OP.br); this.bytes.push(...uleb(d)); return this; }
@@ -264,6 +268,7 @@ export class Func {
 
 export class Module {
   constructor() {
+    this.tags=[];
     this.types = []; // {params:[vt], results:[vt]}
     this.typeKey = new Map();
 
@@ -344,6 +349,13 @@ export class Module {
     return rec ? (rec.name || `func${index}`) : `?${index}`;
   }
 
+  addTag(params) {
+    const index=this.tags.length;
+    this.tags.push(this.typeIndex(params,[]));
+    return index;
+  }
+  exportTag(name,index) {this.exports.push({name,kind:0x04,index});}
+
   exportFunc(name, index) { this.exports.push({ name, kind: 0x00, index }); }
   exportMemory(name, index = 0) { this.exports.push({ name, kind: 0x02, index }); }
   exportGlobal(name, index) { this.exports.push({ name, kind: 0x03, index }); }
@@ -409,6 +421,10 @@ export class Module {
       const limits = m.max === undefined ? [0x00, ...uleb(m.min)] : [0x01, ...uleb(m.min), ...uleb(m.max)];
       appendBytes(section(5, vec([limits])));
     }
+
+    //Exception tags precede globals (section 13 in the exception-handling spec).
+    if (this.tags.length)
+      appendBytes(section(13,vec(this.tags.map(type=>[0,...uleb(type)]))));
 
     // Global section (6)
     {

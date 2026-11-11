@@ -337,10 +337,21 @@ export class Parser {
             this.next();
             handler = this.isP("{") ? this.parseBlock() : this.parseStatement();
           }
+          if (!handler) this.err("Missing catch after try");
           return mk("TryCatch", { body, handler }, t);
         }
-        case "catch": { this.next(); const body = this.isP("{") ? this.parseBlock() : this.parseStatement(); return mk("Catch", { body }, t); }
-        case "throw": { this.next(); let e = null; if (!this.isP(";")) e = this.parseExpression(); this.optP(";"); return mk("Throw", { expr: e }, t); }
+        case "catch": this.err("catch requires a preceding try");
+        case "throw": {
+          this.next();
+          let expr=null,noLog=null;
+          if (this.optP("(")) {
+            if (!this.isP(")") && !this.isP(",")) expr=this.parseExpression();
+            if (this.optP(",") && !this.isP(")")) noLog=this.parseExpression();
+            this.eatP(")");
+          }
+          this.optP(";");
+          return mk("Throw",{expr,noLog},t);
+        }
         case "no_warn": case "lock": { this.next(); return this.parseStatement(); }
       }
       // label:  (ident followed by ':' but not '::')

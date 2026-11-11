@@ -32,6 +32,7 @@ npm run test:intrinsics   # Emitter, atomic memory operations and import linking
 npm run test:document     # Full DolDoc input, sprite integrity and CP437 transport.
 npm run test:strict       # Unsupported assembly and unresolved callable symbols.
 npm run test:callback     # Imported callbacks and null pointer traps.
+npm run test:exception    # Cross-call unwinding and repeated stack cleanup.
 npm run test:oracle       # Boot V5.03 in QEMU and recheck the native results.
 npm run test:float-scale  # Reproduce the native Pow10I64 table in QEMU.
 ```
@@ -138,3 +139,12 @@ not addresses of x86 machine code in linear memory. Native V5.03 rejects an
 initializer on a local function-pointer declaration; declare it first, then
 assign it. Required argument omissions and surplus arguments fail in strict
 mode. Native callback defaults remain available at the pointer's call site.
+
+HolyC exceptions propagate through direct calls and callbacks using typed
+[WebAssembly exception handling](https://github.com/WebAssembly/exception-handling/blob/main/proposals/exception-handling/legacy/Exceptions.md).
+Catches restore the HolyC shadow stack. A catch that falls through handles the
+exception only when `Fs->catch_except` is true; otherwise it propagates outward.
+`Fs->except_ch` holds the code. An uncaught exception reaches the host as a
+`WebAssembly.Exception` with the exported `__exception_tag` and I64 code.
+Native AdamLog and machine return-address logging are not reproduced. Ordinary
+WASM traps and unrelated JavaScript exceptions are not HolyC exceptions.
