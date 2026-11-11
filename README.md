@@ -241,6 +241,17 @@ full/empty and non-power-of-two masks. `FifoFocus` checks native keyboard queue
 retention/delivery, and `test:fifo` fails each constructor allocation and verifies
 lazy keyboard ownership, reset and cleanup.
 
+Native palette Get/Set functions reproduce six-bit VGA DAC quantization and
+wrapped 256-entry addressing; PaletteSetStd restores the standard sixteen.
+The host must provide `gfx.palette(index,bgr48)` or instantiation fails before
+program initialization. `Framebuffer` accepts an optional shared 256-entry
+Uint32 palette; changes recolor existing indexed pixels. Its display maps each
+pixel through the low four bits, matching original DCBlotColor4 and stock planar
+VGA, while the full DAC table remains readable/writable. Initial DAC entries
+16–255 are not claimed to match arbitrary native boot state. `test:palette`
+checks native DAC state, all shared entries, original planar conversion, RGBA
+presentation and refusal without a device adapter.
+
 ## Cooperative task backend
 
 Reachable `Spawn`, `Kill`, `Exit`, `GetMsg`, `GetKey`, `GetChar`, `PressAKey`

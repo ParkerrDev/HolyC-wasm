@@ -6,7 +6,7 @@ import { PALETTE, GR_WIDTH, GR_HEIGHT } from "../abi.js";
 import { FONT, FONT_W, FONT_H } from "./font.js";
 
 export class Framebuffer {
-  constructor(ctx, width = GR_WIDTH, height = GR_HEIGHT, scale = 1, indicesBuf = null) {
+  constructor(ctx, width = GR_WIDTH, height = GR_HEIGHT, scale = 1, indicesBuf = null, paletteBuf = null) {
     this.width = width;
     this.height = height;
     this.scale = scale;
@@ -18,12 +18,19 @@ export class Framebuffer {
     // RGBA image at native size; we upscale via the context if scale>1.
     this.image = ctx ? ctx.createImageData(width, height) : { data: new Uint8ClampedArray(width * height * 4), width, height };
     // precompute palette as 0xAABBGGRR little-endian u32 for fast blits
-    this.pal32 = new Uint32Array(16);
+    this.pal32 = paletteBuf || new Uint32Array(256);
+    if(this.pal32.length!==256)throw new RangeError('A VGA palette needs 256 entries.');
+    this.pal32.fill(0xff000000);
     for (let i = 0; i < 16; i++) {
       const [r, g, b] = PALETTE[i];
       this.pal32[i] = (255 << 24) | (b << 16) | (g << 8) | r;
     }
     this.fill(0);
+  }
+
+  palette(index,bgr48) {
+    const r=Number((bgr48>>40n)&255n),g=Number((bgr48>>24n)&255n),b=Number((bgr48>>8n)&255n);
+    Atomics.store(this.pal32,index&255,0xff000000|(b<<16)|(g<<8)|r);
   }
 
   inBounds(x, y) { return x >= 0 && x < this.width && y >= 0 && y < this.height; }
@@ -140,7 +147,7 @@ export class Framebuffer {
     if (!this.ctx) return;   // worker side has no canvas; the main thread presents the shared buffer
     const data = new Uint32Array(this.image.data.buffer);
     const idx = this.indices, pal = this.pal32;
-    for (let i = 0; i < idx.length; i++) data[i] = pal[idx[i]];
+    for (let i = 0; i < idx.length; i++) data[i] = pal[idx[i]&15];
     if (this.scale === 1) {
       this.ctx.putImageData(this.image, 0, 0);
     } else {

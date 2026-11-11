@@ -130,6 +130,9 @@ export function createHost(opts = {}) {
     __fmod: (x,y) => x%y,
   };
 
+  if(typeof state.gfx?.palette==='function')
+    imports.__gr_palette=(index,bgr48)=>state.gfx.palette(Number(index),bgr48);
+
   return {
     env: imports,
     attach(instance) {

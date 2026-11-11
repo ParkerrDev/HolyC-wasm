@@ -16,6 +16,7 @@
     "test:exception": "node tests/exception.mjs",
     "test:heap": "node tests/heap.mjs",
     "test:link": "node tests/link.mjs",
+    "test:palette": "node tests/palette.mjs",
     "test:graphics": "node tests/graphics.mjs",
     "test:composites": "node tests/composites.mjs",
     "test:sprite": "node tests/sprite.mjs",
