@@ -1102,3 +1102,21 @@ fixtures; `--record` updates source/type/library/global/wrapper/capture/output
 hashes. The echo exception uses native `throw(...,TRUE)` to keep Adam logging
 outside the fixture, and its temporary hook only handles its own task. Actual
 browser JSPI checks exercise the same echo recovery and child lifetime paths.
+
+
+`LexInStr(cc,buf,size,&done)` supplies the native string-chunk layer over these
+finite streams. A quote or EOF appends a zero byte and returns its count with
+`done=TRUE`. A full chunk returns at most `size-1` bytes with `done=FALSE` and
+does not add a terminator. Size zero or one makes no progress. Embedded
+escaped zeros are data, not completion. Unknown escapes retain their backslash
+and put the following character back; hex consumes at most two digits. Native
+`dollar_cnt` and nested-stream/put-back behavior persist across chunk calls.
+The caller owns valid output storage; decoding itself allocates nothing.
+
+`npm run test:lex-string` checks 1,135,763 original-native output/state decisions
+across every byte/escape introducer, small/full/partial chunks, dollar state,
+nested streams and saved characters, then verifies five lifetimes and decoding
+with all allocation attempts denied. `node tests/lex-string-oracle.mjs` repeats
+the source-bound stock and renamed-port proof. This is string chunk decoding,
+not the general Lex tokenizer or completed DocInit. The older JS source lexer
+still has documented compatibility work beyond these runtime primitives.

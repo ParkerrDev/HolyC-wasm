@@ -68,6 +68,14 @@ Lex, CInit and CmpFillTables remain undefined; zero fields are not compiler
 initialization. Tokenization must establish these real dependencies before
 runtime compiler state can be claimed.
 
+A60 adds the exact finite-stream `LexInStr` algorithm with source-bound native
+chunk/state tests. It preserves `done`, partial-buffer nontermination, embedded
+zero bytes, unknown-escape put-back, two-digit hex and dollar/nested-stream state,
+and allocates nothing. `LexFirstRem` still needs real QueVectU8 ownership. Source
+JS lexing remains a separate compiler path; its C-style \a/\b/\f/\v escapes
+currently differ from native backslash preservation and need a separate measured
+compatibility correction rather than changing this runtime algorithm.
+
 `Lex` depends on the character bitmaps, native numeric/escape/string rules,
 HashFind and nested define expansion. Local-variable lookup requires MemberFind
 and compiler class/member graphs. Operators use the native dual-U16 token

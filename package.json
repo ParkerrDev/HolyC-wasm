@@ -44,7 +44,8 @@
     "test:doc-entry": "node tests/doc-entry.mjs && node tests/doc-copy-fault.mjs && node tests/doc-insert-fault.mjs && node tests/doc-foreign-fault.mjs",
     "test:define": "node tests/define.mjs && node tests/define-fault.mjs",
     "test:cmp-control": "node tests/cmp-control.mjs && node tests/cmp-control-fault.mjs",
-    "test:lex-stream": "node tests/lex-stream.mjs && node tests/lex-stream-fault.mjs"
+    "test:lex-stream": "node tests/lex-stream.mjs && node tests/lex-stream-fault.mjs",
+    "test:lex-string": "node tests/lex-string.mjs"
   },
   "license": "MIT",
   "author": "Built with Claude Code"

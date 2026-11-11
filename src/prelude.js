@@ -9,6 +9,7 @@ import {GR_PALETTE_SRC} from "./gr-palette.js";
 import {GR_MATH_SRC} from "./gr-math.js";
 import {GR_TYPES_SRC,GR_SRC} from "./gr-prelude.js";
 import {HASH_TYPES_SRC,HASH_SRC} from "./hash-prelude.js";
+import {LEX_STRING_SRC} from "./lex-string.js";
 import {LEX_TYPES_SRC,LEX_BITMAP_SRC,LEX_GLOBALS_SRC,LEX_SRC} from "./lex-stream.js";
 import {CMP_TYPES_SRC,CMP_SRC} from "./cmp-control.js";
 import {DEFINE_SRC} from "./define-prelude.js";
@@ -738,6 +739,7 @@ ${CMP_SRC}
 ${LEX_BITMAP_SRC}
 ${LEX_GLOBALS_SRC}
 ${LEX_SRC}
+${LEX_STRING_SRC}
 
 public I64 DistSqrI64(I64 x1,I64 y1,I64 x2,I64 y2)
 {
