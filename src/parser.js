@@ -341,6 +341,7 @@ export class Parser {
         if (this.isP("{")) {
           const outer=this.localNames;
           this.localNames=new Set(params.map(p=>p.name));
+          if (isVarArgs) {this.localNames.add("argc");this.localNames.add("argv");}
           try {body=this.parseBlock();} finally {this.localNames=outer;}
         }
         if (!body) this.optP(";");
