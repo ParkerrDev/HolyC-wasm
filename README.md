@@ -235,3 +235,10 @@ bounds and constant initializers. They do not evaluate an object. As in V5.03,
 `offset(ptr.member)` and C-style `sizeof(value+1)` are invalid. Local variables
 and parameters can shadow the `offset` and `sizeof` keywords. Native machine
 code size queries for functions are not implemented.
+
+`gr-math.js` holds the original V5.03 graphics math, including fixed-point
+matrices, 2D/3D symmetry, reflection, ellipse/polygon tracing and quadratic/cubic
+Bézier and B-spline callbacks. `GraphicsMath.HC` compares matrix values, point
+sequences, callback cancellation and degenerate symmetry behavior with the
+original compiler in QEMU. This supplies shared math for the remaining native
+3D raster and sprite work; it does not make those missing APIs available yet.
