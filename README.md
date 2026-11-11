@@ -1126,3 +1126,36 @@ nested streams and saved characters, then verifies five lifetimes and decoding
 with all allocation attempts denied. `node tests/lex-string-oracle.mjs` repeats
 the source-bound stock and renamed-port proof. This is string chunk decoding,
 not the general Lex tokenizer or completed DocInit. The general source lexer and runtime tokenization remain separate implementations.
+
+
+### Queue vectors and lexical marker scans
+
+QueVectU8New/Put/Get/Del use the measured native CQueVectU8 record (552 bytes)
+and 512-byte blocks. The head stores the first block; sparse extension fills
+holes with zeros. Reads before min_idx or beyond total_cnt return zero, and
+writes below min_idx do nothing. Put allocates each new block in the calling
+task, matching native MAlloc ownership. A failed extension retains the valid
+zero-filled prefix already appended; retry continues from that state. As with
+native task heaps, shared vectors must not retain blocks owned by tasks that
+have exited. The child tests read the surviving parent's vector and keep all
+child-created blocks in the child's own lifetime.
+
+LexFirstRem returns an allocated NUL-terminated string through the next marker
+or EOF, including an allocated empty result. It leaves a found marker in the
+one-character put-back state and updates its optional length output only on
+success. Temporary queue blocks are released on success and on HolyC exceptions.
+Failure does not roll back source reads: an extension failure can occur after
+the current byte was consumed. The caller can continue from that position or
+restore an explicitly saved stream state. Output-buffer ownership transfers only
+when a result returns; marker/input strings remain borrowed. This cleanup is an
+intentional improvement over the original function's allocation-failure leak.
+
+`npm run test:que-vector` checks 1,543,765 original-native layout/index/queue
+choices and 142,298 marker/stream choices, nested input, task lifetimes and
+22 actual host allocation failures with retry, heap/stack and owner checks.
+The original cleanup-free function fails the same marker-allocation leak check.
+`node tests/que-vector-oracle.mjs` repeats source-bound original and renamed-port
+native proofs. Pure vectors need no session directory/hash allocation or task
+continuation capability. Actual Chromium tests verify the child ownership path.
+Native allocator-failure injection is not claimed; the fault tests use the real
+host allocator boundary. Full Lex, compiler graphs and DocInit remain absent.

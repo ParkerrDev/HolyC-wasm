@@ -71,7 +71,10 @@ runtime compiler state can be claimed.
 A60 adds the exact finite-stream `LexInStr` algorithm with source-bound native
 chunk/state tests. It preserves `done`, partial-buffer nontermination, embedded
 zero bytes, unknown-escape put-back, two-digit hex and dollar/nested-stream state,
-and allocates nothing. `LexFirstRem` still needs real QueVectU8 ownership. A61 separately corrects source JS lexing to preserve unknown backslashes and
+and allocates nothing. A62 adds native QueVectU8 storage and LexFirstRem with actual queue ownership,
+marker put-back and source-state behavior. Its temporary nodes are freed on
+HolyC exceptions; reads already consumed are not rolled back. Native valid-case
+proofs and actual host/child allocation failures verify this bounded layer. A61 separately corrects source JS lexing to preserve unknown backslashes and
 use native zero/hex escapes without C octal decoding. This does not replace the
 runtime Lex dependency.
 

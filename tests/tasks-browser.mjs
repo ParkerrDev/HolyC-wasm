@@ -8,6 +8,7 @@ import {recorded as hashRecorded} from './hash/cases.mjs';
 import {recorded as docRecorded} from './doc-entry/cases.mjs';
 import {recorded as defineRecorded} from './define/cases.mjs';
 import {recorded as cmpRecorded} from './cmp-control/cases.mjs';
+import {recorded as vectorRecorded} from './que-vector/cases.mjs';
 import {recorded as lexRecorded} from './lex-stream/cases.mjs';
 const root=new URL('../',import.meta.url).pathname;
 const web=resolve(process.env.TEMPLEOS_WEB||'../TempleOS-Web');
@@ -32,6 +33,8 @@ try {
     expected:await readFile(new URL('v503/'+name+'.out',import.meta.url),'latin1')})));
   const hashTask=hashRecorded('HashTask');
   sources.push({name:'HashTask',source:hashTask.wasmSource,expected:hashTask.output});
+  const vectorTask=vectorRecorded('QueVectorTask');
+  sources.push({name:'QueVectorTask',source:vectorTask.wasmSource,expected:vectorTask.output});
   const lexTask=lexRecorded('LexTask');
   sources.push({name:'LexTask',source:lexTask.wasmSource,expected:lexTask.output});
   const cmpTask=cmpRecorded('CmpTask');
@@ -58,7 +61,7 @@ try {
   for(const result of results) {
     assert(result.match,result.name+': '+result.output);
     assert.equal(result.tasks,1);
-    if(['CmpTask','LexTask'].includes(result.name))assert(result.allocations>2,'native directory/hash state remains session-owned');
+    if(['CmpTask','LexTask','QueVectorTask'].includes(result.name))assert(result.allocations>2,'native directory/hash state remains session-owned');
     else assert.equal(result.allocations,['HashTask','DefineTask'].includes(result.name)?2:0);
     assert.equal(result.disposedAllocations,0);
   }
