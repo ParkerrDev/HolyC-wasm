@@ -171,6 +171,7 @@ export class Func {
   constructor() {
     this.bytes = [];
     this.calls = [];
+    this.dataAddresses = [];
     this.references = new Set();
     this.stackChecks=[];
   }
@@ -183,6 +184,46 @@ export class Func {
   // to 0 rather than throwing, keeping the whole compile alive.
   i32_const(v) { this._op(OP.i32_const); this.bytes.push(...sleb(BigInt.asIntN(32, toBig(v)))); return this; }
   i64_const(v) { this._op(OP.i64_const); this.bytes.push(...sleb(BigInt.asIntN(64, toBig(v)))); return this; }
+  dataAddress(data,bits=64) {
+    if (bits!==32 && bits!==64) throw new Error("Invalid address width "+bits);
+    this._op(bits===32?OP.i32_const:OP.i64_const);
+    this.dataAddresses.push({offset:this.bytes.length,length:1,data,bits});
+    this.bytes.push(0);
+    return this;
+  }
+  rewriteOperands(operands,encode) {
+    if (!operands.length) return;
+    const bytes=[],shifts=[];
+    let start=0;
+    for (const operand of operands) {
+      const {offset,length}=operand;
+      if (offset<start || offset+length>this.bytes.length)
+        throw new Error("Invalid operand relocation");
+      for (let i=start;i<offset;i++) bytes.push(this.bytes[i]);
+      const encoded=encode(operand);
+      bytes.push(...encoded);
+      start=offset+length;
+      shifts.push({offset:start,shift:bytes.length-start});
+      operand.length=encoded.length;
+    }
+    for (let i=start;i<this.bytes.length;i++) bytes.push(this.bytes[i]);
+    for (const records of [this.calls,this.dataAddresses,this.stackChecks]) {
+      let index=0,delta=0;
+      for (const record of records) {
+        while (index<shifts.length && shifts[index].offset<=record.offset)
+          delta=shifts[index++].shift;
+        record.offset+=delta;
+      }
+    }
+    this.bytes=bytes;
+  }
+  resolveDataAddresses() {
+    this.rewriteOperands(this.dataAddresses,({data,bits})=>{
+      if (!Number.isSafeInteger(data.addr)) throw new Error("Unlinked data address");
+      return sleb(BigInt.asIntN(bits,BigInt(data.addr)));
+    });
+    this.dataAddresses=[];
+  }
   f64_const(v) { this._op(OP.f64_const); this.bytes.push(...f64bytes(v)); return this; }
 
   // locals / globals
@@ -223,6 +264,7 @@ export class Func {
     const offset=this.bytes.length;
     for (const byte of body.bytes) this.bytes.push(byte);
     for (const call of body.calls) this.calls.push({...call,offset:offset+call.offset});
+    for (const addr of body.dataAddresses) this.dataAddresses.push({...addr,offset:offset+addr.offset});
     for (const index of body.references) this.references.add(index);
     for (const check of body.stackChecks) this.stackChecks.push({...check,offset:offset+check.offset});
     return this;
@@ -231,40 +273,37 @@ export class Func {
     this.stackChecks.push({offset:this.bytes.length,size});return this;
   }
   guardStack(makeGuard) {
-    const bytes=[],added=[],shifts=[];
+    const bytes=[],added=[],addresses=[],shifts=[];
     let start=0,shift=0;
     for (const check of this.stackChecks) {
       for (let i=start;i<check.offset;i++) bytes.push(this.bytes[i]);
       const guard=makeGuard(check.size),offset=bytes.length;
       for (const byte of guard.bytes) bytes.push(byte);
       for (const call of guard.calls) added.push({...call,offset:offset+call.offset});
+      for (const addr of guard.dataAddresses) addresses.push({...addr,offset:offset+addr.offset});
       for (const index of guard.references) this.references.add(index);
       shift+=guard.bytes.length;shifts.push({offset:check.offset,shift});
       start=check.offset;
     }
     for (let i=start;i<this.bytes.length;i++) bytes.push(this.bytes[i]);
-    let index=0,delta=0;
-    for (const call of this.calls) {
-      while(index<shifts.length && shifts[index].offset<=call.offset)
-        delta=shifts[index++].shift;
-      call.offset+=delta;
+    for (const records of [this.calls,this.dataAddresses]) {
+      let index=0,delta=0;
+      for (const record of records) {
+        while (index<shifts.length && shifts[index].offset<=record.offset)
+          delta=shifts[index++].shift;
+        record.offset+=delta;
+      }
     }
-    this.bytes=bytes;this.calls.push(...added);
-    this.calls.sort((a,b)=>a.offset-b.offset);this.stackChecks=[];
+    this.bytes=bytes;this.calls.push(...added);this.dataAddresses.push(...addresses);
+    this.calls.sort((a,b)=>a.offset-b.offset);
+    this.dataAddresses.sort((a,b)=>a.offset-b.offset);this.stackChecks=[];
   }
   remapCalls(indices) {
-    const bytes=[];
-    let start=0;
-    for (const call of this.calls) {
+    this.rewriteOperands(this.calls,call=>{
       if (!indices.has(call.index)) throw new Error("Unlinked function "+call.index);
-      for (let i=start;i<call.offset;i++) bytes.push(this.bytes[i]);
-      const index=indices.get(call.index),encoded=uleb(index),offset=bytes.length;
-      bytes.push(...encoded);
-      start=call.offset+call.length;
-      Object.assign(call,{offset,length:encoded.length,index});
-    }
-    for (let i=start;i<this.bytes.length;i++) bytes.push(this.bytes[i]);
-    this.bytes=bytes;
+      call.index=indices.get(call.index);
+      return uleb(call.index);
+    });
     this.references=new Set([...this.references].map(index=>indices.get(index)));
   }
   call_indirect(typeIdx, tableIdx = 0) {
@@ -537,6 +576,7 @@ export class Module {
     {
       const items = this.funcs.map((f) => {
         if (!f.body) throw new Error("function body not set (typeIdx " + f.typeIdx + ")");
+        if (f.body.dataAddresses.length) throw new Error("Unresolved data address");
         const localsVec = [...uleb(f.locals.length), ...f.locals.flatMap((l) => [...uleb(l.count), l.vt])];
         const bodyBytes = [...localsVec, ...f.body.bytes, OP.end];
         return [...uleb(bodyBytes.length), ...bodyBytes];

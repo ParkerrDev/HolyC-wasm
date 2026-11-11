@@ -56,7 +56,6 @@ class Codegen {
     this.defaultValues=new WeakMap();
     this.constEnv = {};         // name -> bigint, for #define-like enum constants
     this.data = [];             // {addr, bytes}
-    this.strings = new Map();   // key -> addr
     this.literals = new WeakMap();
     this.cursor = DATA_BASE;
     this.warnings = [];
@@ -89,29 +88,15 @@ class Codegen {
     return a;
   }
 
-  internBytes(bytes, nulTerminate = true, owner) {
-    const arr = nulTerminate ? [...bytes, 0] : [...bytes];
-    const key = arr.join(",");
-    if (this.strings.has(key)) {
-      const data=this.strings.get(key);data.owners.add(owner);return data.addr;
-    }
-    const addr = this.alloc(arr.length, 1);
-    const data={addr,bytes:arr,owners:new Set([owner])};
-    this.data.push(data);
-    this.strings.set(key,data);
-    return addr;
-  }
-
   literalBytes(node,owner) {
     if (this.literals.has(node)) {
-      const data=this.literals.get(node);data.owners.add(owner);return data.addr;
+      const data=this.literals.get(node);data.owners.add(owner);return data;
     }
     const bytes = node.kind === "BinLit" ? node.bytes : [...node.bytes, 0];
-    const addr = this.alloc(bytes.length, 1);
-    const data={addr,bytes,owners:new Set([owner])};
+    const data={bytes,owners:new Set([owner])};
     this.data.push(data);
     this.literals.set(node,data);
-    return addr;
+    return data;
   }
 
   // ============================================================ run
@@ -162,10 +147,15 @@ class Codegen {
       this.m.exportTable("__functions");
     }
 
-    // emit static data
+    // Strictly validate every body before assigning storage to live literals.
+    // Global storage keeps its declaration identity, even when unread.
     for (const d of this.data)
-      if ([...d.owners].some(owner=>linked.bodies.has(owner)))
+      if ([...d.owners].some(owner=>linked.bodies.has(owner))) {
+        if (d.addr===undefined) d.addr=this.alloc(d.bytes.length,1);
         this.m.addData(d.addr,d.bytes);
+      }
+    for (const index of linked.functions)
+      this.m.funcs[index-this.m.importFuncs.length]?.body.resolveDataAddresses();
 
     // exports
     this.m.exportMemory("memory");
@@ -947,7 +937,7 @@ class FnCtx {
       pushAddr(); this.f.op("i32_wrap_i64");
       this.f.i32_const(0).i32_const(size).memory_fill();
       pushAddr(); this.f.op("i32_wrap_i64");
-      this.f.i32_const(this.cg.literalBytes(init,this.f));
+      this.f.dataAddress(this.cg.literalBytes(init,this.f),32);
       this.f.i32_const(Math.min(size, init.bytes.length + 1)).memory_copy();
       return;
     }
@@ -1263,7 +1253,7 @@ class FnCtx {
       case "IntLit": this.f.i64_const(node.value); return literalType(node.value);
       case "FloatLit": this.f.f64_const(node.value); return T.F64;
       case "CharLit": this.f.i64_const(node.value); return literalType(node.value);
-      case "StrLit": case "BinLit": { const a = this.cg.literalBytes(node,this.f); this.f.i64_const(a); return ptrTo(T.U8); }
+      case "StrLit": case "BinLit": { const a = this.cg.literalBytes(node,this.f); this.f.dataAddress(a); return ptrTo(T.U8); }
       case "Ident": return this.genIdent(node);
       case "Assign": return this.genAssign(node);
       case "Binary": return this.genBinary(node);

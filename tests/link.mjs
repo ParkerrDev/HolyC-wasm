@@ -130,4 +130,63 @@ U0 Change() { option=9; }
     {exports:['Pen']});
   assert.equal(alias.instance.exports.Pen(),7n);
 }
-console.log('Linkage: unused imports/code/data omitted; eager diagnostics, initializer order, callbacks, exports and relocated calls preserved.');
+// Unreachable literals must not reserve address space or move live bytes. This
+// catches padding that a search for the omitted string in the binary misses.
+{
+  const source=`
+U8 *Live() {return "live-address";}
+U8 copy[5]="abcd";
+U8 *default_ptr="default";
+U8 *Default(U8 *ptr=default_ptr) {return ptr;}
+I64 Read() {return *Live+copy[3]+*Default;}
+`;
+  const options={exports:['Live','Read']};
+  const plain=await run(source,options);
+  const dead='U8 *Dead() {return "'+ 'unused-padding'.repeat(8192)+'";}\n';
+  for (const changed of [dead+source,source+dead]) {
+    const result=await run(changed,options);
+    assert.equal(result.dataEnd,plain.dataEnd,'dead literals have no storage');
+    assert.equal(result.instance.exports.Live(),plain.instance.exports.Live());
+    assert.equal(result.instance.exports.Read(),308n,'i32 array-copy and i64 pointer literals');
+    assert.deepEqual(result.bytes,plain.bytes,'unused code cannot perturb live layout');
+  }
+  const identity=await run(`
+U8 *First() {return "same";}
+U8 *Second() {return "same";}
+I64 Check() {return First!=Second;}
+`,{exports:['Check']});
+  assert.equal(identity.instance.exports.Check(),1n,'distinct mutable literals keep distinct storage');
+}
+
+// Operand widths change in both directions: addresses grow and call indices
+// shrink. Appended bodies and stack-guard positions must survive either order.
+for (const order of ['DLG','DGL','LDG','LGD','GDL','GLD']) {
+  const module=new Module();
+  for(let i=0;i<140;i++) module.importFunc('env','unused'+i,[],[]);
+  const answer=module.importFunc('env','answer',[],[VT.i64]);
+  const checked=module.importFunc('env','checked',[],[]);
+  const entry=module.func([],[VT.i64],'entry');
+  const wide={addr:0x80000001},narrow={addr:63};
+  const tail=new Func().dataAddress(narrow).call(answer).op('i64_add').stackCheck(2);
+  const body=new Func().dataAddress(wide,32).op('i64_extend_i32_u')
+    .call(answer).op('i64_add').stackCheck(1).append(tail).op('i64_add');
+  entry.setBody([],body);module.exportFunc('entry',entry.index);
+  for (const op of order) {
+    if (op==='D') body.resolveDataAddresses();
+    if (op==='L') module.linkFunctions(new Set([answer,checked,entry.index]));
+    if (op==='G') body.guardStack(()=>new Func()
+      .call(module.importFuncs.findIndex(item=>item.name==='checked')));
+  }
+  let checks=0;
+  const instance=new WebAssembly.Instance(new WebAssembly.Module(module.emit()),
+    {env:{answer:()=>21n,checked:()=>checks++}});
+  assert.equal(instance.exports.entry(),0x80000001n+63n+42n,order);
+  assert.equal(checks,2,order);
+}
+{
+  const module=new Module(),fn=module.func([],[VT.i64],'unresolved');
+  fn.setBody([],new Func().dataAddress({}));
+  assert.throws(()=>module.emit(),/Unresolved data address/);
+  assert.throws(()=>module.funcs[0].body.resolveDataAddresses(),/Unlinked data address/);
+}
+console.log('Linkage: unused imports/code/data omitted; eager diagnostics, initializer order, callbacks, exports, literal layout, relocated calls and stack guards preserved.');

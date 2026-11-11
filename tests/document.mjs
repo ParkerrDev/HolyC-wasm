@@ -19,6 +19,11 @@ for (const name of ["DolDoc","Encoding","Controls"]) {
   const expected=readFileSync(new URL(`v503/${name}.out`,import.meta.url),"latin1");
   assert.equal(await Run(bytes),expected,`${name}: byte input matches native output`);
   if (name==="DolDoc") {
+    const base=compileHolyC(bytes,{lenient:false});
+    const dead=Buffer.from('U8 *DeadLiteral(){return "'+ 'unused'.repeat(4096)+'";}\n');
+    const added=compileHolyC(Buffer.concat([dead,bytes]),{lenient:false});
+    assert.equal(added.dataEnd,base.dataEnd,'unused text cannot move binary literals');
+    assert.deepEqual(added.bytes,base.bytes,'binary record addresses relocate without changing contents');
     assert.throws(()=>compileHolyC(bytes.subarray(0,bytes.length-1),{lenient:false}),
       /invalid DolDoc binary record/,"truncated sprite must not become a valid pointer");
     assert.throws(()=>compileHolyC(bytes.subarray(0,bytes.indexOf(0)),{lenient:false}),

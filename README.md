@@ -486,11 +486,19 @@ Unused imports and literal/constant data segments are omitted as well.
 `npm run test:link` covers omission of an unavailable host import, retained
 callback imports, strict errors in unused bodies, user initializer side effects
 and ordering, repeated initialization, graphics dependencies, and function index
-relocation across LEB128 widths. Named WASM exports remain stable, but numeric
-WASM function indices are private. HolyC callback values remain table slots.
-Static address reservations are currently retained even for omitted prelude
-globals and literals; this change reduces module bytes and initialization work,
-not the fixed memory/stack/heap layout or compiler parsing/type-checking work.
+relocation across LEB128 widths. Literal storage is assigned after reachability,
+so an omitted literal leaves neither bytes nor address-space padding. The tests
+add large unused literals before/after live code and require identical live
+addresses, dataEnd and binaries; binary DolDoc records have the same check.
+Distinct source literals retain distinct mutable storage. Address operands,
+function calls and task stack guards relocate correctly in all six pass orders.
+
+Named WASM exports remain stable, but numeric WASM function indices and static
+addresses are private to a compiled artifact. HolyC callback values remain table
+slots. Global storage reservations, including omitted prelude globals, remain
+unchanged; only literals are deferred. Fixed memory/stack/heap boundaries and
+existing saved modules retain their contracts. Parsing/type-checking still runs
+on unused bodies; this is not lazy validation or a full static-data compactor.
 
 Native layout queries accept class or variable names: `sizeof(CDC.palette)`,
 `offset(CDC.body)`, and the equivalent bare offset `CDC.body`. Nested members,
