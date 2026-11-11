@@ -4,6 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {recorded as keydevRecorded} from './keydev/cases.mjs';
+import {recorded as hashRecorded} from './hash/cases.mjs';
 const root=new URL('../',import.meta.url).pathname;
 const web=resolve(process.env.TEMPLEOS_WEB||'../TempleOS-Web');
 const {chromium}=await import(pathToFileURL(web+'/node_modules/playwright-core/index.mjs'));
@@ -25,6 +26,8 @@ try {
   const sources=await Promise.all(['Tasks','TaskExcept','GetChar','Break'].map(async name=>({name,
     source:await readFile(new URL('v503/'+name+'.HC',import.meta.url),'latin1'),
     expected:await readFile(new URL('v503/'+name+'.out',import.meta.url),'latin1')})));
+  const hashTask=hashRecorded('HashTask');
+  sources.push({name:'HashTask',source:hashTask.wasmSource,expected:hashTask.output});
   const results=await page.evaluate(async fixtures=>{
     const {compileHolyC}=await import('/src/compiler.js');
     const {createTaskHost,taskSupport}=await import('/src/runtime/tasks.js');
@@ -36,15 +39,16 @@ try {
       const instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});
       host.attach(instance);
       await host.run();
-      results.push({name:fixture.name,match:output===fixture.expected,output,tasks:host.state.tasks.length,
-        allocations:host.state.tasks[0].allocations});
-      await host.dispose();
+      const row={name:fixture.name,match:output===fixture.expected,output,tasks:host.state.tasks.length,
+        allocations:host.state.tasks[0].allocations};
+      await host.dispose();row.disposedAllocations=host.state.tasks[0].allocations;results.push(row);
     }
     return results;
   },sources);
   for(const result of results) {
     assert(result.match,result.name+': '+result.output);
-    assert.equal(result.tasks,1);assert.equal(result.allocations,0);
+    assert.equal(result.tasks,1);assert.equal(result.allocations,result.name==='HashTask'?2:0);
+    assert.equal(result.disposedAllocations,0);
   }
   const volumes=await Promise.all(['DirectoryTask','FileTask'].map(async name=>({name,
     source:await readFile(new URL('probes/'+name+'.HC',import.meta.url),'latin1'),
@@ -137,5 +141,5 @@ try {
   assert.equal(await page.evaluate(()=>window.keyOutput),'0\n28\n31\n0\n97\n97\n27\n');
   await page.evaluate(async()=>{keyHost.resetInput();await keyHost.stop();await keyRun;await keyHost.dispose();});
   assert.deepEqual(errors,[]);
-  console.log('Browser JSPI: original task lifecycle, cross-task exceptions, catchable breaks and character waits and native directory/byte-volume sessions match with no surviving child allocations; scoped KeyDev ScrollLock and raw canvas/GetKey behavior pass; real browser keys deliver Shift-Escape/Space, arrows and repeat through set-1 decoding.');
+  console.log('Browser JSPI: original task lifecycle, cross-task exceptions, catchable breaks and character waits and native directory/byte-volume sessions match with no surviving child allocations; native task hash ownership, scoped KeyDev ScrollLock and raw canvas/GetKey behavior pass; real browser keys deliver Shift-Escape/Space, arrows and repeat through set-1 decoding.');
 } finally {await browser.close();await new Promise(resolve=>server.close(resolve));}

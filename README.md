@@ -36,6 +36,7 @@ npm run test:varargs      # Variadic ABI, nested calls and exception cleanup.
 npm run test:format       # Native formatting ownership and unavailable OS formats.
 npm run test:console      # Shared Print path, terminal presentation and repeated output.
 npm run test:keydev       # Scoped KeyDev/raw output, native ScrollLock, faults and ownership.
+npm run test:hash         # Native hash lookup, deletion ownership and task lifetimes.
 npm run test:composites   # Text/mesh allocation failures, callbacks and recovery.
 npm run test:exception    # Cross-call unwinding and repeated stack cleanup.
 npm run test:oracle       # Boot V5.03 in QEMU and recheck the native results.
@@ -851,3 +852,65 @@ wrappers, native capture source and output hashes. Native raw-cache probes use a
 recorded test-only CLI wrapper to protect their temporary shared VGA/cache state;
 this wrapper is deliberately absent from the cooperative WASM run. Stock queue
 initialization and ScrollLock fixtures use the same wrapper on both backends.
+
+### Native hash records and task-owned tables
+
+`CHash`, `CHashTable`, `CHashGeneric`, `CHashSrcSym`, `CHashExport` and
+`CHashDefineStr` use measured V5.03 layouts. HashStr preserves the native shift,
+carry and final ADC arithmetic, including high-byte strings. HashBucketFind,
+HashAdd/After, HashSingleTableFind, HashFind, HashTypeNum, HashTableNew and
+HashLstAdd preserve native masks, insertion order, instance numbering, U32
+use-count wrap and `@` aliases. Constructors clean up detached allocations on
+failure; previously published list entries remain caller-owned. Valid table
+allocation sizes and valid native node/pointer layouts remain caller obligations.
+The operations do not yield in the cooperative backend; physical CLI state and
+concurrent shared-table synchronization are not implemented.
+
+HashDel reproduces the supported native ownership branches. Dictionary names
+are borrowed; file entries own `user_data0`. Export/define/help entries own their
+common source strings and import/export list nodes. Export entries also own
+`dbg_info`, and define entries own `data`; `sub_idx` is not freed. Import-symbol
+entries are deliberately not treated as source-owned merely because their
+native type inherits CHashSrcSym: the original HTG_SRC_SYM mask excludes them.
+Mixed type bits follow the native branch order, not a class-hierarchy guess.
+Class/function member graphs and global-variable graphs requiring compiler
+metadata throw `HashType` before any field is freed. A define/global mixed type
+uses the native earlier define branch. LinkedLstDel releases list nodes only.
+
+HashTableDel deletes one table and its entries, retaining its borrowed `next`
+ancestor. It preflights unsupported compiler graphs before deleting any entry.
+HashRemDel searches the specified table and instance, compares the resulting
+pointer, then unlinks/deletes only an exact match. The lookup increments the
+found entry's use count even if that pointer is different and removal fails.
+Its mask is native `type & ~HTG_FLAGS_MASK`; HTF_PRIVATE is outside that flags
+mask. An unsupported exact match raises HashType before unlinking, while retaining
+that native lookup side effect.
+
+HashGenericAdd creates a generic task-owned entry. Compiler/source record types
+requiring a larger structure are rejected before allocation. Generic payload
+ownership transfers on publication: a file payload remains the caller's if
+allocation fails. Dictionary strings remain caller-owned on deletion, including
+those duplicated by HashGenericAdd, following the native dictionary rule.
+
+Access to `CTask.hash_table` or APIs using it lazily initializes a 1024-bucket
+root table before user initializers. Spawn initializes each child's own table
+only after registering that task with the ownership backend; its `next` points
+to the parent's table. Constructor failure unwinds the registered child and its
+owned allocations. Child exit releases its own heap and preserves ancestor
+storage; session disposal releases the root table. HashStr or explicit local
+table utilities alone do not initialize task tables. The root table starts empty:
+this is runtime storage for program-managed entries, not the live TempleOS
+compiler's populated symbol table. Runtime compiler symbols, reflection, class
+member ownership, DefineLstLoad and full DocInit remain unsupported.
+
+`npm run test:hash` checks 5,690 native hash decisions, native ownership branches,
+exact removal/ancestor behavior, repeated task lifetimes, 27 allocation failure
+sites, unsupported-graph nonmutation and initialization failure disposal.
+`node tests/hash-oracle.mjs` repeats the original QEMU cases (`--record` updates
+records). Proofs bind source, native/WASM prefixes, capture code, output and the
+V5.03 asset manifest. The ownership probe uses an explicit test-only observer:
+native `Fs->data_heap->used_u8s` versus the host's actual live allocation spans.
+It compares relative ownership changes, not native/host allocator header sizes,
+and does not supply a fabricated native CHeapCtrl API. The browser task gate
+checks foreign-task allocation, inherited lookup, shadowing, child exit and root
+session disposal with the same original-native fixture.

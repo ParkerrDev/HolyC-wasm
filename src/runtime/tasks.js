@@ -162,7 +162,10 @@ export function createTaskHost(opts={}) {
     const task=record(ptr,owner,start,[data],top,top-stackSize);
     own(ptr,task);own(fn().TaskHostStk(ptr),task);
     const saved=fn().__sp.value;
-    try {fn().DirHostTaskInit?.(ptr);}
+    try {
+      fn().DirHostTaskInit?.(ptr);
+      fn().HashHostTaskInit?.(ptr);
+    }
     catch(error) {
       fn().__sp.value=saved;
       fn().TaskHostDone(ptr);

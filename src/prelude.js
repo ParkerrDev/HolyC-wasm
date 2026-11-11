@@ -8,6 +8,7 @@ import {GR_PRIMITIVES_SRC} from "./gr-primitives.js";
 import {GR_PALETTE_SRC} from "./gr-palette.js";
 import {GR_MATH_SRC} from "./gr-math.js";
 import {GR_TYPES_SRC,GR_SRC} from "./gr-prelude.js";
+import {HASH_TYPES_SRC,HASH_SRC} from "./hash-prelude.js";
 import {TASK_TYPES_SRC,TASK_SRC} from "./task-prelude.js";
 import {TASK_MESSAGE_SRC} from "./task-message.js";
 import {DIR_TYPES_SRC,DIR_SRC} from "./dir-prelude.js";
@@ -33,6 +34,8 @@ export const RUNTIME_INITIALIZERS=[
     exports:["DirHostTaskInit","DirHostSeed","DirHostReady","DirHostNext",
       "DirHostName","DirHostData","DirHostSize","DirHostIsDir",
       "DirHostMaxPath","DirHostMaxBytes","DirHostMaxNodes","MAlloc","Free"]},
+  {name:"HashHostInit",fields:["CTask.hash_table"],
+    exports:["HashHostTaskInit"]},
   {name:"RawHostInit",globals:["text"]},
   {name:"KbdHostInit",globals:["kbd"]},
   {name:"__hgr_init",globals:["gr","__gr_font"]},
@@ -199,6 +202,7 @@ U8 gr_scrn_bitmap[GR_WIDTH*GR_HEIGHT];
 I64 gr_scrn_r[16];
 
 ${FIFO_TYPES_SRC}
+${HASH_TYPES_SRC}
 ${TASK_TYPES_SRC}
 ${DIR_TYPES_SRC}
 ${DOC_TYPES_SRC}
@@ -719,6 +723,7 @@ ${KBD_SRC}
 ${WINDOW_SRC}
 ${DIR_SRC}
 ${FILE_SRC}
+${HASH_SRC}
 
 public I64 DistSqrI64(I64 x1,I64 y1,I64 x2,I64 y2)
 {
