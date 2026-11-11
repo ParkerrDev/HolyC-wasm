@@ -1,26 +1,27 @@
 # Native document initialization dependencies
 
-This maps implemented foundations and the remaining dependency chain. The
-reference is original TempleOS V5.03. A53 implements entry/bin ownership and
-insertion; A54 adds program-owned runtime defines; A56 adds compiler-control
-and finite byte-buffer ownership. DocInit/New/Rst/Recalc/Clear and full DolDoc
-output remain unavailable in the explicit KeyDev profile.
+This maps implemented foundations and the remaining dependency chain against
+original TempleOS V5.03. A67 supplies finite byte-token Lex; A68 runs the actual
+DocInit metadata algorithm once for the root session and exposes PrsDocFlags.
+DocNew/Rst/Recalc/native Clear and full DolDoc output remain unavailable in the
+explicit KeyDev profile. Boot-only DocInit is not a callable refresh API.
 
 ## Define and kernel bootstrap
 
 `Kernel/KDefine.HC` supplies DefineLoad/LstLoad and lookup operations.
 `Kernel/KHashB.HC` supplies HashDefineLstAdd. Runtime defines currently live in
 program-owned task tables. These tables contain neither the compiler's live
-symbols nor the kernel's boot-populated string lists. Runtime DefineLoad cannot
+symbols. The document initializer loads its four measured standard lists;
+other kernel bootstrap lists remain absent. Runtime DefineLoad cannot
 alter already-compiled WASM or define an identifier for later compilation within
 the same submitted source. Native return-address/debugger links are unavailable:
 host loaders set `src_link=NULL`, not a fabricated `AD:` address.
 
 `SysDefinesLoad` in KDefine loads the original kernel string lists, including
-ST_COLORS. Actual DocInit requires that bootstrap context. It must eventually be
-provided as measured native data plus its real initialization/lifetime, rather
-than an unexplained special case inside HashDefineLstAdd. Do not treat a table
-of precomputed DolDoc flags as execution of DocInit.
+ST_COLORS. A68 provides that exact list as an explicit initializer dependency,
+using DefineLstLoad and normal hash operations. HashDefineLstAdd has no
+document-specific shortcut, and default flags are computed by real Lex and
+PrsDocFlags rather than substituted constants.
 
 ## Compiler control and stream ownership
 
@@ -71,7 +72,7 @@ the tables. Native proof compares all 1,218 values plus alias/task access;
 host failure tests cover each allocation and disposal. Native CmpFillTables is
 a boot routine whose repeated calls replace pointers without releasing old
 arrays, so it is not exposed as a refresh API. ASM/internal-type/IR graphs,
-Lex and CInit remain absent. Zero fields are not initialized compiler graphs.
+Compiler-controlled Lex and CInit remain absent. Zero fields are not initialized compiler graphs.
 
 A60 adds the exact finite-stream `LexInStr` algorithm with source-bound native
 chunk/state tests. It preserves `done`, partial-buffer nontermination, embedded
@@ -81,7 +82,7 @@ marker put-back and source-state behavior. Its temporary nodes are freed on
 HolyC exceptions; reads already consumed are not rolled back. Native valid-case
 proofs and actual host/child allocation failures verify this bounded layer. A61 separately corrects source JS lexing to preserve unknown backslashes and
 use native zero/hex escapes without C octal decoding. This does not replace the
-runtime Lex dependency.
+runtime Lex dependency; A67 supplies its finite-byte subset.
 
 `Lex` depends on the character bitmaps, native numeric/escape/string rules,
 HashFind and nested define expansion. A64 supplies exact class/member record
@@ -114,7 +115,11 @@ LexPutPos still needs FixSet's debugger/session state, PutFileLink's real output
 context and AdamErr's task job execution. PrintErr/PrintWarn additionally need
 Caller stack metadata and GetOutOfDollar. LexExcept/Warn are not supplied as
 reduced throw-only adapters. These reporting/controller dependencies still
-block full Lex and are distinct from its token rules and directive execution.
+block full compiler-controlled Lex and are distinct from its token rules and
+directive execution. A67 reports bounded error category/location data through
+a required host device, preserving HolyC cleanup if its diagnostic observer
+fails. It rejects prompt/document/compiler directive capabilities explicitly.
+The mixed I64/F64 precision witness remains a documented numeric-token gap.
 
 ## Actual DocInit and flag parsing
 
@@ -137,3 +142,22 @@ Real constructors, reset/clear and recalculation then depend on this initialized
 state, directories, entry ownership, rendering/layout and synchronization. Keep
 that dependency chain explicit until those operations execute and clean up under
 both original TempleOS and the supported host backend.
+
+
+A68 implements that metadata startup and both public flag parsers. Live native,
+source-copied native and staged native outputs agree on 1,986 metadata values
+and 1,001 parser cases. Child tests preserve root-owned state while shadowing
+child defines. The staged constructor publishes a complete CDolDocGlbls only
+on success; 321 actual host allocation failures restore prior definitions and
+release temporary control/list/hash ownership. Native DHT bits overlap kernel
+HTT bits, so document entries have a domain-specific destructor. This is a
+root-session bootstrap, not a public repeated DocInit implementation. Return
+address/debugger source links remain unavailable, and no live compiler symbol
+graph is introduced.
+
+The next concrete dependencies are DocEntryNewBase's default-mask use and the
+DocNew/Rst/Top/Recalc chain. DocTop invokes DocFormFwd and actual DocRecalc;
+DocClear emits a real CL command through DocPrint and recalculates. DocNew also
+installs EdLeftClickLink, whose file/compiler/UI behavior needs its own explicit
+capability boundary. None of these may be replaced with a silent callback or
+no-op layout routine merely to compile native games.

@@ -1,0 +1,49 @@
+{
+  "manifest": {
+    "templeos": "V5.03",
+    "web": "973091c4480d25b4c1544fa9ec9f7de004fa0c98",
+    "compiler": "7e7213397c5db64ffba6e4ebbf29cf8aa26b86a8",
+    "hemu": "3daa7135a3453a4ac93744a614aa532ac5d7e0bc",
+    "snapshotSha256": "99389d6deade3fae598862bdee1856e8157d62b1843fe901f3530014485ff3d6",
+    "diskSha256": "ca12b5604c2f1d9fe83a7f910ce131f0bf074e1d33f24aa68fd4fad34198d148",
+    "engineSha256": "cdf3df2c051687604f9451304f3af03cb5ef6d5efbf50be706a93b60443d42c3",
+    "rawSnapshotSha256": "659ae1818239778442da41c38cbf45c112669dc08830e29b06b99626d6586f0f",
+    "rawDiskSha256": "f8673e751d7e313b6552ac5688c31a4ea19148326a7d560b103217f004e1322a"
+  },
+  "backend": {
+    "engine": "qemu",
+    "accelerator": "kvm",
+    "version": "QEMU emulator version 11.1.2"
+  },
+  "evidence": "/home/aphunt/Dev/GitHub/TempleOS/wt/HolyC-wasm-A1/tests/.oracle/qemu-2bvbwrpf",
+  "sourceSha256": "f8648251da57d5b9dff3910041936a35ec53e0656d8b7a8eb143ff1aed1e3da5",
+  "originalBefore": "CDolDocGlbls doldocOriginal;\nMemSet(&doldocOriginal,0,sizeof(CDolDocGlbls));\n",
+  "portBefore": "CDolDocGlbls doldocHost;\nMemSet(&doldocHost,0,sizeof(CDolDocGlbls));\n",
+  "originalInit": "DocInitOriginal;\n",
+  "portInit": "DocHostInit;\n",
+  "nativeParserSha256": "95af84632d3643c790d39c95af28d308fa7efaa84bf76babb3917f9ad962f789",
+  "nativeInitSha256": "f7cbf068fac94eb3c8654f786c34848845230ffcb4bbddca4d2c0a54588152e4",
+  "typesSha256": "70c13138fcc69d17c02a711a2f0ea97a8d9e3c81113fe58074c3da902d3e821c",
+  "librarySha256": "8cbb382ac1d2b40aaecca3eac67ccbe9fc414dcef5f3dc615940b25c62c54cfa",
+  "inputSha256": [
+    "f8648251da57d5b9dff3910041936a35ec53e0656d8b7a8eb143ff1aed1e3da5",
+    "775c7675b9a9e884530e62f4cd9683dac4f201d6c90d26af9fb72b3e41c7ba95",
+    "777ff443999a2785ecdb93aba9b8d19089d68ea6e1b577f1e36e251f0e429821"
+  ],
+  "captureSha256": "baa39e21c404a0da05762f7630e2c10b3c52e7e16d305546b306254c35056317",
+  "results": [
+    {
+      "out": "DocDefaults:F424E4D15B5D807D:1986\n",
+      "except": ""
+    },
+    {
+      "out": "DocDefaults:F424E4D15B5D807D:1986\n",
+      "except": ""
+    },
+    {
+      "out": "DocDefaults:F424E4D15B5D807D:1986\n",
+      "except": ""
+    }
+  ],
+  "outputSha256": "df997baa3cf001097fe0bb1b24ea1d88ebe81615a82baf091a9885f95502fa93"
+}

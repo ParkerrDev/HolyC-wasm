@@ -975,7 +975,8 @@ storage; session disposal releases the root table. HashStr or explicit local
 table utilities alone do not initialize task tables. The root table starts empty:
 this is runtime storage for program-managed entries, not the live TempleOS
 compiler's populated symbol table. Runtime compiler symbols, reflection, class
-member ownership, DefineLstLoad and full DocInit remain unsupported.
+member ownership and full compiler bootstrap remain unsupported. Runtime
+define loading and document metadata startup are described below.
 
 `npm run test:hash` checks 5,690 native hash decisions, native ownership branches,
 exact removal/ancestor behavior, repeated task lifetimes, 27 allocation failure
@@ -995,9 +996,9 @@ The explicit `keydev` profile provides DocBinFindNum/Tag/Del, IsEditableText,
 DocEntryDel/Size/Copy, DocUndoDel, DocEntryNewTag, DocRemSoftNewLines and
 DocInsEntry. It uses native CDoc/entry/bin layouts and real RawPrint diagnostics.
 These utilities operate on correctly initialized, caller-owned document queues;
-they do not construct or parse a document. DocInit, DocNew, DocRst, DocRecalc,
-DocClear, metadata defaults, full DolDoc output and the window manager remain
-unsupported in this profile. In particular, the inherited default-console
+they do not construct or render a document. The metadata initializer and flag
+parser are described below. DocNew, DocRst, DocRecalc, native DocClear, full DolDoc
+output and the window manager remain unsupported in this profile. In particular, the inherited default-console
 `DocClear()` no-op is a **legacy compatibility gap**, not native support; the
 KeyDev profile excludes it and rejects DocClear during strict compilation.
 
@@ -1089,8 +1090,8 @@ PopNoRestore provide the native control records and finite byte-buffer ownership
 needed by the later lexer. CCmpCtrl, CLexFile, CLexHashTableContext, CCodeCtrl and
 their embedded records have measured V5.03 sizes and offsets. The two identifier
 bitmaps preserve all 512 native bits, including CCF_KEEP_AT_SIGN selection.
-These control APIs do not implement Lex, runtime compilation or DocInit.
-The finite character-stream layer below supplies LexGetChar.
+These control APIs own streams; subsequent layers supply finite Lex and
+document metadata. Runtime compilation remains unavailable.
 
 A successful CmpCtrlNew owns its buffer unless CCF_DONT_FREE_BUF borrows it.
 A failed constructor leaves that input with the caller and releases its partial
@@ -1139,8 +1140,8 @@ kernel/startup before a probe, so tests compare line-count changes, not the boot
 total. The six token/operator/register-map arrays and their count/mask fields
 are initialized when reachable, as described below. ASM tables, internal type
 graphs and live compiler/IR state remain unavailable. Their zero storage does
-not stand in for initialized graphs. Lex, CInit, CmpFillTables, runtime compilation
-and DocInit are still absent. The printable and non-EOL bitmaps preserve all
+not stand in for initialized graphs. CInit, CmpFillTables and runtime compilation
+remain absent; finite Lex and document metadata are described below. The printable and non-EOL bitmaps preserve all
 512 native bits. Console byte streams remain independent of task continuations;
 KeyDev echo deliberately uses the KeyDev profile and its real output chain.
 
@@ -1230,7 +1231,8 @@ across every byte/escape introducer, small/full/partial chunks, dollar state,
 nested streams and saved characters, then verifies five lifetimes and decoding
 with all allocation attempts denied. `node tests/lex-string-oracle.mjs` repeats
 the source-bound stock and renamed-port proof. This is string chunk decoding,
-not the general Lex tokenizer or completed DocInit. The general source lexer and runtime tokenization remain separate implementations.
+separate from the finite Lex layer below. The source JS lexer and native runtime
+tokenization remain separate implementations.
 
 
 ### Queue vectors and lexical marker scans
@@ -1263,7 +1265,8 @@ The original cleanup-free function fails the same marker-allocation leak check.
 native proofs. Pure vectors need no session directory/hash allocation or task
 continuation capability. Actual Chromium tests verify the child ownership path.
 Native allocator-failure injection is not claimed; the fault tests use the real
-host allocator boundary. Full Lex, compiler graphs and DocInit remain absent.
+host allocator boundary. Full compiler-controlled Lex and compiler graphs remain
+absent; document metadata startup is described below.
 
 ### Lexical output primitives
 
@@ -1292,7 +1295,7 @@ host formatting buffers and permit retry. Already-emitted bytes are not rolled
 back. These host failure/cleanup guarantees are separate from the original
 native valid-output proof. `node tests/lex-report-oracle.mjs` repeats the stock
 and renamed-port comparison with source/type/library/capture/output hashes.
-LexPutPos, LexExcept, LexWarn, full compiler-controlled Lex and DocInit remain unavailable;
+LexPutPos, LexExcept, LexWarn and full compiler-controlled Lex remain unavailable;
 native debugger, caller metadata, document output and Adam job dependencies
 must be supplied before those controllers can be implemented honestly.
 
@@ -1359,3 +1362,50 @@ parity assertion for that excluded case. General output-device JavaScript traps
 also remain host traps; the 606 callback cleanup cases use actual HolyC throws in
 the KeyDev echo chain, while the separate diagnostic-observer tests cover the
 new structured host device.
+
+### Document metadata and flag parsing
+
+A reachable `doldoc` reference initializes the real native document metadata in
+the root session before user initializers. The runtime loads ST_COLORS from the
+measured kernel bootstrap list, then the three DocInit lists ST_DOC_CMDS,
+ST_DOC_FLAGS and ST_LINK_TYPES. It constructs the 512-bucket document table,
+runs the actual default expression through Lex and the native flag parser, and
+computes the default, form, invisibility, data, duplicate-check and clean-key
+masks. The complete CDolDocGlbls layout is 588 bytes. This is initialization from
+the native lists/algorithm, not a replacement table of precomputed flags.
+
+Public PrsDocFlagSingle and PrsDocFlags preserve native flag recognition,
+plus/minus handling, mirrored type bits and remaining-token behavior. The
+32-bit type argument writes only its defined width. Unknown flags remain for
+the caller to handle. Typed aliases and raw address access also request startup;
+unrelated programs do not allocate document state. The global still reserves
+storage under the current unused-global layout rule, so consumer binaries must
+be compared or qualified when the prelude changes.
+
+All standard list records and document-table entries belong to the root session.
+Children borrow that state, inherit the root define table, and may shadow their
+own defines without changing the already-computed document metadata. Failed
+construction releases partial defines, their separate sub-index arrays, the
+compiler control and document hash entries before publishing any global state.
+The document DHT bits overlap kernel HTT bits: rollback uses a document-specific
+destructor, never generic HashTableDel. The internal constructor exists to make
+that ownership transaction explicit. Native boot-only DocInit is not exposed as
+a callable refresh operation; no invented repeated-initialization contract is
+claimed. Original return-address source links remain unavailable as documented
+for DefineLstLoad.
+
+`npm run test:doc-init` verifies 1,986 layout/list/hash/mask values and 1,001 flag
+parser cases against live V5.03, a fresh copy of the original initializer/parser,
+and the staged port compiled by V5.03. Native child fixtures and five host
+lifetimes verify borrowed session state and complete disposal. All 321 real
+allocation failures preserve prior definitions and the unpublished output,
+restore the live allocation count/heap/stack, and permit immediate retry of the
+internal construction transaction. A failed runtime startup instead poisons
+that module before user effects; a fresh instance succeeds. Native allocator
+failure injection is not claimed. `node tests/doc-init-oracle.mjs` repeats the
+source/wrapper/library/layout/capture/output-bound native proof.
+
+DocNew, DocRst, DocRecalc, native DocClear, full document output and the window
+manager remain separate unfinished dependencies. In particular, DocRst calls
+DocTop, which needs DocFormFwd and actual DocRecalc; DocNew also installs the real
+EdLeftClickLink callback. The initializer does not fabricate those operations.
