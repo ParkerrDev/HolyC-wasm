@@ -189,6 +189,15 @@ snapshot loaders must choose the old mode explicitly when metadata is absent.
 Do not switch an existing heap between modes. Heap addresses, native internal
 header layout and separate task-owned heaps are not reproduced.
 
+The task, settings, message, scroll and keyboard records have their complete
+V5.03 layouts, including the 1,192-byte `CTask`. `TaskValidate` checks the native
+self pointer and signature. The independent `TaskLayout` fixture checks every
+field offset and narrow stores; these declarations do not supply scheduling,
+message delivery or settings-stack behavior. Ordinary duplicate class members
+are rejected even in unused classes. Native `pad`, `reserved` and `_anon_`
+members may repeat: lookup selects the first own declaration, before a base
+class member, while every declaration still contributes storage.
+
 `npm run test:heap` checks allocation lifetime, splitting/coalescing, cleared
 reuse, failed growth, full-memory restoration, legacy restoration and four
 workers allocating/freeing the same growing shared memory.

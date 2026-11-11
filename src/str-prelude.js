@@ -4,7 +4,6 @@ const scales=new DataView(Uint8Array.from(atob(SCALE_BYTES),ch=>ch.charCodeAt(0)
 const powers=Array.from({length:scales.byteLength/8},(_,i)=>
   "0x"+scales.getBigUint64(i*8,true).toString(16)).join(",");
 export const STR_SRC=String.raw`
-#define STR_LEN 144
 #define ì 0x7FF0000000000000(F64)
 U64 __str_pow10[617]={${powers}};
 

@@ -15,6 +15,11 @@ assert(label.warnings.some(message=>message.includes("Unused label")));
 assert(WebAssembly.validate(label.bytes));
 assert.throws(()=>compile("U32 class Tiny {U8 a;}; Tiny x;"),
   /different layout and storage width/);
+for (const source of [
+  "class Bad {I64 x;I64 x;};",
+  "class Base {I64 x;};class Bad : Base {I64 x;};",
+  "class Bad {I64 x;union {I64 x;I64 y;}};",
+]) assert.throws(()=>compile(source),/Duplicate member/,"unused invalid classes must fail too");
 assert.throws(()=>compile('#include "Header.HC"',{filename:"Entry.HC",
   includeResolver:()=>"U0 Broken() { =; }"}),/Header\.HC:1:.*parse error/);
 assert.throws(()=>compile('#include "Header.HC"',{filename:"Entry.HC",

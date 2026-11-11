@@ -7,6 +7,7 @@
 import {GR_PRIMITIVES_SRC} from "./gr-primitives.js";
 import {GR_MATH_SRC} from "./gr-math.js";
 import {GR_TYPES_SRC,GR_SRC} from "./gr-prelude.js";
+import {TASK_TYPES_SRC,TASK_SRC} from "./task-prelude.js";
 import {FONT} from "./runtime/font.js";
 import {STR_SRC} from "./str-prelude.js";
 import {GR_COMPOSITES_SRC} from "./gr-composites.js";
@@ -35,6 +36,7 @@ export const PRELUDE_SRC = String.raw`
 #define TEXT_ROWS (GR_HEIGHT/FONT_HEIGHT)
 #define TEXT_COLS (GR_WIDTH/FONT_WIDTH)
 #define COLORS_NUM 16
+#define STR_LEN 144
 
 #define BLACK 0
 #define BLUE 1
@@ -167,18 +169,7 @@ CDC gr_dc_storage;
 U8 gr_scrn_bitmap[GR_WIDTH*GR_HEIGHT];
 I64 gr_scrn_r[16];
 
-//==================== "Fs" task graphics fields ====================
-class CTask {
-  I64 pix_width;
-  I64 pix_height;
-  I64 pix_left,pix_right,pix_top,pix_bottom,scroll_x,scroll_y,win_z_num,scroll_z;
-  CTask *next_task;
-  U0 (*draw_it)(CTask *task,CDC *dc);
-  U0 (*task_end_cb)();
-  I64 win_inhibit;
-  I64 rand_seed,task_flags,except_ch;
-  Bool catch_except;
-};
+${TASK_TYPES_SRC}
 CTask fs_storage;
 CTask *Fs;
 CTask *sys_winmgr_task;
@@ -505,7 +496,6 @@ public I64 CeilI64(I64 num,I64 to)
 
 #define LIN_CONGRUE_A 6364136223846793005
 #define LIN_CONGRUE_C 1442695040888963407
-#define TASKf_NONTIMER_RAND 14
 
 public U64 RandU64()
 {//V5.03 Kernel/KMathB.HC recurrence, with per-task state.
@@ -667,6 +657,7 @@ ${GR_PRIMITIVES_SRC}
 ${STR_SRC}
 ${GR_COMPOSITES_SRC}
 ${SPRITE_SRC}
+${TASK_SRC}
 
 public I64 DistSqrI64(I64 x1,I64 y1,I64 x2,I64 y2)
 {
@@ -810,6 +801,8 @@ U8 *CAlloc(I64 size,CTask *mem_task=NULL)
 U0 __hcrt_init()
 {
   Fs=&fs_storage;
+  Fs->addr=Fs;
+  Fs->task_signature=TASK_SIGNATURE_VAL;
   Fs->pix_width=__gr_width;
   Fs->pix_height=__gr_height;
   Fs->pix_right=Fs->pix_width-1;

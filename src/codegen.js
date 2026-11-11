@@ -27,6 +27,7 @@ import { usesGoto, Gotos } from "./goto.js";
 import { FLOAT_MUL_I64 } from "./float-convert.js";
 
 const PINNED_GLOBALS = { ms: MS_ADDR };
+const REPEATED_MEMBERS=new Set(["pad","reserved","_anon_"]);
 
 export class CodegenError extends Error {}
 
@@ -204,6 +205,21 @@ class Codegen {
       for (const child of node.nestedClasses??[]) add(child);
     };
     this.program.decls.forEach(add);
+    const names=new Map(),active=new Set();
+    const members=name=>{
+      if (names.has(name)) return names.get(name);
+      if (active.has(name)) throw new CodegenError("Recursive class inheritance: "+name);
+      active.add(name);
+      const node=this.classes.get(name),result=new Set(node?.base?members(node.base):[]);
+      for (const member of node?.members??[])
+        for (const field of member.anonymous?members(member.type.name):[member.name]) {
+          if (result.has(field) && !REPEATED_MEMBERS.has(field))
+            throw new CodegenError(`Duplicate member: ${name}.${field}`);
+          result.add(field);
+        }
+      active.delete(name);names.set(name,result);return result;
+    };
+    for (const name of this.classes.keys()) members(name);
   }
 
   layoutClass(name) {
@@ -211,6 +227,11 @@ class Codegen {
     const node = this.classes.get(name);
     if (!node) throw new CodegenError("unknown class " + name);
     const fields = new Map();
+    const own=new Set();
+    const addField=(member,field)=>{
+      if (!own.has(member)) fields.set(member,field);
+      own.add(member);
+    };
     let off = 0, maxSize = 0;
     // base class members first
     if (node.base && this.classes.has(node.base)) {
@@ -230,8 +251,8 @@ class Codegen {
       const offset=node.isUnion?(mem.anonymous?maxSize:0):off;
       if (mem.anonymous) {
         for (const [name,field] of this.layoutClass(ty.name).fields)
-          fields.set(name,{...field,offset:offset+field.offset});
-      } else fields.set(mem.name,{type:ty,offset});
+          addField(name,{...field,offset:offset+field.offset});
+      } else addField(mem.name,{type:ty,offset});
       if (node.isUnion) {
         maxSize = Math.max(maxSize,offset+sz);
       } else {
