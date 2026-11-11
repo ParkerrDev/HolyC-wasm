@@ -22,5 +22,5 @@
   "outputSha256": "7fddbf357354c37a59e9ab20db668040e60793585336c502106480f500a6d8c5",
   "except": "",
   "out": "Static:1:100000180\nStatic:2:100000180\nREG:RgStatic:value:7:16:8\nREG:RgStatic:saved:32:0:0\nREG:RgStatic:res:6:-2:2\n",
-  "scope": "Native static storage persists and is excluded from automatic register scoring. Host persistence is not yet implemented."
+  "scope": "Native static storage persists and is excluded from automatic register scoring. Host persistence is covered separately by the static-local lifetime and ownership tests."
 }

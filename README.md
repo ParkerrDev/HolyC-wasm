@@ -79,6 +79,9 @@ comparison flags. `npm run test:integer-promotion` checks original native matric
 and four executable negative controls. See [integer type evidence](docs/IntegerTypes.md)
 for scope. [Native local storage](docs/LocalStorage.md) separately covers
 register selection, narrow spills, casts and compound expression results.
+[Static locals](docs/StaticLocals.md) initialize in declaration order and retain
+their cells across calls, recursion and child-task access; their code-heap and
+compiler-time automatic-local boundaries remain explicit.
 
 Compile-known switch labels use signed 64-bit values. Reversed ranges are
 normalized before empty-case numbering; duplicate/overlapping cases, empty
@@ -214,7 +217,7 @@ The compiler also preserves native register-local width using measured
 reference scoring and spill selection. `test:local-storage` compares 4,220
 values and 2,699 native register assignments, including try/catch, address
 escape, unnamed parameters and memory-result distinctions. See
-[local storage and its remaining static/return boundaries](docs/LocalStorage.md).
+[local storage and its remaining return/physical-ABI boundaries](docs/LocalStorage.md).
 
 Fresh WebAssembly memory and register locals start at zero. Native HolyC
 storage can contain old data: initialize pointers and counters explicitly.

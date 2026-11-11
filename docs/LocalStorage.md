@@ -63,10 +63,10 @@ gate in `tests/integer-register.mjs`.
 
 ## Explicit remaining boundaries
 
-`tests/probes/StaticLocalLifetime.HC` captures a separate inherited bug:
-native static locals retain their contents between calls, while the current
-host reinitializes them on each call. The allocation matrix checks their
-REG_NONE exclusion and one invocation only; it does not claim persistence.
+`tests/probes/StaticLocalLifetime.HC` retains the original persistent-storage
+witness. Its values now match; [static-local lifetime](StaticLocals.md) covers
+definition-time initialization, repeated calls and ownership separately from
+the register matrix's REG_NONE exclusion.
 
 `tests/probes/LocalReturnWidth.HC` captures another distinct rule: a function
 declared U8 can return 0x1000001FF from a register or direct I64 expression;
@@ -74,7 +74,7 @@ a noreg U8 load returns 0xFF. Current WASM return lowering truncates all three
 to 0xFF. Its earlier array-cast register-scoring mismatch is fixed here. This
 return ABI correction remains separate from allocation.
 `node tests/local-storage-gaps.mjs` verifies both saved proofs and reports the
-current differences with a failing exit status. `--native` repeats their
+remaining return differences with a failing exit status. `--native` repeats their
 original V5.03 values; this known-gap check is separate from the passing suite.
 
 Local aggregate initialization, explicit physical register assignments,

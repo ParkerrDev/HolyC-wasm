@@ -61,6 +61,7 @@ class Codegen {
     this.globalInitializers=new Map();
     this.declarationInitializers=new Map();
     this.defaultValues=new WeakMap();
+    this.staticLocals=new WeakMap();
     this.constEnv = {};         // name -> bigint, for #define-like enum constants
     this.data = [];             // {addr, bytes}
     this.literals = new WeakMap();
@@ -128,7 +129,8 @@ class Codegen {
     this.collectClasses();
     this.collectConsts();
     this.collectGlobals();
-    this.captureDefaults();
+    this.collectStatics();
+    this.collectInitializers();
     this.collectSourceImports();
     this.collectFunctions();
 
@@ -398,7 +400,45 @@ class Codegen {
       if (d.kind === "ClassDecl" && d.vars) for (const v of d.vars) this.declareGlobal(v);
     }
   }
-  captureDefaults() {
+  collectStatics() {
+    let index=0;
+    const children=node=>Object.entries(node).filter(([key])=>
+      !["type","globalType","functionType","retType"].includes(key))
+      .flatMap(([,value])=>Array.isArray(value)?value:value?.kind?[value]:[]);
+    const hasStatic=node=>node && typeof node==="object" &&
+      (node.kind==="VarDecl" && node.storage?.includes("static") || children(node).some(hasStatic));
+    for (const fn of this.program.decls) {
+      if (fn.kind!=="FuncDecl" || !hasStatic(fn.body)) continue;
+      const scope=new Map(fn.params.filter(p=>p.name).map(p=>
+        [p.name,{kind:"unavailable",type:this.resolveType(p.type)}]));
+      if (fn.isVarArgs) {
+        scope.set("argc",{kind:"unavailable",type:T.I64});
+        scope.set("argv",{kind:"unavailable",type:arrayOf(T.I64,127)});
+      }
+      const walk=node=>{
+        if (!node || typeof node!=="object") return;
+        if (node.kind==="DeclStmt") {
+          for (const d of node.decls) {
+            const type=this.resolveType(d.type,scope);
+            if (d.storage?.includes("static")) {
+              const name="#static:"+index++;
+              const global={addr:this.alloc(Math.max(8,align8(this.typeSize(type),8)),8),
+                type,init:d.init,node:{...d,name,type,internal:true}};
+              this.globals.set(name,global);
+              const entry={kind:"static",name,type,global,registerHint:"none"};
+              scope.set(d.name,entry);
+              global.initScope=new Map(scope);
+              this.staticLocals.set(d,entry);
+            } else scope.set(d.name,{kind:"unavailable",type});
+          }
+          return;
+        }
+        children(node).forEach(walk);
+      };
+      walk(fn.body);
+    }
+  }
+  collectInitializers() {
     const constant=node=>{
       if (!node) return true;
       if (["IntLit","CharLit","FloatLit","StrLit","BinLit"].includes(node.kind))
@@ -430,6 +470,8 @@ class Codegen {
           } else if (Array.isArray(value)) value.forEach(walk);
           else if (value && typeof value==="object") walk(value);
         }
+        const local=this.staticLocals.get(node);
+        if (local) names.push(local.name);
       };
       walk(item);
       const globals=item.kind==="VarDecl"?[item]:item.vars||[];
@@ -864,6 +906,8 @@ class FnCtx {
   collectLocals(node) {
     const visitDecl = (vd) => {
       if (this.locals.has(vd.name)) return;
+      const storage=this.cg.staticLocals.get(vd);
+      if (storage) {this.locals.set(vd.name,{...storage});return;}
       const ty = this.cg.resolveType(vd.type,this.locals);
       this.locals.set(vd.name,{kind:"local",type:ty,init:vd.init,
         registerHint:vd.storage?.includes("static")?"none":vd.registerHint});
@@ -937,6 +981,10 @@ class FnCtx {
   }
 
   pushSlotAddr(d) {
+    if (d.kind==="static") {
+      (this.f.globalUses??=new Set()).add(d.name);
+      this.f.i64_const(d.global.addr);return;
+    }
     if (d.kind==="refslot") {
       this.f.local_get(d.windex).i64_const(d.offset).op("i64_add");
       return;
@@ -1002,7 +1050,7 @@ class FnCtx {
   genDeclStmt(s) {
     for (const d of s.decls) {
       const desc = this.locals.get(d.name);
-      if (!desc) continue;
+      if (!desc || desc.kind==="static") continue;
       if (d.init == null) continue;
       if (desc.kind === "slot") this.genStoreInit(desc);
       else { this.genExprCoerce(d.init, desc.nativeReg && isInt(desc.type)?T.I64:desc.type); this.f.local_set(desc.windex); }
@@ -1048,6 +1096,12 @@ class FnCtx {
   }
 
   genGlobalInit(g) {
+    const locals=this.locals;
+    if (g.initScope) this.locals=g.initScope;
+    try { this.genGlobalValue(g); } finally {this.locals=locals;}
+  }
+
+  genGlobalValue(g) {
     // Constant integer arrays (sprite/bitmap data, tables) compile to one wasm
     // data segment rather than thousands of per-element stores - instant to emit.
     if (!g.deferred && g.init.kind === "InitList" && this.cg.tryStaticConstArray(g,this.f)) return;
@@ -1492,6 +1546,7 @@ class FnCtx {
   genIdent(node) {
     const L = this.localBinding(node);
     if (L) {
+      if (L.kind==="unavailable") this.err(node,"Static initializer cannot read an automatic local");
       if (L.kind === "wlocal") { this.f.local_get(L.windex); return this.cg.resolveType(L.type); }
       if (L.kind === "reflocal") { this.f.local_get(L.windex); return this.cg.resolveType(L.type); }
       // slot
@@ -1575,7 +1630,8 @@ class FnCtx {
       case "Ident": {
         const L = this.localBinding(node);
         if (L) {
-          if (L.kind === "slot" || L.kind==="refslot") { this.pushSlotAddr(L); return this.cg.resolveType(L.type); }
+          if (L.kind==="unavailable") this.err(node,"Static initializer cannot address an automatic local");
+          if (L.kind === "slot" || L.kind==="refslot" || L.kind==="static") { this.pushSlotAddr(L); return this.cg.resolveType(L.type); }
           if (L.kind === "reflocal") { this.f.local_get(L.windex); return this.cg.resolveType(L.type); }
           this.err(node, "cannot take address of register local '" + node.name + "'");
         }
