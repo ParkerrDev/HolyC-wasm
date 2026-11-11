@@ -135,6 +135,26 @@ export function createHost(opts = {}) {
 
   if(typeof state.gfx?.palette==='function')
     imports.__gr_palette=(index,bgr48)=>state.gfx.palette(Number(index),bgr48);
+  if(state.gfx?.indices instanceof Uint8Array)
+    imports.__gr_update_mono=(...args)=>{
+      const [addr,stride,x,y,width,height]=args.map(Number),gfx=state.gfx;
+      if(args.length!==6 || ![addr,stride,x,y,width,height,gfx.width,gfx.height].every(Number.isSafeInteger) ||
+          addr<0 || stride<=0 || width<0 || height<0 || gfx.width<=0 || gfx.height<=0 ||
+          !Number.isSafeInteger(x+width) || !Number.isSafeInteger(y+height) ||
+          !Number.isSafeInteger(gfx.width*gfx.height) || gfx.indices.length<gfx.width*gfx.height)
+        throw new RangeError('Invalid packed graphics update');
+      const left=Math.max(0,x),top=Math.max(0,y),
+        right=Math.min(gfx.width,x+width),bottom=Math.min(gfx.height,y+height);
+      if(left>=right || top>=bottom)return;
+      const bytes=u8(),end=addr+(bottom-1)*stride+Math.ceil(right/8);
+      if(Math.ceil(right/8)>stride || !Number.isSafeInteger(end) || end>bytes.length)
+        throw new RangeError('Packed graphics update exceeds source memory');
+      for(let row=top;row<bottom;row++){
+        const src=addr+row*stride,dst=row*gfx.width;
+        for(let col=left;col<right;col++)
+          gfx.indices[dst+col]=bytes[src+Math.floor(col/8)]&(128>>(col%8))?15:0;
+      }
+    };
 
   return {
     env: imports,

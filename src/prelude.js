@@ -15,6 +15,7 @@ import {DOC_TYPES_SRC,WINDOW_SRC} from "./window-prelude.js";
 import {FIFO_TYPES_SRC,FIFO_SRC} from "./fifo-prelude.js";
 import {KBD_SRC} from "./kbd-prelude.js";
 import {FONT} from "./runtime/font.js";
+import {RAW_SRC} from "./raw-prelude.js";
 import {STR_SRC} from "./str-prelude.js";
 import {GR_COMPOSITES_SRC} from "./gr-composites.js";
 import {SPRITE_TYPES_SRC,SPRITE_SRC} from "./gr-sprite.js";
@@ -23,6 +24,7 @@ import {SPRITE_TYPES_SRC,SPRITE_SRC} from "./gr-sprite.js";
 // compiler uses the same reachability graph for these hooks and ordinary calls.
 export const RUNTIME_INITIALIZERS=[
   {name:"__hcrt_init",always:true},
+  {name:"RawHostInit",globals:["text"]},
   {name:"KbdHostInit",globals:["kbd"]},
   {name:"__hgr_init",globals:["gr","__gr_font"]},
   {name:"__hgr_pen_init",fields:["gr.pen_brushes","gr.collision_pen_brushes",
@@ -961,4 +963,5 @@ I64 StrCmp(U8 *a, U8 *b) {
   while (a[i] && a[i]==b[i]) i++;
   return a[i]-b[i];
 }
+${RAW_SRC}
 `;

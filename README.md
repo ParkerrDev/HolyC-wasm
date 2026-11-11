@@ -644,3 +644,24 @@ It also checks that an explicit intermediate F64 variable still rounds to F64.
 This fixes a measured one-pixel planar-symmetry difference; it does not establish
 full x87 expression precision, altered control-word behavior, or mixed
 integer/F64 extended-precision arithmetic.
+
+### Raw graphics output
+
+`RawPutChar` and the native 88-byte `CTextGlbls text` record provide the stock
+640x480 graphics-mode raw character path. Both original fonts are present;
+filtering, tabs, backspace, newline, wrapping and scrolling match the measured
+V5.03 cache and all four VGA planes. `text` initialization is selected by
+reachability and runs before user initializers. Its cache belongs to the session,
+so child exit does not invalidate it; disposing the task host frees it.
+
+The explicit `__gr_update_mono` import requires an indexed graphics device.
+Missing devices fail at module instantiation. Updates validate the complete
+source/destination range before changing pixels. Text-mode VGA and physical VGA
+aliases are not supplied; those alias fields remain null. Invalid glyph positions
+outside the fixed screen throw instead of reproducing native out-of-bounds writes.
+This API does not provide `Raw`, `RawPrint`, a window manager or a DolDoc terminal,
+and ordinary console transport remains unchanged.
+
+`npm run test:raw` checks original source-hashed character/font/VGA evidence,
+literal device pixels and clipping, rejected-range nonmutation, memory growth,
+child/session lifetime, failed initialization and fresh-instance recovery.
