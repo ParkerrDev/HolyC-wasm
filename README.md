@@ -199,6 +199,29 @@ initializer on a local function-pointer declaration; declare it first, then
 assign it. Required argument omissions and surplus arguments fail in strict
 mode. Native callback defaults remain available at the pointer's call site.
 
+Function redefinitions keep separate implementations. Earlier direct/bare calls,
+stored pointers, callback defaults and recursive bodies retain the definition
+they referenced. Extern headers resolve to their next definition; each earlier
+call keeps the header/defaults visible when parsed. Output shortcuts similarly
+retain their Print/PutChars function, independently of same-named local variables.
+Runtime initialization and its exported host entry points retain prelude bindings.
+The 17 implemented private APIs recorded as native raw system exports have a
+distinct first-extern rule: that header binds the original export, until a typed
+user declaration shadows it. This is function binding, not a populated native
+runtime symbol table or x86 code-address export.
+
+`npm run test:function-bind` checks source-bound original V5.03 cases and the
+MemSet redefinition that exposed initializer coupling. The native header-default
+fixture explicitly disables header-mismatch warnings, which are not implemented
+here. Header changes that alter a WebAssembly call signature reject explicitly,
+as do conflicting runtime and user exports of the same host-facing name.
+The existing undeclared forward-reference extension remains; fully unresolved
+functions reject in strict mode. Function declaration execution timing is still
+different: a pointer initialized from an unresolved extern before its later
+definition can observe that later implementation in WASM, while native JIT
+captures its then-current UndefinedExtern address. This remaining boundary does
+not affect the tested pointers captured from already-defined functions.
+
 HolyC exceptions propagate through direct calls and callbacks using typed
 [WebAssembly exception handling](https://github.com/WebAssembly/exception-handling/blob/main/proposals/exception-handling/legacy/Exceptions.md).
 Catches restore the HolyC shadow stack. A catch that falls through handles the
@@ -1127,7 +1150,9 @@ initializer, while taking the aggregate or a subobject address, array decay,
 typed aliases and captured default pointers conservatively retain the table
 dependency. Audited reset-only initializer effects prevent the initial cmp
 clear from inventing a read of every field. Ordinary callers and dependencies
-of functions called by that reset retain their normal reachability rules.
+of functions called by that reset retain their normal reachability rules. The
+effect requires a fixed prelude callee graph; actual externs resolved by user
+code, opaque host imports and indirect callbacks disable that assumption.
 
 `npm run test:cmp-tables` compares all 1,218 native table/map/count values,
 direct and escaped access, five lifetimes, child sharing and full disposal.

@@ -10,6 +10,7 @@ import { preprocess } from "./preprocess.js";
 import { parse } from "./parser.js";
 import { compile as codegen } from "./codegen.js";
 import { PRELUDE_SRC, Prelude, RUNTIME_INITIALIZERS, RUNTIME_INTERFACES, RUNTIME_ADDRESSES } from "./prelude.js";
+import {RUNTIME_FUNCTION_EXPORTS} from "./function-exports.js";
 import {KEYDEV_SRC} from "./keydev-prelude.js";
 import {DOC_ENTRY_SRC} from "./doc-entry.js";
 import { FLOAT_CONVERT_SRC,FLOAT_MUL_I64 } from "./float-convert.js";
@@ -36,7 +37,9 @@ export function compileHolyC(source, opts = {}) {
     projectIncludes: opts.projectIncludes,
     filename: userName,
   });
-  const ast = parse(pp, userName, { resilient: opts.resilient });
+  const ast = parse(pp, userName, { resilient: opts.resilient,
+    runtimeFunctionExports:opts.noPrelude?[]:RUNTIME_FUNCTION_EXPORTS,
+    intrinsicFunctions:["MyCore"] });
   const helper=parse(lex(FLOAT_CONVERT_SRC,"<compiler>")).decls[0];
   helper.name=FLOAT_MUL_I64;
   ast.decls.unshift(helper);ast.items.unshift(helper);

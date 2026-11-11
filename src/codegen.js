@@ -39,7 +39,12 @@ class Codegen {
   constructor(program, opts) {
     this.program = program;
     const binding=name=>program.runtimeBindings?.[name]??name;
-    const bind=api=>({...api,globals:api.globals?.map(binding),
+    const functionBinding=name=>program.runtimeFunctionBindings?.[name]??name;
+    this.runtimeExportNames=new Map();
+    const bind=api=>({...api,name:functionBinding(api.name),check:functionBinding(api.check),
+      exports:api.exports?.map(name=>{
+        const bound=functionBinding(name);this.runtimeExportNames.set(bound,name);return bound;
+      }),globals:api.globals?.map(binding),
       writeOnlyGlobals:api.writeOnlyGlobals?.map(binding),
       fields:api.fields?.map(name=>{const [root,...path]=name.split(".");return [binding(root),...path].join(".");})});
     this.opts={...opts,runtimeInitializers:opts.runtimeInitializers?.map(bind),
@@ -131,7 +136,7 @@ class Codegen {
 
     // PASS 2: generate bodies
     for (const fn of this.functions.values()) {
-      if (fn.isImport) continue;
+      if (fn.isImport || fn.isAlias) continue;
       if (fn.node && fn.node.body) { this.genFunctionBody(fn); continue; }
       //Unused prototypes reserve a slot; strict references to them are errors.
       if (fn.slot) this.genStubBody(fn);
@@ -166,11 +171,16 @@ class Codegen {
     this.m.exportGlobal("__core", this.coreGlobal);   // SMP: host sets each worker's core index here
     // functions the host calls back into (a runtime JIT's memory/step hooks, guest-execution entry points,
     // test probes): named by the caller via opts.exports - the compiler has no built-in list.
+    const published=new Map();
     for (const nm of new Set([...(this.opts.exports || []),...linked.exports])) {
       const fn = this.functions.get(nm);
       if (fn && fn.slot) {
         if (!this.lenient && !fn.node) throw new CodegenError("Unresolved exported function: " + nm);
-        this.m.exportFunc(nm, fn.slot.index);
+        const name=linked.exports.has(nm)?this.runtimeExportNames.get(nm)??nm:nm;
+        if (published.has(name) && published.get(name)!==fn.slot.index)
+          throw new CodegenError("Conflicting runtime and user function export: "+name);
+        if (!published.has(name)) this.m.exportFunc(name,fn.slot.index);
+        published.set(name,fn.slot.index);
       }
     }
 
@@ -405,6 +415,7 @@ class Codegen {
         if (!node || typeof node!=="object" || seen.has(node)) return;
         seen.add(node);
         for (const [key,value] of Object.entries(node)) {
+          if (key==="functionType") continue;
           if (key==="params") for (const param of value) {
             walk(param.type);
             if (!param.default || constant(param.default)) continue;
@@ -493,6 +504,16 @@ class Codegen {
     for (const d of this.program.decls) {
       if (d.kind !== "FuncDecl") continue;
       if (!d.body) {
+        if (d.functionAlias) {
+          const target=this.functions.get(d.functionAlias);
+          if (!target) throw new CodegenError("Missing exported function: "+d.sourceName);
+          const params=d.params.map(p=>({...p,type:this.resolveType(p.type)})),retType=this.resolveType(d.retType);
+          const a=this.wasmSig(params,retType,d.isVarArgs),b=this.wasmSig(target.params,target.retType,target.isVarArgs);
+          if (JSON.stringify(a)!==JSON.stringify(b))
+            throw new CodegenError("Exported function header changes WASM ABI: "+d.sourceName);
+          this.functions.set(d.name,{...target,name:d.name,isAlias:true,params,retType,isVarArgs:d.isVarArgs});
+          continue;
+        }
         // prototype/extern/import: register signature if not present
         if (!this.functions.has(d.name)) this.registerFuncSig(d, null);
         continue;
@@ -515,9 +536,13 @@ class Codegen {
     for (const d of this.program.decls) {
       if (d.kind !== "FuncDecl" || d.body || !d.storage?.includes("import")) continue;
       if (this.imports[d.name] || defined.has(d.name)) continue;
+      if (d.sourceName && this.imports[d.sourceName]) {
+        this.imports[d.name]={...this.imports[d.sourceName],declaration:d};
+        continue;
+      }
       const params = d.params.map((p) => ({ type: this.resolveType(p.type), name: p.name, default: p.default }));
       const sig = this.wasmSig(params, this.resolveType(d.retType),d.isVarArgs);
-      const idx = this.m.importFunc("env", d.name, sig.params, sig.results);
+      const idx = this.m.importFunc("env", d.sourceName??d.name, sig.params, sig.results);
       this.imports[d.name] = { index: idx, sig, declaration:d };
     }
   }
@@ -591,10 +616,17 @@ class Codegen {
   reachable() {
     const functions=new Set(),globals=new Set(),fields=new Set(),bodies=new Set(),hooks=new Set();
     const interfaces=new Set(),exports=new Set();
-    const writeOnly=new Map();
+    const writeOnly=new Map(),byIndex=new Map([...this.functions.values()].map(fn=>[fn.index,fn]));
+    const trusted=(index,seen=new Set())=>{
+      if (seen.has(index)) return true;
+      seen.add(index);
+      const fn=byIndex.get(index),body=this.m.funcs[index-this.m.importFuncs.length]?.body;
+      return fn?.node?.filename==="<prelude>" && body && !body.indirectCalls &&
+        [...body.references].every(callee=>trusted(callee,seen));
+    };
     for (const hook of this.opts.runtimeInitializers || []) {
       const fn=this.functions.get(hook.name);
-      if (fn?.node?.filename==="<prelude>" && hook.writeOnlyGlobals?.length)
+      if (fn && hook.writeOnlyGlobals?.length && trusted(fn.index))
         writeOnly.set(fn.index,new Set(hook.writeOnlyGlobals));
     }
     const visitBody=(body,initialized)=>{
@@ -897,7 +929,7 @@ class FnCtx {
       }
       case "ExprStmt": { const t = this.genExpr(s.expr); this.dropIfValue(t); return; }
       case "Print": this.genPrint(s); return;
-      case "PutChars": this.genPutChars(s.expr); return;
+      case "PutChars": this.genPutChars(s); return;
       case "If": this.genIf(s); return;
       case "While": this.genWhile(s); return;
       case "DoWhile": this.genDoWhile(s); return;
@@ -1238,20 +1270,34 @@ class FnCtx {
 
   // ================================================== print
   genPrint(s) {
-    const fn=this.cg.functions.get("Print");
+    const fn=s.callee?this.functionAt(s.callee):this.cg.functions.get("Print");
     if (!fn) this.err(s,"Print requires the runtime or an explicit declaration");
     this.dropIfValue(this.emitCall(fn,[s.format,...s.args],s));
   }
 
-  genPutChars(expr) {
-    const fn=this.cg.functions.get("PutChars");
-    if (!fn) this.err(null,"Character output requires the runtime or an explicit PutChars declaration");
-    this.dropIfValue(this.emitCall(fn,[expr],expr));
+  genPutChars(s) {
+    const fn=s.callee?this.functionAt(s.callee):this.cg.functions.get("PutChars");
+    if (!fn) this.err(s,"Character output requires the runtime or an explicit PutChars declaration");
+    this.dropIfValue(this.emitCall(fn,[s.expr],s));
+  }
+
+  functionAt(node) {
+    if (node.intrinsicFunction) return null;
+    const fn=this.cg.functions.get(node.name),type=node.functionType;
+    if (!fn || !type || type.params===fn.node?.params && type.retType===fn.node?.retType)
+      return fn;
+    const view={...fn,retType:this.cg.resolveType(type.retType),isVarArgs:type.isVarArgs,
+      params:type.params.map(p=>({...p,type:this.cg.resolveType(p.type)}))};
+    const a=this.cg.wasmSig(view.params,view.retType,view.isVarArgs),
+      b=this.cg.wasmSig(fn.params,fn.retType,fn.isVarArgs);
+    if (JSON.stringify(a)!==JSON.stringify(b))
+      this.err(node,"Function header changes WASM ABI: "+(fn.node?.sourceName??fn.name));
+    return view;
   }
 
   // A reference parsed before a same-named local still names its global.
   localBinding(node) {
-    return node.globalBinding===undefined?this.locals.get(node.name):undefined;
+    return node.globalBinding===undefined && node.functionBinding===undefined?this.locals.get(node.name):undefined;
   }
 
   // ================================================== expressions
@@ -1336,7 +1382,7 @@ class FnCtx {
       case "Ident": {
         const L = this.localBinding(node); if (L) return this.cg.resolveType(L.type);
         const G = this.cg.globals.get(node.name); if (G) return this.cg.resolveType(node.globalType??G.type);
-        const fn = this.cg.functions.get(node.name); if (fn) return fn.retType;
+        const fn = this.functionAt(node); if (fn) return fn.retType;
         if (node.name in this.cg.constEnv) return T.I64;
         return T.I64;
       }
@@ -1353,7 +1399,7 @@ class FnCtx {
           if (this.exportedAddress(node.operand)) return T.I64;
           if (node.operand.kind==="Ident" && !this.localBinding(node.operand) &&
               !this.cg.globals.has(node.operand.name)) {
-            const fn=this.cg.functions.get(node.operand.name);
+            const fn=this.functionAt(node.operand);
             if (fn) return funcPtr(fn.retType,fn.params,fn.isVarArgs);
           }
           return ptrTo(this.peekType(node.operand));
@@ -1372,7 +1418,7 @@ class FnCtx {
       case "Call": {
         const callee = node.callee,type=this.peekType(callee);
         if (isFuncPtr(type)) return type.retType;
-        if (callee.kind === "Ident") { const fn = this.cg.functions.get(callee.name); if (fn) return fn.retType; }
+        if (callee.kind === "Ident") { const fn = this.functionAt(callee); if (fn) return fn.retType; }
         return T.I64;
       }
       case "Index": { const bt = this.peekType(node.base); return elemType(bt) || T.I64; }
@@ -1423,7 +1469,7 @@ class FnCtx {
       this.f.i64_const(G.addr); this.f.op("i32_wrap_i64"); this.emitLoad(t); return t;
     }
     if (node.name in this.cg.constEnv) { this.f.i64_const(this.cg.constEnv[node.name]); return T.I64; }
-    const fn = this.cg.functions.get(node.name);
+    const fn = this.functionAt(node);
     if (fn) { return this.emitCall(fn, [], node); } // no-paren call
     if (node.name==="MyCore") {this.f.global_get(this.cg.coreGlobal);return T.I64;}
     // Unknown symbol: in lenient mode it becomes a global I64 (kernel
@@ -1899,7 +1945,7 @@ class FnCtx {
       if (this.exportedAddress(node.operand)) return this.genIdent(node.operand);
       // address-of; function name -> id constant
       if (node.operand.kind === "Ident") {
-        const fn = this.cg.functions.get(node.operand.name);
+        const fn = this.functionAt(node.operand);
         if (fn && !this.localBinding(node.operand) && !this.cg.globals.has(node.operand.name)) {
           if (!this.cg.lenient && !fn.node && !fn.isImport)
             this.err(node, "Unresolved function: " + fn.name);
@@ -1982,6 +2028,7 @@ class FnCtx {
   genCall(node) {
     const callee = node.callee,type=this.peekType(callee);
     if (isFuncPtr(type)) {
+      this.f.indirectCalls=true;
       const target=this.newWLocal(VT.i32),sig=this.cg.wasmSig(type.params,type.retType,type.isVarArgs);
       this.genExpr(callee);
       this.f.op("i32_wrap_i64").local_set(target);
@@ -2019,17 +2066,18 @@ class FnCtx {
         this.f.op(unaryMath[callee.name]);
         return type;
       }
-      if (callee.name==="MyCore" && !this.cg.functions.has("MyCore")) {
+      if (callee.name==="MyCore" && (callee.intrinsicFunction || !this.cg.functions.has("MyCore"))) {
         this.f.global_get(this.cg.coreGlobal);return T.I64;
       }
       if (callee.name.startsWith("__a_")) { const r = this.genAtomic(callee.name, node.args); if (r) return r; }   // SMP intrinsic: native WASM atomic RMW (LOCK ops over shared memory)
-      if (["Bt","Bts","Btr","Btc","LBts","LBtr","LBtc"].includes(callee.name)) {
+      const fn = this.functionAt(callee);
+      if (fn?.node?.filename==="<prelude>" &&
+          ["Bt","Bts","Btr","Btc","LBts","LBtr","LBtc"].includes(fn.node.sourceName??callee.name)) {
         const bit=this.cg.fold(node.args[1],this.locals,{});
         //BackB.HC ICBitOps uses a 32-bit immediate operand for negative constants.
         if (bit!==null && bit<0n)
           node={...node,args:[node.args[0],{kind:"IntLit",value:BigInt.asUintN(5,bit)}]};
       }
-      const fn = this.cg.functions.get(callee.name);
       if (fn) return this.emitCall(fn, node.args, node);
       if (!this.cg.lenient) this.err(node, "Undefined identifier or untyped call: " + callee.name);
       this.warnOnce("unknown or untyped call to '" + callee.name + "' not supported");

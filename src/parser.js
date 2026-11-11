@@ -34,6 +34,11 @@ export class Parser {
     this.globalNames=new Set();
     this.globalBindings=new Map();
     this.bindings=[];
+    this.functionBindings=new Map();
+    this.functionRecords=[];
+    this.runtimeExports=new Set(opts.runtimeFunctionExports||[]);
+    this.exportBindings=new Map();
+    this.intrinsicFunctions=new Set(opts.intrinsicFunctions||[]);
     this.localNames=null;
     this.switchId=0;
     this.anonymousId=0;
@@ -98,6 +103,7 @@ export class Parser {
       }
     }
     const program=mk("Program",{decls,topStmts,items,diagnostics:this.diagnostics});
+    this.finishFunctionBindings(program);
     this.finishGlobalBindings(program);
     return program;
   }
@@ -140,8 +146,60 @@ export class Parser {
     if (!this.localNames?.has(node.name)) {
       const binding=this.globalBindings.get(node.name);
       if (binding) {node.globalBinding=binding.id;node.globalType=binding.type;}
+      else if (node.kind==="Ident") this.bindFunctionReference(node);
     }
     return node;
+  }
+
+  bindFunctionReference(node) {
+    const fn=this.functionBindings.get(node.name);
+    if (fn) {node.functionBinding=fn.id;node.functionType=fn.type;}
+    else if (this.intrinsicFunctions.has(node.name)) node.intrinsicFunction=true;
+    else node.unboundFunction=node.name;
+    return node;
+  }
+
+  functionBinding(name,type,tok,storage) {
+    let binding=this.functionBindings.get(name);
+    const exported=this.exportBindings.get(name);
+    const alias=storage.includes("extern") && binding===exported?exported:null;
+    if (!binding || binding.defined || alias) {
+      binding={id:this.functionRecords.length,name,filename:tok.filename,nodes:[],alias};
+      this.functionRecords.push(binding);this.functionBindings.set(name,binding);
+    }
+    binding.type=type;
+    return binding;
+  }
+
+  finishFunctionBindings(program) {
+    const first=new Map(),runtime={};
+    for (const binding of this.functionRecords) {
+      if (!first.has(binding.name)) first.set(binding.name,binding);
+      binding.key=this.functionBindings.get(binding.name)===binding?binding.name:
+        "#function:"+binding.name+":"+binding.id;
+      if (binding.filename==="<prelude>") runtime[binding.name]=binding.key;
+      for (const node of binding.nodes) {
+        node.name=binding.key;node.sourceName=binding.name;
+        if (binding.alias) node.functionAlias=binding.alias.key;
+      }
+    }
+    const seen=new Set(),walk=node=>{
+      if (!node || typeof node!=="object" || seen.has(node)) return;
+      seen.add(node);
+      if (node.functionBinding!==undefined)
+        node.name=this.functionRecords[node.functionBinding].key;
+      else if (node.unboundFunction && first.has(node.unboundFunction)) {
+        // Retain the existing forward-reference extension, bound to its first
+        // declaration. Prelude source uses it before native API definitions.
+        const binding=first.get(node.unboundFunction);
+        node.name=binding.key;node.functionBinding=binding.id;
+      }
+      delete node.unboundFunction;
+      for (const value of Object.values(node))
+        if (Array.isArray(value)) value.forEach(walk);
+        else if (value && typeof value==="object") walk(value);
+    };
+    walk(program);program.runtimeFunctionBindings=runtime;
   }
 
   finishGlobalBindings(program) {
@@ -273,7 +331,12 @@ export class Parser {
       const tok=this.cur(),d=this.parseDeclarator(baseType,false,!topLevel && !storage.includes("static"));
       (topLevel?this.globalNames:this.localNames??this.globalNames).add(d.name);
       if (this.isP("(")) {
+        const type={retType:d.type},binding=this.functionBinding(d.name,type,tok,storage);
         const {params,isVarArgs}=this.parseParams();
+        Object.assign(type,{params,isVarArgs});
+        binding.defined=this.isP("{") || !!binding.alias;
+        if (tok.filename==="<prelude>" && binding.defined && this.runtimeExports.has(d.name) &&
+            !this.exportBindings.has(d.name)) this.exportBindings.set(d.name,binding);
         let body=null;
         if (this.isP("{")) {
           const outer=this.localNames;
@@ -283,6 +346,7 @@ export class Parser {
         if (!body) this.optP(";");
         const fn=mk("FuncDecl",{name:d.name,retType:d.type,params,body,
           storage,isVarArgs},tok);
+        binding.nodes.push(fn);
         this.funcNamesAdd?.(d.name);
         return fn;
       }
@@ -450,7 +514,7 @@ export class Parser {
       if (!t.value) this.next();
       const expr=this.parseExpression();
       this.optP(";");
-      return mk("PutChars",{expr},t);
+      return mk("PutChars",{expr,callee:this.bindFunctionReference(mk("Ident",{name:"PutChars"},t))},t);
     }
 
     // expression statement
@@ -490,7 +554,7 @@ export class Parser {
       args.push(this.parseAssignment());
     }
     this.optP(";");
-    return mk("Print", { format, args }, t);
+    return mk("Print", { format, args,callee:this.bindFunctionReference(mk("Ident",{name:"Print"},t)) }, t);
   }
 
   parseIf() {

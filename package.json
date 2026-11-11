@@ -47,7 +47,8 @@
     "test:lex-stream": "node tests/lex-stream.mjs && node tests/lex-stream-fault.mjs",
     "test:lex-string": "node tests/lex-string.mjs",
     "test:que-vector": "node tests/que-vector.mjs && node tests/que-vector-fault.mjs && node tests/que-task-fault.mjs",
-    "test:cmp-tables": "node tests/initializer-effects.mjs && node tests/cmp-tables.mjs"
+    "test:cmp-tables": "node tests/initializer-effects.mjs && node tests/cmp-tables.mjs",
+    "test:function-bind": "node tests/function-bind.mjs"
   },
   "license": "MIT",
   "author": "Built with Claude Code"

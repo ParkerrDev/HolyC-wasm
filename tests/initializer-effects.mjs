@@ -6,15 +6,19 @@ import {createHost} from '../src/runtime/host.js';
 const prelude=`
 class CState {I64 counter;U8 *table;I64 spare[1];}; CState state,extra;
 I64 extra_seen;
-import U0 Zero(U8 *ptr,I64 size);
+U0 Zero(U8 *ptr,I64 size){__memfill(ptr,0,size);}
 import U8 *Allocate(); import U8 *AllocateExtra();
 U0 Clear(){Zero(&state,sizeof(CState));}
 U0 Tables(){state.table=Allocate;}
 U0 Extra(){extra.table=AllocateExtra;}
 U0 Touch(){extra_seen=extra.table;}
 `;
-function load(source,{effect=true,observe=false}={}) {
-  const pre=observe?prelude.replace('Zero(&state,sizeof(CState));}', 'Zero(&state,sizeof(CState));Touch;}'):prelude;
+function load(source,{effect=true,observe=false,forward=false,opaque=false,indirect=false}={}) {
+  let pre=observe?prelude.replace('Zero(&state,sizeof(CState));}', 'Zero(&state,sizeof(CState));Touch;}'):prelude;
+  if (forward || opaque) pre=pre.replace('U0 Zero(U8 *ptr,I64 size){__memfill(ptr,0,size);}',
+    (opaque?'import':'extern')+' U0 Zero(U8 *ptr,I64 size);');
+  if (indirect) pre=pre.replace('U0 Clear(){Zero(&state,sizeof(CState));}',
+    'U0 (*zero_cb)(U8 *ptr,I64 size)=&Zero; U0 Clear(){zero_cb(&state,sizeof(CState));}');
   const tokens=[...lex(pre,'<prelude>').filter(token=>token.type!=='eof'),...lex(source,'effect.hc')];
   const ast=parse(tokens),result=compile(ast,{lenient:false,exports:['Read'],runtimeInitializers:[
     {name:'Extra',fields:['extra.table']},
@@ -43,7 +47,15 @@ for(const source of [
   assert(test.instance.exports.Read());
 }
 const untrusted=load('U0 Clear(){Zero(&state,sizeof(CState));}'+plain);
-assert.equal(untrusted.calls,1,'A user replacement cannot inherit trusted initializer effects.');
+assert.equal(untrusted.calls,0,'The runtime hook retains its original prelude implementation.');
+const explicit=load('U0 Clear(){Zero(&state,sizeof(CState));} I64 Read(){Clear;return state.counter;}');
+assert.equal(explicit.calls,1,'Explicit user calls retain their own whole-object effect.');
+const replacement=load('U0 Zero(U8 *ptr,I64 size){extra_seen=ptr(CState *)->table;__memfill(ptr,0,size);}' + plain);
+assert.equal(replacement.calls,0,'An earlier reset keeps its original callee after redefinition.');
+const resolved=load('U0 Zero(U8 *ptr,I64 size){extra_seen=ptr(CState *)->table;__memfill(ptr,0,size);}' + plain,{forward:true});
+assert.equal(resolved.calls,1,'An extern resolved by user code cannot inherit a reset effect.');
+assert.equal(load(plain,{opaque:true}).calls,1,'An opaque host call is not an audited reset.');
+assert.equal(load(plain,{indirect:true}).calls,1,'An indirect callback cannot inherit a reset effect.');
 const callee=load(plain,{observe:true});
 assert.equal(callee.calls,0);assert.equal(callee.extraCalls,1,'Callee dependencies are not suppressed.');
 const memory=new DataView(callee.instance.exports.memory.buffer);
