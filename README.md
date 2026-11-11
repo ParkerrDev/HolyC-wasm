@@ -368,3 +368,11 @@ and bit-field operations. `StringUtil` checks all 2,048 flag combinations,
 128 in-place/out-of-place tab conversions and 4,224 unaligned bit-field reads.
 The bit-field API, like its native assembly counterpart, reads an unaligned U64;
 callers must provide that accessible storage even for smaller requested fields.
+
+`MyCore` is a host-runtime extension returning the WASM instance's configured
+core index. Bare and explicit calls agree, and a source-defined function of that
+name takes normal precedence. It is not a stock TempleOS symbol: native code
+uses `Gs->num` or an explicit host adapter. `CoreOverride` checks native user
+function semantics; `test:core` checks four configured host core IDs. The
+unresolved native probe remains in `tests/probes/HostCoreBare.HC` as evidence of
+that API boundary.

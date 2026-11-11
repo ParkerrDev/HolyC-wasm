@@ -1302,6 +1302,7 @@ class FnCtx {
     if (node.name in this.cg.constEnv) { this.f.i64_const(this.cg.constEnv[node.name]); return T.I64; }
     const fn = this.cg.functions.get(node.name);
     if (fn) { return this.emitCall(fn, [], node); } // no-paren call
+    if (node.name==="MyCore") {this.f.global_get(this.cg.coreGlobal);return T.I64;}
     // Unknown symbol: in lenient mode it becomes a global I64 (kernel
     // global/constant we don't model) so the program still compiles & runs.
     if (this.cg.lenient) {
@@ -1848,7 +1849,9 @@ class FnCtx {
         this.f.op(unaryMath[callee.name]);
         return type;
       }
-      if (callee.name === "MyCore") { this.f.global_get(this.cg.coreGlobal); return T.I64; }   // SMP intrinsic: this worker's core index (per-instance WASM global)
+      if (callee.name==="MyCore" && !this.cg.functions.has("MyCore")) {
+        this.f.global_get(this.cg.coreGlobal);return T.I64;
+      }
       if (callee.name.startsWith("__a_")) { const r = this.genAtomic(callee.name, node.args); if (r) return r; }   // SMP intrinsic: native WASM atomic RMW (LOCK ops over shared memory)
       if (["Bt","Bts","Btr","Btc","LBts","LBtr","LBtc"].includes(callee.name)) {
         const bit=this.cg.fold(node.args[1],this.locals,{});
