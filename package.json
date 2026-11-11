@@ -9,6 +9,7 @@
     "test:intrinsics": "node src/wasm/emitter.selftest.js && node src/atomic.selftest.mjs && node src/import.selftest.mjs",
     "test:document": "node tests/document.mjs",
     "test:strict": "node tests/strict.mjs",
+    "test:callback": "node tests/callback.mjs",
     "test:float-scale": "node tests/oracle-scale.mjs"
   },
   "license": "MIT",

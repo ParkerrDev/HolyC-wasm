@@ -83,8 +83,8 @@ CDC gr_dc_storage;
 class CTask {
   I64 pix_width;
   I64 pix_height;
-  I64 draw_it;
-  I64 task_end_cb;
+  U0 (*draw_it)(CTask *task,CDC *dc);
+  U0 (*task_end_cb)();
   I64 win_inhibit;
   I64 rand_seed,task_flags;
 };

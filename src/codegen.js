@@ -13,7 +13,7 @@ const NOFOLD = typeof process !== "undefined" && process.env && process.env.NOFO
 //   - a host bump-heap above HEAP_BASE for MAlloc
 import { Module, Func, VT, EMPTY_BLOCK } from "./wasm/emitter.js";
 import {
-  T, BASE_TYPES, ptrTo, arrayOf, isInt, isFloat, isPtr, isArray, isVoid,
+  T, BASE_TYPES, ptrTo, arrayOf, funcPtr, isFuncPtr, isInt, isFloat, isPtr, isArray, isVoid,
   isClass, isAggregate, isScalar, sizeof, elemType, wasmValType, loadOp, storeOp,
   binResultType, typeName, UNION_MEMBERS,
 } from "./types.js";
@@ -40,6 +40,7 @@ class Codegen {
     this.m = new Module();
     this.classes = new Map();   // name -> ClassDecl node
     this.classLayouts = new Map(); // name -> {size, align, fields:Map}
+    this.functionAddresses=new Map();
     this.functions = new Map(); // name -> fn record
     this.globals = new Map();   // name -> {addr, type}
     this.constEnv = {};         // name -> bigint, for #define-like enum constants
@@ -134,6 +135,12 @@ class Codegen {
     this.genRtInit();
     this.genMain();
 
+    if (this.functionAddresses.size) {
+      this.m.setTable(this.functionAddresses.size+1);
+      this.m.addElement(1,[...this.functionAddresses.keys()]);
+      this.m.exportTable("__functions");
+    }
+
     // emit static data
     for (const d of this.data) this.m.addData(d.addr, d.bytes);
 
@@ -155,6 +162,12 @@ class Codegen {
 
     const bytes = this.m.emit();
     return { bytes, warnings: this.warnings, dataEnd: this.cursor, globals: this.globals };
+  }
+
+  functionAddress(fn) {
+    if (!this.functionAddresses.has(fn.index))
+      this.functionAddresses.set(fn.index,this.functionAddresses.size+1);
+    return this.functionAddresses.get(fn.index);
   }
 
   // ============================================================ classes
@@ -205,6 +218,8 @@ class Codegen {
     switch (t.kind) {
       case "classref": return { kind: "class", name: t.name };
       case "ptr": return ptrTo(this.resolveType(t.to));
+      case "funcptr": return funcPtr(this.resolveType(t.retType),
+        t.params.map(p=>({...p,type:this.resolveType(p.type)})),t.isVarArgs);
       case "array": {
         const of = this.resolveType(t.of);
         let count;
@@ -924,29 +939,26 @@ class FnCtx {
 
   // ================================================== print
   genPrint(s) {
-    const fmtAddr = this.cg.internBytes(s.bytes, true);
-    let n = 0;
-    for (const arg of s.args) {
-      if (arg == null) continue;
-      if (n >= 64) { this.dropIfValue(this.genExpr(arg)); continue; } // ARG_MAX guard
-      const slot = ARG_BUF + n * ARG_SLOT;
-      // Decide float vs int from the value we actually push (robust to void).
-      const valLocalI = this.scratchI64();
-      const valLocalF = this.scratchF64();
-      const at = this.cg.resolveType(this.genExpr(arg));
-      let isF;
-      if (isVoid(at)) { this.f.i64_const(0); isF = false; }
-      else if (isFloat(at)) { this.f.local_set(valLocalF); isF = true; }
-      else { isF = false; this.f.local_set(valLocalI); }
-      // store tag
-      this.f.i32_const(slot); this.f.i64_const(isF ? TAG_FLT : TAG_INT); this.emitRawStore("i64_store", 0);
-      // store value
-      this.f.i32_const(slot + 8);
-      if (isF) { this.f.local_get(valLocalF); this.emitRawStore("f64_store", 0); }
-      else { this.f.local_get(valLocalI); this.emitRawStore("i64_store", 0); }
-      n++;
+    const fmtAddr=this.cg.internBytes(s.bytes,true),args=s.args.filter(arg=>arg!=null),
+      values=[];
+    //Stage every value before writing the shared argument buffer: an argument
+    //may itself print, and native Print evaluates its arguments right to left.
+    for (let i=args.length-1;i>=0;i--) {
+      let type=this.cg.resolveType(this.genExpr(args[i]));
+      if (i>=64) {this.dropIfValue(type);continue;}
+      if (isVoid(type)) {this.f.i64_const(0);type=T.I64;}
+      const local=this.newWLocal(wasmValType(type));
+      this.f.local_set(local);
+      values[i]={local,float:isFloat(type)};
     }
-    this.f.i64_const(fmtAddr); this.f.i64_const(n); this.f.call(this.cg.imports.__printf.index);
+    values.forEach((value,i)=>{
+      const slot=ARG_BUF+i*ARG_SLOT;
+      this.f.i32_const(slot).i64_const(value.float?TAG_FLT:TAG_INT);
+      this.emitRawStore("i64_store",0);
+      this.f.i32_const(slot+8).local_get(value.local);
+      this.emitRawStore(value.float?"f64_store":"i64_store",0);
+    });
+    this.f.i64_const(fmtAddr).i64_const(values.length).call(this.cg.imports.__printf.index);
   }
 
   genPutChars(bytes) {
@@ -1045,7 +1057,14 @@ class FnCtx {
       }
       case "Logical": case "Chain": return T.I64;
       case "Unary": {
-        if (node.op === "&") return ptrTo(this.peekType(node.operand));
+        if (node.op === "&") {
+          if (node.operand.kind==="Ident" && !this.locals.has(node.operand.name) &&
+              !this.cg.globals.has(node.operand.name)) {
+            const fn=this.cg.functions.get(node.operand.name);
+            if (fn) return funcPtr(fn.retType,fn.params);
+          }
+          return ptrTo(this.peekType(node.operand));
+        }
         if (node.op === "*") { const t = this.peekType(node.operand); return isPtr(t) || isArray(t) ? elemType(t) : T.I64; }
         if (node.op === "!") return T.I64;
         if (node.op === "-") {
@@ -1058,7 +1077,8 @@ class FnCtx {
       case "Assign": return this.peekType(node.target);
       case "Cond": return this.peekType(node.then);
       case "Call": {
-        const callee = node.callee;
+        const callee = node.callee,type=this.peekType(callee);
+        if (isFuncPtr(type)) return type.retType;
         if (callee.kind === "Ident") { const fn = this.cg.functions.get(callee.name); if (fn) return fn.retType; }
         return T.I64;
       }
@@ -1520,7 +1540,8 @@ class FnCtx {
         if (fn && !this.locals.has(node.operand.name) && !this.cg.globals.has(node.operand.name)) {
           if (!this.cg.lenient && !fn.node && !fn.isImport)
             this.err(node, "Unresolved function: " + fn.name);
-          this.f.i64_const(fn.index); return ptrTo(T.U0);
+          this.f.i64_const(this.cg.functionAddress(fn));
+          return funcPtr(fn.retType,fn.params);
         }
       }
       const t = this.genAddr(node.operand);
@@ -1530,6 +1551,9 @@ class FnCtx {
       const t = this.genExpr(node.operand);
       const rt = this.cg.resolveType(t);
       const et = isPtr(rt) || isArray(rt) ? elemType(rt) : T.I64;
+      //V5.03 keeps function-pointer expressions in a register: unary *
+      //reduces their pointer depth without loading the pointed-to cell.
+      if (isFuncPtr(et)) return et;
       if (isAggregate(this.cg.resolveType(et))) return et;
       this.f.op("i32_wrap_i64"); this.emitLoad(this.cg.resolveType(et));
       return et;
@@ -1587,7 +1611,17 @@ class FnCtx {
 
   // ================================================== calls
   genCall(node) {
-    const callee = node.callee;
+    const callee = node.callee,type=this.peekType(callee);
+    if (isFuncPtr(type)) {
+      const target=this.newWLocal(VT.i32),sig=this.cg.wasmSig(type.params,type.retType);
+      this.genExpr(callee);
+      this.f.op("i32_wrap_i64").local_set(target);
+      this.emitArgs(type.params,node.args,node);
+      this.f.local_get(target).call_indirect(this.cg.m.typeIndex(sig.params,sig.results));
+      //A null-only callback still needs a table so a call traps at runtime.
+      if (!this.cg.m.table) this.cg.m.setTable(1);
+      return type.retType;
+    }
     if (callee.kind === "Ident") {
       const unaryMath={__floor:"f64_floor",__ceil:"f64_ceil",__round:"f64_nearest",
         __trunc:"f64_trunc",__sqrt:"f64_sqrt",__abs:"f64_abs",__ctz:"i64_ctz",__clz:"i64_clz"};
@@ -1608,9 +1642,8 @@ class FnCtx {
       }
       const fn = this.cg.functions.get(callee.name);
       if (fn) return this.emitCall(fn, node.args, node);
-      if (!this.cg.lenient) this.err(node, "Undefined identifier or unsupported indirect call: " + callee.name);
-      // maybe a function-pointer variable -> unsupported indirect
-      this.warnOnce("indirect/function-pointer call to '" + callee.name + "' not supported");
+      if (!this.cg.lenient) this.err(node, "Undefined identifier or untyped call: " + callee.name);
+      this.warnOnce("unknown or untyped call to '" + callee.name + "' not supported");
       // evaluate args for side effects then push 0
       for (const a of node.args) if (a) this.dropIfValue(this.genExpr(a));
       this.f.i64_const(0); return T.I64;
@@ -1641,24 +1674,47 @@ class FnCtx {
   emitCall(fn, args, node) {
     if (!this.cg.lenient && !fn.isImport && !fn.node)
       this.err(node, "Unresolved function: " + fn.name);
-    const params = fn.params || [];
-    for (let i = 0; i < params.length; i++) {
-      const p = params[i];
-      const provided = args[i];
-      const pType = this.cg.resolveType(p.type);
-      if (provided != null) {
-        this.genExprCoerce(provided, pType);
-      } else if (p.default != null) {
-        this.genExprCoerce(p.default, pType);
-      } else {
-        // missing arg, no default -> 0
-        if (isFloat(pType)) this.f.f64_const(0); else this.f.i64_const(0);
-      }
-    }
-    // extra args beyond params (varargs) - only meaningful for known variadics; drop
-    for (let i = params.length; i < args.length; i++) { if (args[i]) this.dropIfValue(this.genExpr(args[i])); }
+    this.emitArgs(fn.params||[],args,node);
     this.f.call(fn.index);
     return fn.retType;
+  }
+
+  pureExpr(node) {
+    if (!node) return true;
+    switch (node.kind) {
+      case "IntLit": case "CharLit": case "FloatLit": case "StrLit":
+      case "BinLit": case "Sizeof": return true;
+      case "Ident": return this.locals.has(node.name) || this.cg.globals.has(node.name) ||
+        !this.cg.functions.has(node.name);
+      case "Unary": return !["++","--"].includes(node.op) && this.pureExpr(node.operand);
+      case "Cast": return this.pureExpr(node.operand);
+      case "Binary": case "Logical": return this.pureExpr(node.left) && this.pureExpr(node.right);
+      case "Chain": return node.operands.every(operand=>this.pureExpr(operand));
+      case "Member": return this.pureExpr(node.base);
+      case "Index": return this.pureExpr(node.base) && this.pureExpr(node.index);
+      case "Cond": return this.pureExpr(node.cond) && this.pureExpr(node.then) && this.pureExpr(node.else);
+      default: return false;
+    }
+  }
+
+  emitArgs(params,args,node) {
+    const values=params.map((p,i)=>args[i]??p.default),
+      types=params.map(p=>this.cg.resolveType(p.type));
+    if (!this.cg.lenient && values.some(value=>value==null))
+      this.err(node,"Missing required function argument");
+    if (!this.cg.lenient && args.length>params.length)
+      this.err(node,"Too many function arguments");
+    const push=i=>values[i]!=null?this.genExprCoerce(values[i],types[i]):this.pushZero(types[i]);
+    //Native PrsFunCall assembles argument blocks from right to left.
+    if (values.every(value=>this.pureExpr(value)) && args.length<=params.length) {
+      values.forEach((_,i)=>push(i));
+      return;
+    }
+    for (let i=args.length-1;i>=params.length;i--)
+      if (args[i]) this.dropIfValue(this.genExpr(args[i]));
+    const locals=types.map(type=>this.newWLocal(wasmValType(type)));
+    for (let i=values.length-1;i>=0;i--) {push(i);this.f.local_set(locals[i]);}
+    locals.forEach(local=>this.f.local_get(local));
   }
 
   // ================================================== coercion / load / store

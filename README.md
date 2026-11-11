@@ -31,6 +31,7 @@ npm test                 # Compare WASM behavior with recorded V5.03 results.
 npm run test:intrinsics   # Emitter, atomic memory operations and import linking.
 npm run test:document     # Full DolDoc input, sprite integrity and CP437 transport.
 npm run test:strict       # Unsupported assembly and unresolved callable symbols.
+npm run test:callback     # Imported callbacks and null pointer traps.
 npm run test:oracle       # Boot V5.03 in QEMU and recheck the native results.
 npm run test:float-scale  # Reproduce the native Pow10I64 table in QEMU.
 ```
@@ -41,6 +42,10 @@ statements, case ranges, packed class layout, pointer arithmetic, writable
 strings, initialization, unsigned operations and signed floating conversion.
 They also cover native bit operations, deterministic random sequences, math
 rounding, floating remainder and decimal literal conversion.
+Typed callbacks cover local/global variables, members, arrays, parameters,
+default arguments and native evaluation order. Direct calls and Print evaluate
+arguments right to left; an indirect call captures its target first. Nested
+printing cannot overwrite the outer call's staged argument values.
 Negative fixtures exercise native compile errors. Each fixture has native
 source/output hashes; changing it requires rerunning the oracle. These checks
 do not establish full TempleOS compatibility.
@@ -103,7 +108,7 @@ with the same incorrect compiler behavior. QEMU/KVM exposed the mismatch.
 
 The browser runtime implements a subset of TempleOS APIs. Many stock programs
 still need native graphics, task, file and DolDoc sprite support. The compiler
-also has unsupported assembly, indirect calls and other language/runtime gaps.
+also has unsupported assembly, runtime-generated declarations and other gaps.
 WebAssembly F64 arithmetic does not reproduce the full x87 extended-precision
 environment. Passing a compiler fixture does not prove a game's rendering,
 input, performance or behavior on QEMU, other virtual machines or bare metal.
@@ -121,3 +126,10 @@ the same 617 entries. This matches literal compilation, not all x87 arithmetic.
 Update the compiler and runtime together: floating `%` uses the `__fmod` host
 import. `Seed(nonzero)` and the Rand family reproduce native task-local random
 sequences. Timer-mixed randomness uses the host clock, not a physical CPU's TSC.
+
+Function pointers are opaque nonzero indexes into the exported `__functions`
+WASM table; zero is null and calling it traps. They are callable references,
+not addresses of x86 machine code in linear memory. Native V5.03 rejects an
+initializer on a local function-pointer declaration; declare it first, then
+assign it. Required argument omissions and surplus arguments fail in strict
+mode. Native callback defaults remain available at the pointer's call site.

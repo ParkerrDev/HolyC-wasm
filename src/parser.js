@@ -1,6 +1,6 @@
 // parser.js - recursive-descent + Pratt parser for HolyC.
 import { mk } from "./ast.js";
-import { BASE_TYPES, ptrTo, arrayOf } from "./types.js";
+import { BASE_TYPES, ptrTo, arrayOf, funcPtr } from "./types.js";
 
 const STORAGE = new Set([
   "public", "extern", "import", "_extern", "static", "reg", "noreg",
@@ -136,15 +136,9 @@ export class Parser {
       // member declaration: Type [*] name [array] ... ;
       const baseType = this.parseTypeSpec();
       do {
-        let mt = baseType;
-        while (this.optP("*")) mt = ptrTo(mt);
-        const mname = this.cur().type === "ident" ? this.next().value : null;
-        const dims = [];
-        while (this.isP("[")) { this.next(); dims.push(this.parseConstIntish()); this.eatP("]"); }
-        for (let d = dims.length - 1; d >= 0; d--) mt = arrayOf(mt, dims[d]);
-        // bitfield ': n' -> ignore width, treat as scalar
-        if (this.optP(":")) { this.parseConstIntish(); }
-        if (mname) members.push({ name: mname, type: mt });
+        const member=this.parseDeclarator(baseType);
+        if (this.optP(":")) this.parseConstIntish();
+        members.push(member);
       } while (this.optP(","));
       this.optP(";");
     }
@@ -201,77 +195,65 @@ export class Parser {
 
     const baseType = this.parseTypeSpec();
 
-    // First declarator
-    let ptr = 0;
-    while (this.optP("*")) ptr++;
-    const nameTok = this.cur();
-    if (nameTok.type !== "ident") this.err("expected declarator name");
-    const name = this.next().value;
-
-    // function?
-    if (this.isP("(")) {
-      return this.parseFunction(storage, baseType, ptr, name, nameTok);
-    }
-
-    // variable declarator list
-    const decls = [];
-    let first = true;
-    while (true) {
-      let dptr = first ? ptr : 0;
-      let dname = name;
-      if (!first) {
-        dptr = 0;
-        while (this.optP("*")) dptr++;
-        dname = this.next().value;
+    const decls=[];
+    do {
+      const tok=this.cur(),d=this.parseDeclarator(baseType);
+      if (this.isP("(")) {
+        const {params,isVarArgs}=this.parseParams();
+        const body=this.isP("{")?this.parseBlock():null;
+        if (!body) this.optP(";");
+        const fn=mk("FuncDecl",{name:d.name,retType:d.type,params,body,
+          storage,isVarArgs},tok);
+        this.funcNamesAdd?.(d.name);
+        return fn;
       }
-      let type = baseType;
-      for (let p = 0; p < dptr; p++) type = ptrTo(type);
-      const dims = [];
-      while (this.isP("[")) { this.next(); if (this.isP("]")) { dims.push(null); } else dims.push(this.parseConstIntish()); this.eatP("]"); }
-      for (let d = dims.length - 1; d >= 0; d--) type = arrayOf(type, dims[d]);
-      let init = null;
-      if (this.optP("=")) init = this.parseInitializer();
-      decls.push(mk("VarDecl", { name: dname, type, init, storage }, nameTok));
-      first = false;
-      if (!this.optP(",")) break;
-    }
+      const init=this.optP("=")?this.parseInitializer():null;
+      if (!topLevel && d.type.kind==="funcptr" && init && !storage.includes("static"))
+        this.err("V5.03 requires a separate assignment for a local function pointer",tok);
+      decls.push(mk("VarDecl",{...d,init,storage},tok));
+    } while (this.optP(","));
     this.optP(";");
     return decls;
   }
 
-  parseFunction(storage, retBase, ptr, name, tok) {
-    let retType = retBase;
-    for (let p = 0; p < ptr; p++) retType = ptrTo(retType);
-    this.eatP("(");
-    const params = [];
-    let isVarArgs = false;
-    if (!this.isP(")")) {
-      do {
-        if (this.isP("...")) { this.next(); isVarArgs = true; break; }
-        // a param: Type [*] name [= default] ; allow unnamed
-        const pbase = this.parseTypeSpec();
-        let pp = 0; while (this.optP("*")) pp++;
-        let pname = null;
-        if (this.cur().type === "ident" && !this.isP("(")) pname = this.next().value;
-        let ptype = pbase; for (let p = 0; p < pp; p++) ptype = ptrTo(ptype);
-        const dims = [];
-        while (this.isP("[")) { this.next(); if (!this.isP("]")) this.parseConstIntish(); this.eatP("]"); ptype = ptrTo(ptype); }
-        let dflt = null;
-        if (this.optP("=")) dflt = this.parseAssignment();
-        params.push({ type: ptype, name: pname, default: dflt });
-      } while (this.optP(","));
+  parseDeclarator(baseType,unnamed=false) {
+    let type=baseType,name=null,stars=0;
+    while (this.optP("*")) type=ptrTo(type);
+    const callback=this.isP("(") && this.isP("*",1);
+    if (callback) {
+      this.next();
+      while (this.optP("*")) stars++;
     }
-    this.eatP(")");
+    if (this.cur().type==="ident") name=this.next().value;
+    else if (!unnamed) this.err("expected declarator name");
+    if (callback) {
+      this.eatP(")");
+      const {params,isVarArgs}=this.parseParams();
+      type=funcPtr(type,params,isVarArgs);
+      while (--stars) type=ptrTo(type);
+    }
+    const dims=[];
+    while (this.optP("[")) {
+      dims.push(this.isP("]")?null:this.parseConstIntish());
+      this.eatP("]");
+    }
+    for (let i=dims.length-1;i>=0;i--) type=arrayOf(type,dims[i]);
+    return {name,type};
+  }
 
-    let body = null;
-    if (this.isP("{")) {
-      body = this.parseBlock();
-    } else {
-      this.optP(";"); // prototype
-    }
-    const fn = mk("FuncDecl", { name, retType, params, body, storage, isVarArgs }, tok);
-    this.funcNamesAdd?.(name);
-    return fn;
+  parseParams() {
+    this.eatP("(");
+    const params=[];
+    let isVarArgs=false;
+    if (!this.isP(")")) do {
+      if (this.optP("...")) {isVarArgs=true;break;}
+      const d=this.parseDeclarator(this.parseTypeSpec(),true);
+      if (d.type.kind==="array") this.err("No arrays in fun args");
+      d.default=this.optP("=")?this.parseAssignment():null;
+      params.push(d);
+    } while (this.optP(","));
+    this.eatP(")");
+    return {params,isVarArgs};
   }
 
   parseInitializer() {
@@ -602,10 +584,7 @@ export class Parser {
   }
 
   parseTypeRef() {
-    const base = this.parseTypeSpec();
-    let ty = base;
-    while (this.optP("*")) ty = ptrTo(ty);
-    return ty;
+    return this.parseDeclarator(this.parseTypeSpec(),true).type;
   }
 
   parsePostfix() {

@@ -30,15 +30,19 @@ export const BASE_TYPES = {
 
 export function ptrTo(t) { return { kind: "ptr", to: t }; }
 export function arrayOf(t, count) { return { kind: "array", of: t, count }; }
+export function funcPtr(retType,params,isVarArgs=false) {
+  return {kind:"funcptr",retType,params,isVarArgs};
+}
 
 export function isInt(t) { return t.kind === "int"; }
 export function isFloat(t) { return t.kind === "float"; }
 export function isPtr(t) { return t.kind === "ptr"; }
+export function isFuncPtr(t) { return t.kind === "funcptr"; }
 export function isArray(t) { return t.kind === "array"; }
 export function isVoid(t) { return t.kind === "void"; }
 export function isClass(t) { return t.kind === "class"; }
 export function isAggregate(t) { return isArray(t) || isClass(t); }
-export function isScalar(t) { return isInt(t) || isFloat(t) || isPtr(t); }
+export function isScalar(t) { return isInt(t) || isFloat(t) || isPtr(t) || isFuncPtr(t); }
 
 export function sizeof(t) {
   switch (t.kind) {
@@ -116,6 +120,7 @@ export function typeName(t) {
     case "int": return (t.signed ? "I" : "U") + t.bits;
     case "float": return "F64";
     case "ptr": return typeName(t.to) + "*";
+    case "funcptr": return typeName(t.retType)+" (*)()";
     case "array": return typeName(t.of) + "[" + t.count + "]";
     case "class": return t.name;
     default: return "?";

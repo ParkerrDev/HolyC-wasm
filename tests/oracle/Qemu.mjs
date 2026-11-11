@@ -7,6 +7,8 @@ export async function QemuRun(sources,options={})
 {
   const cache=await Prepare(),files=[],names=new Set();
   const put=(name,bytes)=>{
+    if (!/^[A-Z0-9_]{1,8}(?:\.[A-Z0-9_]{1,3})?$/.test(name))
+      throw new Error("Expected an uppercase 8.3 oracle file name: "+name);
     if (names.has(name)) throw new Error("Duplicate oracle file: "+name);
     names.add(name);
     files.push({name,bytes:Buffer.from(bytes).toString("base64")});
@@ -29,12 +31,14 @@ export async function QemuRun(sources,options={})
   if (process.env.ORACLE_ACCEL) config.accelerator=process.env.ORACLE_ACCEL;
   return new Promise((resolve,reject)=>{
     const proc=spawn("python3",[fileURLToPath(new URL("Qemu.py",import.meta.url))],
-      {stdio:["pipe","pipe","inherit"]});
-    let out="";
+      {stdio:["pipe","pipe","pipe"]});
+    let out="",errors="";
     proc.stdout.on("data",bytes=>out+=bytes);
+    proc.stderr.on("data",bytes=>errors=(errors+bytes).slice(-8192));
     proc.on("error",reject);
     proc.on("exit",code=>{
-      if (code) reject(new Error(`QEMU oracle exited ${code}`));
+      if (code) reject(new Error(errors.trim().split("\n").at(-1) ||
+        `QEMU oracle exited ${code}`));
       else {
         try {resolve(JSON.parse(out));} catch (error) {reject(error);}
       }

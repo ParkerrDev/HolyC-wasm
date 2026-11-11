@@ -131,7 +131,16 @@ def run(config):
             qmp.monitor("sendkey ctrl-alt-t 10")
             time.sleep(0.5)
             qmp.type('#include "C:/ORACLE/RUN.HC";\n')
-            wait(lambda: log.exists() and b"\x04" in log.read_bytes(), "native fixtures")
+            def fixtures_done():
+                if not log.exists():
+                    return False
+                data = log.read_bytes()
+                fault = re.search(rb"(?:^|\n)Fault:0x[0-9A-Fa-f]+[^\n]*", data)
+                if fault:
+                    raise RuntimeError(f"Native CPU {fault[0].strip().decode('latin1')}; evidence: {work}")
+                return b"\x04" in data
+
+            wait(fixtures_done, "native fixtures")
             data = log.read_bytes()
             results = []
             for number in range(config["count"]):
