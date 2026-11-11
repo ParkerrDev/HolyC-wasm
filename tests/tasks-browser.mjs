@@ -8,6 +8,7 @@ import {recorded as hashRecorded} from './hash/cases.mjs';
 import {recorded as docRecorded} from './doc-entry/cases.mjs';
 import {recorded as defineRecorded} from './define/cases.mjs';
 import {recorded as cmpRecorded} from './cmp-control/cases.mjs';
+import {recorded as lexRecorded} from './lex-stream/cases.mjs';
 const root=new URL('../',import.meta.url).pathname;
 const web=resolve(process.env.TEMPLEOS_WEB||'../TempleOS-Web');
 const {chromium}=await import(pathToFileURL(web+'/node_modules/playwright-core/index.mjs'));
@@ -31,6 +32,8 @@ try {
     expected:await readFile(new URL('v503/'+name+'.out',import.meta.url),'latin1')})));
   const hashTask=hashRecorded('HashTask');
   sources.push({name:'HashTask',source:hashTask.wasmSource,expected:hashTask.output});
+  const lexTask=lexRecorded('LexTask');
+  sources.push({name:'LexTask',source:lexTask.wasmSource,expected:lexTask.output});
   const cmpTask=cmpRecorded('CmpTask');
   sources.push({name:'CmpTask',source:cmpTask.wasmSource,expected:cmpTask.output});
   const defineTask=defineRecorded('DefineTask');
@@ -55,7 +58,7 @@ try {
   for(const result of results) {
     assert(result.match,result.name+': '+result.output);
     assert.equal(result.tasks,1);
-    if(result.name==='CmpTask')assert(result.allocations>2,'native directory/hash state remains session-owned');
+    if(['CmpTask','LexTask'].includes(result.name))assert(result.allocations>2,'native directory/hash state remains session-owned');
     else assert.equal(result.allocations,['HashTask','DefineTask'].includes(result.name)?2:0);
     assert.equal(result.disposedAllocations,0);
   }
@@ -88,7 +91,7 @@ try {
   },directory);
   assert.deepEqual(volume,{rows:[{match:true,bytes:[0,255,10]},{match:true,bytes:[0,255,10]}],allocations:0});
   }
-  for(const fixture of [keydevRecorded('KeyScroll'),docRecorded('DocEntryTask')]) {
+  for(const fixture of [keydevRecorded('KeyScroll'),docRecorded('DocEntryTask'),lexRecorded('LexEcho')]) {
   const keydev=await page.evaluate(async fixture=>{
     const {compileHolyC}=await import('/src/compiler.js');
     const {createTaskHost}=await import('/src/runtime/tasks.js');
@@ -154,5 +157,5 @@ try {
   assert.equal(await page.evaluate(()=>window.keyOutput),'0\n28\n31\n0\n97\n97\n27\n');
   await page.evaluate(async()=>{keyHost.resetInput();await keyHost.stop();await keyRun;await keyHost.dispose();});
   assert.deepEqual(errors,[]);
-  console.log('Browser JSPI: original task lifecycle, cross-task exceptions, catchable breaks and character waits and native directory/byte-volume sessions match with no surviving child allocations; native task hash/define/compiler-control/document ownership, scoped KeyDev ScrollLock and raw canvas/GetKey behavior pass; real browser keys deliver Shift-Escape/Space, arrows and repeat through set-1 decoding.');
+  console.log('Browser JSPI: original task lifecycle, cross-task exceptions, catchable breaks and character waits and native directory/byte-volume sessions match with no surviving child allocations; native task hash/define/compiler-control/byte-stream/document ownership, scoped KeyDev ScrollLock and raw canvas/GetKey behavior pass; real browser keys deliver Shift-Escape/Space, arrows and repeat through set-1 decoding.');
 } finally {await browser.close();await new Promise(resolve=>server.close(resolve));}

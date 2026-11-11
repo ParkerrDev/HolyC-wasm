@@ -54,9 +54,19 @@ have its measured complete representation.
 `LexGetChar` handles byte buffers, nested streams, put-back state, line numbers,
 CH_CURSOR skipping and CH_SHIFT_SPACE conversion. It also dispatches DolDoc text,
 tabs, binary insertions and shifted scripts through LexDollar/Doc2PlainText, and
-handles interactive prompts. Echo uses actual output semantics. A first bounded
-byte-stream backend can reject unavailable document/prompt modes explicitly;
-it must preserve flags, ownership and token behavior for supported modes.
+handles interactive prompts. A58 implements the finite NUL-terminated byte-stream
+path, LexSkipEol and transactional LexIncludeStr; it rejects prompt/document
+modes before mutations. Echo follows the selected console or KeyDev profile.
+Native state/echo/counter fixtures and host allocation-failure checks cover this
+bounded layer. It does not supply tokens or document/prompt handlers.
+
+The complete native CCmpGlbls/CIntermediateCode layouts are present. A fresh
+host session explicitly zeroes their storage and implements only the shared
+`cmp.compiled_lines` counter. Tests compare deltas with the already-running native
+compiler. ASM/internal-type/operator/IR/register graphs are unavailable, and
+Lex, CInit and CmpFillTables remain undefined; zero fields are not compiler
+initialization. Tokenization must establish these real dependencies before
+runtime compiler state can be claimed.
 
 `Lex` depends on the character bitmaps, native numeric/escape/string rules,
 HashFind and nested define expansion. Local-variable lookup requires MemberFind

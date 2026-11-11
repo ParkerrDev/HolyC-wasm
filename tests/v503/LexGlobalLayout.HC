@@ -1,0 +1,25 @@
+"LexGlobal:%d:%d:%d:%d:%d\n",sizeof(CCmpGlbls),sizeof(CIntermediateCode),
+  sizeof(CICType),sizeof(CICArg),sizeof(CICTreeLinks);
+"LexGlobalFields:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d\n",
+  offset(CCmpGlbls.asm_hash),offset(CCmpGlbls.internal_types),
+  offset(CCmpGlbls.ic_nop),offset(CCmpGlbls.dual_U16_tokens1),
+  offset(CCmpGlbls.dual_U16_tokens2),offset(CCmpGlbls.dual_U16_tokens3),
+  offset(CCmpGlbls.binary_ops),offset(CCmpGlbls.num_reg_vars),
+  offset(CCmpGlbls.num_non_ptr_vars),offset(CCmpGlbls.stk_tmps_mask),
+  offset(CCmpGlbls.to_reg_vars_map),offset(CCmpGlbls.non_ptr_vars_map),
+  offset(CCmpGlbls.size_arg_mask),offset(CCmpGlbls.compiled_lines);
+"LexIC:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d\n",
+  offset(CIntermediateCode.ic_flags),offset(CIntermediateCode.ic_data),
+  offset(CIntermediateCode.ic_line),offset(CIntermediateCode.ic_class),
+  offset(CIntermediateCode.ic_class2),offset(CIntermediateCode.arg1),
+  offset(CIntermediateCode.arg2),offset(CIntermediateCode.res),
+  offset(CIntermediateCode.arg1_type_pointed_to),
+  offset(CIntermediateCode.ic_body);
+"LexArg:%d:%d:%d\n",offset(CICArg.type),offset(CICArg.reg),
+  offset(CICArg.disp);
+"LexMasks:%d:%d\n",offset(CCmpGlbls.reg_vars_mask),
+  offset(CCmpGlbls.non_ptr_vars_mask);
+"LexType:%d:%d\n",offset(CICType.raw_type),offset(CICType.mode);
+"LexTree:%d:%d:%d:%d:%d\n",offset(CICTreeLinks.arg1_class),
+  offset(CICTreeLinks.arg2_class),offset(CICTreeLinks.arg1_tree),
+  offset(CICTreeLinks.arg2_tree),offset(CICTreeLinks.class2);

@@ -9,6 +9,7 @@ import {GR_PALETTE_SRC} from "./gr-palette.js";
 import {GR_MATH_SRC} from "./gr-math.js";
 import {GR_TYPES_SRC,GR_SRC} from "./gr-prelude.js";
 import {HASH_TYPES_SRC,HASH_SRC} from "./hash-prelude.js";
+import {LEX_TYPES_SRC,LEX_BITMAP_SRC,LEX_GLOBALS_SRC,LEX_SRC} from "./lex-stream.js";
 import {CMP_TYPES_SRC,CMP_SRC} from "./cmp-control.js";
 import {DEFINE_SRC} from "./define-prelude.js";
 import {TASK_TYPES_SRC,TASK_SRC} from "./task-prelude.js";
@@ -40,6 +41,7 @@ export const RUNTIME_INITIALIZERS=[
   {name:"HashHostInit",fields:["CTask.hash_table"],
     exports:["HashHostTaskInit"]},
   {name:"RawHostInit",globals:["text"]},
+  {name:"CmpLexHostInit",globals:["cmp"]},
   {name:"KbdHostInit",globals:["kbd"]},
   {name:"__hgr_init",globals:["gr","__gr_font"]},
   {name:"__hgr_pen_init",fields:["gr.pen_brushes","gr.collision_pen_brushes",
@@ -211,6 +213,7 @@ ${DIR_TYPES_SRC}
 ${DOC_TYPES_SRC}
 ${DOC_ENTRY_TYPES_SRC}
 ${CMP_TYPES_SRC}
+${LEX_TYPES_SRC}
 CTask fs_storage;
 CTask *Fs;
 CTask *sys_winmgr_task;
@@ -732,6 +735,9 @@ ${FILE_SRC}
 ${HASH_SRC}
 ${DEFINE_SRC}
 ${CMP_SRC}
+${LEX_BITMAP_SRC}
+${LEX_GLOBALS_SRC}
+${LEX_SRC}
 
 public I64 DistSqrI64(I64 x1,I64 y1,I64 x2,I64 y2)
 {

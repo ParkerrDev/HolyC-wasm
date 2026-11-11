@@ -1031,7 +1031,8 @@ PopNoRestore provide the native control records and finite byte-buffer ownership
 needed by the later lexer. CCmpCtrl, CLexFile, CLexHashTableContext, CCodeCtrl and
 their embedded records have measured V5.03 sizes and offsets. The two identifier
 bitmaps preserve all 512 native bits, including CCF_KEEP_AT_SIGN selection.
-These APIs do not implement Lex, LexGetChar, runtime compilation or DocInit.
+These control APIs do not implement Lex, runtime compilation or DocInit.
+The finite character-stream layer below supplies LexGetChar.
 
 A successful CmpCtrlNew owns its buffer unless CCF_DONT_FREE_BUF borrows it.
 A failed constructor leaves that input with the caller and releases its partial
@@ -1059,3 +1060,38 @@ checks; `--record` updates source/type/wrapper/capture/output-bound evidence.
 The native harness declares the private exported LexFilePush/Pop functions with
 explicit extern prototypes; it does not replace their implementations. Actual
 Chromium task tests also verify child exit and complete session disposal.
+
+
+### Finite lexical byte streams
+
+LexGetChar, LexSkipEol and LexIncludeStr now handle NUL-terminated byte buffers,
+including nested input, one-character put-back, CH_CURSOR skipping,
+CH_SHIFT_SPACE conversion, line positions, saved state and selected-profile echo.
+LexIncludeStr adopts its nested input only after its record and name allocations
+succeed. Allocation failure retains the caller's buffer and the complete parent
+state; this rollback is a host improvement over native's mutation order.
+Interactive CCF_PMT and any document include record throw `LexMode` before reads,
+allocation or mutation. Source buffers must remain valid and NUL-terminated;
+this is the native pointer API, not a bounded untrusted-input parser.
+
+The complete CCmpGlbls, CIntermediateCode, CICArg, CICType and CICTreeLinks layouts
+are measured against V5.03. A fresh session explicitly zeroes `cmp`; only its
+`compiled_lines` counter is implemented, shared across tasks. Native has already
+compiled its kernel/startup before a probe, so tests compare line-count changes,
+not the boot total. ASM tables, internal type graphs, token/operator tables and
+register-allocation state remain unavailable. Their zero storage does not stand
+in for initialized compiler state. Lex, CInit, CmpFillTables, runtime compilation
+and DocInit are still absent. The printable and non-EOL bitmaps preserve all
+512 native bits. Console byte streams remain independent of task continuations;
+KeyDev echo deliberately uses the KeyDev profile and its real output chain.
+
+`npm run test:lex-stream` checks 101,953 native byte/state decisions, echo handler
+failure and recovery, task-shared line counts, five repeated lifetimes and final
+ownership release. Three host allocation failures cover nested input staging,
+with exact parent state, caller input, allocation count, stack and immediate
+retry checks. These are host failure tests, not native allocator injection.
+`node tests/lex-stream-oracle.mjs` repeats the original and renamed-port V5.03
+fixtures; `--record` updates source/type/library/global/wrapper/capture/output
+hashes. The echo exception uses native `throw(...,TRUE)` to keep Adam logging
+outside the fixture, and its temporary hook only handles its own task. Actual
+browser JSPI checks exercise the same echo recovery and child lifetime paths.
