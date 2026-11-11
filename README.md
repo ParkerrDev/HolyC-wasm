@@ -32,12 +32,15 @@ npm run test:intrinsics   # Emitter, atomic memory operations and import linking
 npm run test:document     # Full DolDoc input, sprite integrity and CP437 transport.
 npm run test:strict       # Unsupported assembly and unresolved callable symbols.
 npm run test:oracle       # Boot V5.03 in QEMU and recheck the native results.
+npm run test:float-scale  # Reproduce the native Pow10I64 table in QEMU.
 ```
 
 The fixtures in `tests/v503/` cover postfix casts, goto, operator precedence,
 chained comparisons, conditional versus value logical evaluation, comma
 statements, case ranges, packed class layout, pointer arithmetic, writable
 strings, initialization, unsigned operations and signed floating conversion.
+They also cover native bit operations, deterministic random sequences, math
+rounding, floating remainder and decimal literal conversion.
 Negative fixtures exercise native compile errors. Each fixture has native
 source/output hashes; changing it requires rerunning the oracle. These checks
 do not establish full TempleOS compatibility.
@@ -79,6 +82,12 @@ The cache and small run logs/screenshots stay in ignored `tests/.oracle/`.
 Private writable disk copies are removed after each QEMU run. Original disk and
 snapshot files are never changed.
 
+Other native probes can import `QemuRun` from `tests/oracle/Qemu.mjs` and pass
+`QemuRun(sources,{files:[{name,bytes}],timeout:180})`. Sources and extra binary
+files are copied into `C:/ORACLE`; file names must be unique uppercase 8.3 names.
+The timeout is in seconds. This permits real asset tests without embedding data
+in HolyC initializers.
+
 ```sh
 node tests/oracle.mjs --check tests/v503/Convert.HC
 node tests/oracle.mjs --record tests/v503/Convert.HC
@@ -102,3 +111,13 @@ input, performance or behavior on QEMU, other virtual machines or bare metal.
 HolyC has different precedence from C: `1<<4+1` is `(1<<4)+1`, bitwise operations
 bind above addition, and comparisons can chain through equality. Consumers
 ported from C must audit those expressions when moving to this compiler.
+
+Decimal literals also follow V5.03, including its signed 64-bit mantissa
+overflow and measured power-of-ten table. For example, native
+`9223372036854775808.0` is zero; use `0x43E0000000000000(F64)` for exact 2^63.
+The stored table is reproducible by `tests/oracle-scale.mjs`; KVM and TCG give
+the same 617 entries. This matches literal compilation, not all x87 arithmetic.
+
+Update the compiler and runtime together: floating `%` uses the `__fmod` host
+import. `Seed(nonzero)` and the Rand family reproduce native task-local random
+sequences. Timer-mixed randomness uses the host clock, not a physical CPU's TSC.

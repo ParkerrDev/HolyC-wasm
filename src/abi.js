@@ -82,4 +82,5 @@ export const HOST_IMPORTS = {
   __atan2:{ params: [F, F], results: [F] }, __pow:  { params: [F, F], results: [F] },
   __log:  { params: [F], results: [F] }, __log10:{ params: [F], results: [F] },
   __exp:  { params: [F], results: [F] },
+  __fmod: { params: [F, F], results: [F] },
 };

@@ -3,10 +3,14 @@ import {spawn} from "node:child_process";
 import {fileURLToPath} from "node:url";
 import {Prepare} from "./Prepare.mjs";
 
-export async function QemuRun(sources)
+export async function QemuRun(sources,options={})
 {
-  const cache=await Prepare(),files=[];
-  const put=(name,bytes)=>files.push({name,bytes:Buffer.from(bytes).toString("base64")});
+  const cache=await Prepare(),files=[],names=new Set();
+  const put=(name,bytes)=>{
+    if (names.has(name)) throw new Error("Duplicate oracle file: "+name);
+    names.add(name);
+    files.push({name,bytes:Buffer.from(bytes).toString("base64")});
+  };
   put("CAPTURE.HC",readFileSync(new URL("QemuCapture.HC",import.meta.url)));
   let run="";
   sources.forEach((source,index)=>{
@@ -19,7 +23,9 @@ export async function QemuRun(sources)
   });
   run+="OutU8(0xE9,4);\n";
   put("RUN.HC",run);
+  for (const file of options.files||[]) put(file.name,file.bytes);
   const config={cache,files,count:sources.length};
+  if (options.timeout!==undefined) config.timeout=options.timeout;
   if (process.env.ORACLE_ACCEL) config.accelerator=process.env.ORACLE_ACCEL;
   return new Promise((resolve,reject)=>{
     const proc=spawn("python3",[fileURLToPath(new URL("Qemu.py",import.meta.url))],

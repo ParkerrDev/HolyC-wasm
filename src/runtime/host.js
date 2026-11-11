@@ -98,6 +98,7 @@ export function createHost(opts = {}) {
     __asin: (x) => Math.asin(x), __acos: (x) => Math.acos(x), __atan: (x) => Math.atan(x),
     __atan2: (y, x) => Math.atan2(y, x), __pow: (x, y) => Math.pow(x, y),
     __log: (x) => Math.log(x), __log10: (x) => Math.log10(x), __exp: (x) => Math.exp(x),
+    __fmod: (x,y) => x%y,
   };
 
   return {

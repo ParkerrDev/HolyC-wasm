@@ -1319,7 +1319,7 @@ class FnCtx {
       this.f.op(base === "+" ? "i64_add" : "i64_sub");
       return lr;
     }
-    const floatArith = (isFloat(lr) || isFloat(rPeek)) && (base === "+" || base === "-" || base === "*" || base === "/");
+    const floatArith = (isFloat(lr) || isFloat(rPeek)) && ["+","-","*","/","%"].includes(base);
     if (floatArith) {
       pushLeft();
       if (!isFloat(lr)) this.f.op("f64_convert_i64_s");
@@ -1371,9 +1371,7 @@ class FnCtx {
       return ptrTo(elemT);
     }
     const useFloat = isFloat(lr) || isFloat(rr);
-    // Float arithmetic applies ONLY to + - * / ; %, <<, >>, &, |, ^ are
-    // integer-only and truncate any float operand to i64 first.
-    const FLOAT_ARITH = node.op === "+" || node.op === "-" || node.op === "*" || node.op === "/";
+    const FLOAT_ARITH = ["+","-","*","/","%"].includes(node.op);
     if (useFloat && FLOAT_ARITH) {
       this.genExprCoerce(node.left, T.F64);
       this.genExprCoerce(node.right, T.F64);
@@ -1425,6 +1423,7 @@ class FnCtx {
       case "-": this.f.op("f64_sub"); break;
       case "*": this.f.op("f64_mul"); break;
       case "/": this.f.op("f64_div"); break;
+      case "%": this.f.call(this.cg.imports.__fmod.index); break;
       default: this.err({}, "bad float op " + op);
     }
   }
@@ -1590,8 +1589,23 @@ class FnCtx {
   genCall(node) {
     const callee = node.callee;
     if (callee.kind === "Ident") {
+      const unaryMath={__floor:"f64_floor",__ceil:"f64_ceil",__round:"f64_nearest",
+        __trunc:"f64_trunc",__sqrt:"f64_sqrt",__abs:"f64_abs",__ctz:"i64_ctz",__clz:"i64_clz"};
+      if (callee.name in unaryMath) {
+        const type=unaryMath[callee.name].startsWith("f64")?T.F64:T.I64;
+        if (node.args.length!==1 || !node.args[0]) this.err(node,"intrinsic needs one argument");
+        this.genExprCoerce(node.args[0],type);
+        this.f.op(unaryMath[callee.name]);
+        return type;
+      }
       if (callee.name === "MyCore") { this.f.global_get(this.cg.coreGlobal); return T.I64; }   // SMP intrinsic: this worker's core index (per-instance WASM global)
       if (callee.name.startsWith("__a_")) { const r = this.genAtomic(callee.name, node.args); if (r) return r; }   // SMP intrinsic: native WASM atomic RMW (LOCK ops over shared memory)
+      if (["Bt","Bts","Btr","Btc","LBts","LBtr","LBtc"].includes(callee.name)) {
+        const bit=foldConstInt(node.args[1]);
+        //BackB.HC ICBitOps uses a 32-bit immediate operand for negative constants.
+        if (bit!==null && bit<0n)
+          node={...node,args:[node.args[0],{kind:"IntLit",value:BigInt.asUintN(5,bit)}]};
+      }
       const fn = this.cg.functions.get(callee.name);
       if (fn) return this.emitCall(fn, node.args, node);
       if (!this.cg.lenient) this.err(node, "Undefined identifier or unsupported indirect call: " + callee.name);

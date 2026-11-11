@@ -14,6 +14,7 @@
 
 import {DocBins} from "./doldoc.js";
 import {ByteString,Identifier,CharByte} from "./encoding.js";
+import {FloatLex} from "./float.js";
 
 export class Token {
   constructor(type, value, text, line, col, pos) {
@@ -233,7 +234,7 @@ export function lex(src, filename = "<src>") {
         while (i < n && isDigit(peek())) s += adv();
       }
       if (isFloat) {
-        tokens.push(new Token("num", { kind: "float", value: parseFloat(s) }, s, startLine, startCol, startPos));
+        tokens.push(new Token("num", { kind: "float", value: FloatLex(s) }, s, startLine, startCol, startPos));
       } else {
         tokens.push(new Token("num", { kind: "int", value: BigInt(s) }, s, startLine, startCol, startPos));
       }
