@@ -1264,3 +1264,40 @@ native proofs. Pure vectors need no session directory/hash allocation or task
 continuation capability. Actual Chromium tests verify the child ownership path.
 Native allocator-failure injection is not claimed; the fault tests use the real
 host allocator boundary. Full Lex, compiler graphs and DocInit remain absent.
+
+### Lexical output primitives
+
+LexPutToken emits the native token description through the selected console or
+KeyDev output chain. Its typed U32 char_bmp_displayable[16] matches KernelC.HH
+and the native bitmap values. LexPutLine emits a finite byte-buffer line through
+the same chain, ending at NUL, CR or LF. NULL produces no output; an empty string
+produces a newline. Neither operation mutates the compiler control or its input
+record. Document lines reject with LexMode before output; DocPutLine remains
+unavailable. Plain byte-line output requires neither allocation nor task
+continuations, while the explicitly selected KeyDev profile retains its real
+device and continuation requirements.
+
+LexPutLine's public native header returns U0 even though the original machine
+implementation leaves the next byte pointer in RAX. This runtime preserves the
+public U0 signature. Recovering that residual register by assigning a nominally
+void call or calling through a differently typed function pointer is not
+supported. The source-bound LexPutLineReturn probe records the native mismatch;
+it does not justify silently strengthening the public prototype.
+
+`npm run test:lex-report` checks 1,105 original-native token/line cases and
+55,245 output bytes, compiler/input nonmutation, both output profiles and five
+allocation lifetimes. Six real formatting-allocation failures and exceptions at
+all 66 output-byte callback positions preserve control/source state, release
+host formatting buffers and permit retry. Already-emitted bytes are not rolled
+back. These host failure/cleanup guarantees are separate from the original
+native valid-output proof. `node tests/lex-report-oracle.mjs` repeats the stock
+and renamed-port comparison with source/type/library/capture/output hashes.
+LexPutPos, LexExcept, LexWarn, full runtime Lex and DocInit remain unavailable;
+native debugger, caller metadata, document output and Adam job dependencies
+must be supplied before those controllers can be implemented honestly.
+
+The compiler currently reserves storage for every declared global even when a
+prelude global is unused. This bitmap therefore adds 64 bytes to those program
+layouts and changes their address-dependent binaries. Unused literal/function
+elimination does not establish unused-global elimination. Consumer qualification
+must account for that layout change; no global-relocation change is bundled here.

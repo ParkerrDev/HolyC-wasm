@@ -10,6 +10,7 @@ import {GR_MATH_SRC} from "./gr-math.js";
 import {GR_TYPES_SRC,GR_SRC} from "./gr-prelude.js";
 import {HASH_TYPES_SRC,HASH_SRC} from "./hash-prelude.js";
 import {QUE_VECT_TYPES_SRC,QUE_VECT_SRC} from "./que-vector.js";
+import {LEX_REPORT_SRC} from "./lex-report.js";
 import {LEX_REM_SRC} from "./lex-rem.js";
 import {LEX_STRING_SRC} from "./lex-string.js";
 import {LEX_TYPES_SRC,LEX_BITMAP_SRC,LEX_GLOBALS_SRC,LEX_SRC} from "./lex-stream.js";
@@ -755,6 +756,7 @@ ${LEX_SRC}
 ${LEX_STRING_SRC}
 ${QUE_VECT_SRC}
 ${LEX_REM_SRC}
+${LEX_REPORT_SRC}
 
 public I64 DistSqrI64(I64 x1,I64 y1,I64 x2,I64 y2)
 {

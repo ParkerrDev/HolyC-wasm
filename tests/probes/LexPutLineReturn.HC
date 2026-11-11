@@ -1,0 +1,11 @@
+CHashFun *f=HashFind("LexPutLine",Fs->hash_table,HTT_FUN);
+"Signature:%s:%d\n",f->return_class->str,f->return_class->raw_type;
+CLexFile file;
+CCmpCtrl cc;
+MemSet(&file,0,sizeof(CLexFile));
+MemSet(&cc,0,sizeof(CCmpCtrl));
+cc.lex_include_stk=&file;
+U8 *buf="ABC\nD",*res;
+U8 *(*next)(CCmpCtrl *cc,U8 *start)=&LexPutLine;
+res=(*next)(&cc,buf);
+"Position:%d\n",res-buf;

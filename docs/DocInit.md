@@ -101,6 +101,21 @@ Allocation failure preserves the current state. The native restriction against
 crossing include boundaries remains. LexExcept/reporting also needs
 an explicit device contract; returning a token after a lexical failure is wrong.
 
+A66 supplies the native LexPutToken output and LexPutLine's finite-byte output
+through the selected console or KeyDev chain, with the actual typed
+char_bmp_displayable bitmap. Token/line output does not alter the compiler
+control or its input record. A document line throws LexMode before output;
+DocPutLine remains absent. LexPutLine preserves its live public U0 signature:
+the native implementation's residual next-pointer return register is not a
+portable return value and is not emulated. Source-bound native tests record
+that distinction separately from legal calls.
+
+LexPutPos still needs FixSet's debugger/session state, PutFileLink's real output
+context and AdamErr's task job execution. PrintErr/PrintWarn additionally need
+Caller stack metadata and GetOutOfDollar. LexExcept/Warn are not supplied as
+reduced throw-only adapters. These reporting/controller dependencies still
+block full Lex and are distinct from its token rules and directive execution.
+
 ## Actual DocInit and flag parsing
 
 `Adam/DolDoc/DocInit.HC` loads ST_DOC_CMDS/ST_DOC_FLAGS/ST_LINK_TYPES, creates the

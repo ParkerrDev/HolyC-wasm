@@ -49,6 +49,7 @@
     "test:que-vector": "node tests/que-vector.mjs && node tests/que-vector-fault.mjs && node tests/que-task-fault.mjs",
     "test:cmp-tables": "node tests/initializer-effects.mjs && node tests/cmp-tables.mjs",
     "test:function-bind": "node tests/function-bind.mjs",
+    "test:lex-report": "node tests/lex-report.mjs && node tests/lex-report-fault.mjs",
     "test:member": "node tests/member.mjs"
   },
   "license": "MIT",

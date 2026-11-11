@@ -283,6 +283,8 @@ U8 *bind_export_names=
   "LexPopNoRestore\0"
   "LexPopRestore\0"
   "LexPush\0"
+  "LexPutLine\0"
+  "LexPutToken\0"
   "LexSkipEol\0"
   "Line\0"
   "LinkedLstDel\0"
