@@ -498,7 +498,19 @@ export class Parser {
           this.optP(";");
           return mk("Throw",{expr,noLog},t);
         }
-        case "no_warn": case "lock": { this.next(); return this.parseStatement(); }
+        case "no_warn": {
+          this.next();
+          while(this.cur().type==="ident") {
+            if(!this.localNames?.has(this.cur().value))
+              this.err("no_warn requires a local variable");
+            this.next();
+            if(this.optP(",")) continue;
+            if(!this.isP(";")) this.err("no_warn expects ',' or ';'");
+            break;
+          }
+          this.eatP(";");return mk("Empty",{},t);
+        }
+        case "lock": { this.next(); return this.parseStatement(); }
       }
       // label:  (ident followed by ':' but not '::')
       if (this.peek(1).type === "punct" && this.peek(1).value === ":" && !(this.peek(2) && this.peek(2).type === "punct" && this.peek(2).value === ":")) {

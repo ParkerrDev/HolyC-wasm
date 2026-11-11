@@ -60,6 +60,11 @@ Their caller-owned argument blocks are reentrant and released after normal
 returns or caught exceptions. A variadic WASM import/export has one hidden
 final I64 parameter pointing to the count followed by contiguous I64 arguments.
 This calling convention does not reproduce the native x86 machine stack.
+
+`no_warn` accepts a comma-separated list of already-declared locals (including
+parameters), or an empty list. It marks declarations and emits no variable read.
+Global names, fields and expressions are rejected as in V5.03. Native unused and
+unneeded-no_warn warning counts are not reproduced by this bounded syntax fix.
 Original V5.03 optimization is observable in integer arithmetic: a variable
 divided by a constant power of two uses a shift, so signed negative values
 round down. Fully constant divisions and variable divisors truncate toward
