@@ -215,23 +215,22 @@ export function lex(src, filename = "<src>") {
     if (isDigit(c) || (c === "." && isDigit(peek(1)))) {
       let start = i;
       let isFloat = false;
-      if (c === "0" && (peek(1) === "x" || peek(1) === "X")) {
-        adv(); adv();
-        let s = "";
-        while (i < n && (isHex(peek()) || peek() === "_")) { const d = adv(); if (d !== "_") s += d; }
-        tokens.push(new Token("num", { kind: "int", value: BigInt("0x" + (s || "0")) }, "0x" + s, startLine, startCol, startPos));
-        continue;
-      }
-      if (c === "0" && (peek(1) === "b" || peek(1) === "B")) {
-        adv(); adv();
-        let s = "";
-        while (i < n && (peek() === "0" || peek() === "1" || peek() === "_")) { const d = adv(); if (d !== "_") s += d; }
-        tokens.push(new Token("num", { kind: "int", value: BigInt("0b" + (s || "0")) }, "0b" + s, startLine, startCol, startPos));
+      if (isDigit(c) && /[xXbB]/.test(peek(1)||" ")) {
+        const radix=peek(1).toUpperCase()==="X"?16n:2n;
+        let value=BigInt(adv());
+        adv();
+        while (i<n && (radix===16n?isHex(peek()):peek()==="0" || peek()==="1"))
+          value=BigInt.asIntN(64,value*radix+BigInt(parseInt(adv(),Number(radix))));
+        tokens.push(new Token("num",{kind:"int",value},src.slice(start,i),
+          startLine,startCol,startPos));
         continue;
       }
       let s = "";
-      while (i < n && (isDigit(peek()) || peek() === "_")) { const d = adv(); if (d !== "_") s += d; }
-      if (peek() === "." && peek(1) !== ".") { isFloat = true; s += adv(); while (i < n && (isDigit(peek()) || peek() === "_")) { const d = adv(); if (d !== "_") s += d; } }
+      while (i<n && isDigit(peek())) s+=adv();
+      if (peek()==="." && peek(1)!==".") {
+        isFloat=true;s+=adv();
+        while (i<n && isDigit(peek())) s+=adv();
+      }
       if (peek() === "e" || peek() === "E") {
         isFloat = true; s += adv();
         if (peek() === "-") s += adv();
@@ -240,7 +239,7 @@ export function lex(src, filename = "<src>") {
       if (isFloat) {
         tokens.push(new Token("num", { kind: "float", value: FloatLex(s) }, s, startLine, startCol, startPos));
       } else {
-        tokens.push(new Token("num", { kind: "int", value: BigInt(s) }, s, startLine, startCol, startPos));
+        tokens.push(new Token("num", { kind: "int", value: BigInt.asIntN(64,BigInt(s)) }, s, startLine, startCol, startPos));
       }
       continue;
     }

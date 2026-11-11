@@ -255,3 +255,14 @@ algorithm, plus native 2D ellipse/polygon/Bézier/B-spline wrappers and
 suppression and four raster operations against V5.03 in QEMU. It checks exact
 bitmap/depth hashes, extents, collision counts and restored context state.
 These additions do not implement the remaining 3D line/polygon/sprite APIs.
+
+Integer token boundaries also follow V5.03: any initial decimal digit can
+precede `x`/`b`, and that digit starts the accumulator (`1xA` is 26, `2b101`
+is 21). Empty suffixes are allowed; integer accumulation wraps to 64 bits.
+Underscores begin separate identifiers, not digit separators. The eight native
+fixtures for these boundaries also cover `reg`/`noreg` as global, static-local
+and member names, while keeping their automatic-local qualifier behavior.
+Native defaults derived from mutable globals are still a documented difference
+in `tests/probes/DefaultGlobal.HC`: native captures at declaration time, while
+WASM currently evaluates them at the call. Use an explicit wrapper until the
+source-ordered evaluation model is implemented.

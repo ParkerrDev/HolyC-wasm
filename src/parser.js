@@ -201,7 +201,7 @@ export class Parser {
 
     const decls=[];
     do {
-      const tok=this.cur(),d=this.parseDeclarator(baseType);
+      const tok=this.cur(),d=this.parseDeclarator(baseType,false,!topLevel && !storage.includes("static"));
       (topLevel?this.globalNames:this.localNames??this.globalNames).add(d.name);
       if (this.isP("(")) {
         const {params,isVarArgs}=this.parseParams();
@@ -226,9 +226,9 @@ export class Parser {
     return decls;
   }
 
-  parseDeclarator(baseType,unnamed=false) {
+  parseDeclarator(baseType,unnamed=false,registers=false) {
     let type=baseType,name=null,stars=0;
-    while (this.isKw("reg") || this.isKw("noreg")) this.next();
+    if (registers) while (this.isKw("reg") || this.isKw("noreg")) this.next();
     while (this.optP("*")) type=ptrTo(type);
     const callback=this.isP("(") && this.isP("*",1);
     if (callback) {
@@ -258,7 +258,7 @@ export class Parser {
     let isVarArgs=false;
     if (!this.isP(")")) do {
       if (this.optP("...")) {isVarArgs=true;break;}
-      const d=this.parseDeclarator(this.parseTypeSpec(),true);
+      const d=this.parseDeclarator(this.parseTypeSpec(),true,true);
       if (d.type.kind==="array") this.err("No arrays in fun args");
       d.default=this.optP("=")?this.parseAssignment():null;
       params.push(d);
