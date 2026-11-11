@@ -205,6 +205,7 @@ retained legacy host drawing imports. The allocator ABI remains 1.
 bitmap/display agreement. With a TempleOS-Web checkout and its Playwright
 dependency installed, `TEMPLEOS_WEB=/path/to/TempleOS-Web npm run
 test:browser-games` launches HolyCraft, Babel, Volley and Snake in Chromium with
-this checkout's compiler/runtime, checks advancing rendered frames after input,
-and saves screenshots in `tests/.oracle/browser-games/`. This is a launch and
-input smoke test, not complete gameplay certification.
+this checkout's compiler/runtime, checks advancing rendered frames, and saves
+screenshots in `tests/.oracle/browser-games/`. Keyboard events are sent, but a
+changing animation does not prove they were accepted. This checks rendering
+and liveness; behavioral input and complete gameplay need separate tests.

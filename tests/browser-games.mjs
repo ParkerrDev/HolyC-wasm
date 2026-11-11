@@ -37,11 +37,11 @@ try {
   assert(before.colors>=3,name+' draws visible colors');
   await page.locator('#screen').focus();await page.keyboard.down(key);await page.waitForTimeout(350);await page.keyboard.up(key);await page.waitForTimeout(250);
   const after=await page.locator('#screen').evaluate(c=>{const a=c.getContext('2d').getImageData(0,0,640,480).data;let h=0;for(let i=0;i<a.length;i+=4)h=(Math.imul(h,65599)+a[i]+256*a[i+1]+65536*a[i+2])>>>0;return h;});
-  assert.notEqual(after,before.hash,name+' renders advancing frames after input');
+  assert.notEqual(after,before.hash,name+' renders advancing frames');
   assert(await page.evaluate(()=>window.__holycEditor.isRunning()));
   await page.screenshot({path:dir+'/'+name+'.png'});
   console.log(name,JSON.stringify(before),'after',after,await page.locator('#gameWinStatus').innerText());
   await page.locator('#gameWinClose').click();
  }
- assert.deepEqual(errors,[]);console.log('Browser games: four actual worker executions render and accept keyboard input without page errors. Screenshots: '+dir);
+ assert.deepEqual(errors,[]);console.log('Browser games: four actual worker executions render advancing frames without page errors; keyboard response is not asserted. Screenshots: '+dir);
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
