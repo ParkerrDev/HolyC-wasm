@@ -5,6 +5,7 @@ import {parse} from '../src/parser.js';
 import {lex} from '../src/lexer.js';
 import {createHost} from '../src/runtime/host.js';
 import {createTaskHost} from '../src/runtime/tasks.js';
+import {Framebuffer} from '../src/runtime/graphics.js';
 const poisoned=/initialization failed or reentered; create a fresh module instance/;
 function load(source,configure=()=>{}) {
   const result=compileHolyC(source,{lenient:false});assert.deepEqual(result.warnings,[]);
@@ -72,6 +73,20 @@ const ordered=compile(ast,{lenient:false,exports:['Read'],runtimeInitializers:[{
 const orderHost=createHost(),orderInstance=new WebAssembly.Instance(new WebAssembly.Module(ordered.bytes),{env:orderHost.env});
 orderHost.attach(orderInstance);orderInstance.exports.__rt_init();
 assert.equal(orderInstance.exports.Read(),8n);orderInstance.exports.__rt_init();assert.equal(orderInstance.exports.Read(),8n);
+// Native graphics defaults capture gr.dc after the device hook establishes it.
+const drawing='gr.dc->color=RED; GrRect(,0,0,20,20); GrPlot(,639,479);';
+for(const cooperative of [false,true]) {
+  const result=compileHolyC(drawing+(cooperative?' GetKey;':''),{lenient:false});
+  const gfx=new Framebuffer(null),indices=gfx.indices;
+  const host=(cooperative?createTaskHost:createHost)({gfx});
+  const instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});
+  host.attach(instance);
+  const running=cooperative?host.run():instance.exports.__main();
+  for(let y=0;y<480;y++) for(let x=0;x<640;x++)
+    assert.equal(indices[y*640+x],x<20 && y<20 || x===639 && y===479?4:0,
+      `omitted CDC must draw before waiting at ${x},${y}`);
+  if(cooperative) {assert(host.postMessage(2,27,1));await running;await host.dispose();}
+}
 const empty=compileHolyC('I64 Value(){return 1;}',{noPrelude:true,lenient:false,exports:['Value']});
 assert.deepEqual(WebAssembly.Module.imports(new WebAssembly.Module(empty.bytes)),[]);
-console.log('Runtime initialization: prelude/hook/user order, OOM before side effects, typed/host/trap/reentrant poison and fresh-instance recovery pass.');
+console.log('Runtime initialization: prelude data/hook/default/user order, omitted graphics CDC, OOM before side effects, typed/host/trap/reentrant poison and fresh-instance recovery pass.');

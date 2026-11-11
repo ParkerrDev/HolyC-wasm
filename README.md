@@ -89,6 +89,8 @@ then user globals. Successful initialization runs once. If a hook/global
 initializer throws, traps, or reenters startup, that instance remains poisoned:
 subsequent `__rt_init`, `__main`, and task runs reject before executing user code.
 Create a fresh module instance to recover; startup side effects are not replayed.
+Prelude data initializes before its device hooks. Captured runtime defaults
+(such as the default screen CDC) follow those hooks, before user initializers.
 New modules with initialization require the paired host's `__rt_init_failed`
 import, which reports this state clearly. Initializer-free no-prelude modules
 remain self-contained. Full snapshots retain their embedded module and guard

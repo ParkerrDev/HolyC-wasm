@@ -410,7 +410,7 @@ class Codegen {
             if (!param.default || constant(param.default)) continue;
             const name="#default:"+index++,init=param.default;
             this.declareGlobal({kind:"VarDecl",name,type:param.type,init,
-              filename:item.filename,line:init.line,internal:true});
+              filename:item.filename,line:init.line,internal:true,defaultCapture:true});
             names.push(name);
             this.defaultValues.set(init,{kind:"Ident",name,filename:init.filename,line:init.line});
           } else if (Array.isArray(value)) value.forEach(walk);
@@ -651,11 +651,13 @@ class Codegen {
       // Failed or reentered initialization remains poisoned. Repeating side
       // effects or continuing into main with partial globals is not safe.
       for (const [name,body] of initializers)
-        if (this.globals.get(name).node?.filename==="<prelude>") f.append(body);
+        if (this.globals.get(name).node?.filename==="<prelude>" &&
+            !this.globals.get(name).node.defaultCapture) f.append(body);
       for (const hook of this.opts.runtimeInitializers || [])
         if (linked.hooks.has(hook.name)) f.call(this.functions.get(hook.name).index);
       for (const [name,body] of initializers)
-        if (this.globals.get(name).node?.filename!=="<prelude>") f.append(body);
+        if (this.globals.get(name).node?.filename!=="<prelude>" ||
+            this.globals.get(name).node.defaultCapture) f.append(body);
       state().i64_const(2).store("i64_store",0,3);
       f.end();
       linked.functions.add(fault);
