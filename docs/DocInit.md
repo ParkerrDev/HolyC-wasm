@@ -301,3 +301,67 @@ DocTop/Bottom/Rst over this normal layout, followed by the real constructor,
 DocPrint/DocPutS command path and editor invocation. None are added as stand-ins;
 KeyDev DocClear remains unavailable and the separate console legacy no-op remains
 explicitly documented.
+
+## Cursor, reset and deletion lifecycle
+
+A72 adds real DocTop/Bottom/Rst/Del in KeyDev, without new globals or host imports.
+Top/Bottom resolve a NULL argument through actual DocPut and validate the A71
+normal-layout subset before changing cursor or scroll state. They retain caller
+locks; newly acquired locks are released on layout failure. The same partial
+layout contract applies: completed joins/deletions remain after OOM, rather than
+pretending the whole call is atomic. Invalid signatures retain native behavior:
+the cursor operation can run on initialized queues while DocRecalc itself returns
+FALSE, as needed during construction and destruction.
+
+Reset validates the empty post-reset layout, not the old contents it destroys.
+A valid-signature document needs a real window task and a nonnegative entry limit;
+invalid-signature construction/destruction does not execute layout. Old reset
+releases entry-owned fields/bins and undo bodies, then restores native defaults
+and runs actual DocTop. Fresh reset requires fresh storage and never frees a
+previous queue. Owned find/replace and dollar buffers, callback fields, borrowed
+user data and other fields not reset by V5.03 remain unchanged. The default text
+attribute is native WHITE<<4+BLACK, not an assumed 0x70. DocDel invalidates the
+signature before reset, then frees the auxiliary buffers and document itself.
+No constructor, editor callback or command-output parser is fabricated here.
+
+Two cleanup changes are intentional improvements over stock behavior. The stock
+orphan-bin loop omits Free(b->tag); a source-bound QEMU probe leaves exactly the
+owned tag's native MSize2 span (24 bytes in the reduced witness). The port frees
+that owned tag, including an orphan left after shared entry references decrement
+its count. Native DocDel also leaves the CDoc allocated if pending Break throws
+from its final DocUnlock. A cleanup-only catch frees the final object while the
+original exception propagates. Native stock/staged ownership probes report both
+remaining allocations as 1/0 and verify the exception chain. They deliberately
+reclaim original leaked storage after observing it. No claim of identical heap
+headers or native allocator-failure injection is made.
+
+Undo entries are detached before their bodies/records are freed, keeping the
+queue valid during destruction. Valid native state remains equal. These routines
+require valid queue links, correctly sized records and the native ownership
+flags; they do not repair corrupted documents or promise recovery after invalid
+Free calls. Child/foreign task storage retains its original owner until the real
+Free operation removes it. A caller remains responsible for any external stored
+pointer to a document after DocDel, as in the original API.
+
+Permanent source/wrapper/capture/output-bound tests compare stock, copied stock
+and staged native code over 512 cursor states and 128 reset states, plus actual
+foreign MHeapCtrl ownership. The host gates run five lifetimes, 80 reset/delete
+ownership cases, 152 real Top/Bottom allocation failures and 168 unchanged-state
+rejections. Source-bound native probes independently prove both cleanup changes;
+the original implementations fail the host leak gates as well. Normal and
+unfolded compilation pass. Existing document/KeyDev gates and 132 compiler
+fixtures pass. A71 and A72 produce identical complete HEMU artifacts (including
+the stock-capture custom section) from immutable HEMU 253af3d sources, and
+identical artifacts for the four current browser games; no redundant engine
+execution claim is inferred for a different source version.
+
+The next concrete chain is PrsDollarCmd from DocPlain.HC and real DocPutS/DocPrint
+from DocPutS.HC. The generic command parser already has metadata and finite Lex,
+but its expression-backed arguments call LexExpressionI64 (native execution/
+compiler symbols remain unavailable), and other commands invoke callbacks,
+classes, binary content or debugger services. Any first bounded command-output
+path must reject unsupported operations explicitly, preserve input delimiters,
+and stage unpublished owned entries safely on failure; it cannot special-case
+DocClear by silently bypassing dollar-command parsing. DocNew also installs
+EdLeftClickLink, which calls real Ed/PopUpEd. Those editor capabilities remain
+open and may not be replaced with a no-op link callback.

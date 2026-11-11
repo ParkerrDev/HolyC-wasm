@@ -997,7 +997,7 @@ DocEntryDel/Size/Copy, DocUndoDel, DocEntryNewTag, DocRemSoftNewLines and
 DocInsEntry. It uses native CDoc/entry/bin layouts and real RawPrint diagnostics.
 These utilities operate on correctly initialized, caller-owned document queues;
 they do not construct or render a document. The metadata initializer and flag
-parser are described below. DocNew, DocRst, native DocClear, full DolDoc
+parser are described below. DocNew, native DocClear, full DolDoc
 output and the window manager remain unsupported in this profile. In particular, the inherited default-console
 `DocClear()` no-op is a **legacy compatibility gap**, not native support; the
 KeyDev profile excludes it and rejects DocClear during strict compilation.
@@ -1405,10 +1405,10 @@ that module before user effects; a fresh instance succeeds. Native allocator
 failure injection is not claimed. `node tests/doc-init-oracle.mjs` repeats the
 source/wrapper/library/layout/capture/output-bound native proof.
 
-DocNew, DocRst, native DocClear, full document output and the window
-manager remain separate unfinished dependencies. In particular, DocRst calls
-DocTop, which needs DocFormFwd and the normal layout below; DocNew also installs the real
-EdLeftClickLink callback. The initializer does not fabricate those operations.
+DocNew, native DocClear, full document output and the window
+manager remain separate unfinished dependencies. The cursor/reset lifecycle below
+uses DocFormFwd and normal layout; DocNew still needs the real EdLeftClickLink
+callback. The initializer does not fabricate editor behavior.
 
 ### Document base entries and form navigation
 
@@ -1425,7 +1425,7 @@ wrapper, capture and output-bound stock/ported V5.03 proof. Native MHeapCtrl
 confirms allocation ownership; it is not exposed as a fabricated host heap ABI.
 The shortened entry must not be accessed as though it owned every full-record
 field. Native entry-type/queue preconditions and the existing allocator-span
-difference remain. DocTop/Rst/New, link editing and native DocClear remain
+difference remain. DocNew, link editing and native DocClear remain
 unavailable; the explicit KeyDev profile has no substitute clearing routine.
 
 ### Document layout helpers
@@ -1475,5 +1475,26 @@ this is not whole-operation rollback. `node tests/doc-recalc-oracle.mjs` repeats
 the source/wrapper/capture/output-bound native proof;
 `node tests/doc-recalc-bounds-oracle.mjs` checks the staged rejection contract
 under V5.03. Native allocation-failure
-injection and native IRQ/CLI equivalence are not claimed. DocTop/Rst/New,
+injection and native IRQ/CLI equivalence are not claimed. DocNew,
 DocPrint/DocClear and the actual editor/window-manager lifecycle remain open.
+
+### Document cursor and reset lifetimes
+
+KeyDev supplies native DocTop, DocBottom, DocRst and DocDel. Top/Bottom validate
+the normal-layout subset before changing cursor/scroll state, respect inherited
+locks and release newly acquired locks on failure. Reset validates only its
+empty post-reset state: old drawing/callback entries are destroyed through their
+real ownership rules rather than executed. It preserves the native fields that
+reset does not clear, including auxiliary buffers and caller callbacks. Fresh
+reset requires fresh storage; old reset requires valid initialized queues and
+owned entry/bin/undo fields. Default DocPut selection and invalid-signature
+constructor/destructor phases retain their native behavior.
+
+Two native leaks are fixed explicitly: reset frees owned orphan-bin tags, and
+delete frees the final CDoc even if pending Break throws from unlock. Original
+V5.03 and staged-native heap-span probes distinguish those leaks and verify the
+exception chain; repeated host lifetimes test actual owner sets. Native/host
+allocator sizes are not asserted equal. `npm run test:doc-life` exercises native
+state, ownership, rejection, allocation-failure and original-source negative
+controls. The constructor, dollar-command output, DocClear, editor and window
+manager remain separate dependencies; no placeholder callback is installed.

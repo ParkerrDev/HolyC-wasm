@@ -24,7 +24,7 @@ for(const name of cases) {
   } finally {await host.dispose();}
   assert.equal(live.size,0);console.log(test.output.trim(),'five lifetimes and complete disposal');
 }
-for(const name of ['DocNew','DocRst','DocTop','DocBottom','DocClear','EdLeftClickLink'])
+for(const name of ['DocNew','DocPrint','DocPutS','DocClear','EdLeftClickLink'])
   assert.throws(()=>compileHolyC(name+';',{lenient:false,runtimeProfile:'keydev'}),/undefined|untyped/);
 assert.throws(()=>compileHolyC('DocRecalc(NULL);',{lenient:false}),/undefined|untyped/);
-console.log('Normal layout is explicit KeyDev functionality; console, screen/editor and reset/clear boundaries remain.');
+console.log('Normal layout is explicit KeyDev functionality; console, screen/editor and construction/output boundaries remain.');

@@ -28,7 +28,7 @@ for(const name of cases) {
 const plain=compileHolyC('I64 Answer(){return 1;}',{lenient:false,exports:['Answer']});
 assert.deepEqual(plain.requiredCapabilities,[]);
 assert(!WebAssembly.Module.imports(new WebAssembly.Module(plain.bytes)).some(e=>e.name.startsWith('__malloc')||e.name.startsWith('__task')));
-for(const name of ['DocNew','DocRst','DocTop','DocClear','EdLeftClickLink'])
+for(const name of ['DocNew','DocPrint','DocClear','EdLeftClickLink'])
   assert.throws(()=>compileHolyC(name+';',{lenient:false,runtimeProfile:'keydev'}),/undefined|untyped/);
 for(const name of ['DocWordWrapDel','DocRecalcXY','DocSplitTag','DocWordWrapAdd','DocTmpAttr','DocCharDist','DocDelToNum','DocDelToEntry','DocEntryLink'])
   assert.throws(()=>compileHolyC(name+';',{lenient:false}),/undefined|untyped/);
