@@ -84,6 +84,17 @@ its native test checks every payload byte, separate literal allocations and
 write isolation. SpriteDocument then compares drawing that same bitmap asset
 against original V5.03, including clipping, depth, transforms and symmetry.
 
+Runtime startup initializes prelude data, then required runtime facilities,
+then user globals. Successful initialization runs once. If a hook/global
+initializer throws, traps, or reenters startup, that instance remains poisoned:
+subsequent `__rt_init`, `__main`, and task runs reject before executing user code.
+Create a fresh module instance to recover; startup side effects are not replayed.
+New modules with initialization require the paired host's `__rt_init_failed`
+import, which reports this state clearly. Initializer-free no-prelude modules
+remain self-contained. Full snapshots retain their embedded module and guard
+state; heap/snapshot formats are unchanged. `test:runtime-init` covers typed and
+host exceptions, traps, reentrancy, real allocation failure and JSPI startup.
+
 ## Native oracle
 
 `tests/oracle.mjs` boots the original V5.03 disk under QEMU, injects fixtures into

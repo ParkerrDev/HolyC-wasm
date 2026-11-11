@@ -17,6 +17,7 @@
     "test:path-string": "node tests/path-string.mjs",
     "test:alloc-ident": "node tests/alloc-ident.mjs",
     "test:heap": "node tests/heap.mjs",
+    "test:runtime-init": "node tests/runtime-init.mjs",
     "test:link": "node tests/link.mjs",
     "test:palette": "node tests/palette.mjs",
     "test:graphics": "node tests/graphics.mjs",

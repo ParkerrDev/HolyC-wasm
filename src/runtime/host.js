@@ -42,6 +42,7 @@ export function createHost(opts = {}) {
   }
 
   const imports = {
+    __rt_init_failed() {throw new Error("HolyC runtime initialization failed or reentered; create a fresh module instance before running it");},
     __puts:addr=>state.out(docText(readCStr(mem(),Number(addr)),{ansi:state.ansi})),
     __printf(fmtAddr, nargs) {
       const fb = readCStr(mem(), Number(fmtAddr));

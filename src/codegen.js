@@ -639,15 +639,27 @@ class Codegen {
   }
 
   genRtInit(ctx,linked) {
-    const f=ctx.f=new Func(),guard=this.alloc(8,8);
-    f.i64_const(guard).op("i32_wrap_i64").load("i64_load",0,3).op("i64_eqz").if_();
-    f.i64_const(guard).op("i32_wrap_i64").i64_const(1).store("i64_store",0,3);
-    // Tasks and the selected runtime facilities exist before user initializers.
-    for (const hook of this.opts.runtimeInitializers || [])
-      if (linked.hooks.has(hook.name)) f.call(this.functions.get(hook.name).index);
-    for (const [name,body] of this.globalInitializers)
-      if (linked.globals.has(name)) f.append(body);
-    f.end();
+    const f=ctx.f=new Func();
+    const initializers=[...this.globalInitializers].filter(([name])=>linked.globals.has(name));
+    if (linked.hooks.size || initializers.length) {
+      const guard=this.alloc(8,8),fault=this.imports.__rt_init_failed.index;
+      const state=()=>f.i64_const(guard).op("i32_wrap_i64");
+      state().load("i64_load",0,3).i64_const(2).op("i64_ne").if_();
+      state().load("i64_load",0,3).op("i64_eqz").op("i32_eqz").if_();
+      f.call(fault).unreachable().end();
+      state().i64_const(1).store("i64_store",0,3);
+      // Failed or reentered initialization remains poisoned. Repeating side
+      // effects or continuing into main with partial globals is not safe.
+      for (const [name,body] of initializers)
+        if (this.globals.get(name).node?.filename==="<prelude>") f.append(body);
+      for (const hook of this.opts.runtimeInitializers || [])
+        if (linked.hooks.has(hook.name)) f.call(this.functions.get(hook.name).index);
+      for (const [name,body] of initializers)
+        if (this.globals.get(name).node?.filename!=="<prelude>") f.append(body);
+      state().i64_const(2).store("i64_store",0,3);
+      f.end();
+      linked.functions.add(fault);
+    }
     ctx.endFrameFallthrough();
     this.rtInit.setBody(ctx.localDecls(),f);
   }

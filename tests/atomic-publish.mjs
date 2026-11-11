@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import {Worker,isMainThread,parentPort,workerData} from 'node:worker_threads';
 import {compileHolyC} from '../src/compiler.js';
+const failed=()=>{throw new Error('Atomic fixture initialization is poisoned');};
 
 if(!isMainThread) {
-  const instance=new WebAssembly.Instance(workerData.module,{env:{mem:workerData.memory}});
+  const instance=new WebAssembly.Instance(workerData.module,{env:{mem:workerData.memory,__rt_init_failed:failed}});
   parentPort.postMessage(instance.exports[workerData.entry]());
 } else {
   const result=compileHolyC(`
@@ -30,9 +31,11 @@ I64 Consumer() {
 `,{lenient:false,noPrelude:true,sharedMemory:true,exports:['Producer','Consumer']});
   assert.deepEqual(result.warnings,[]);
   const module=new WebAssembly.Module(result.bytes);
-  assert.deepEqual(WebAssembly.Module.imports(module),[{module:'env',name:'mem',kind:'memory'}]);
+  assert.deepEqual(WebAssembly.Module.imports(module).map(({module,name,kind})=>({module,name,kind})),[
+    {module:'env',name:'__rt_init_failed',kind:'function'},
+    {module:'env',name:'mem',kind:'memory'}]);
   const memory=new WebAssembly.Memory({initial:512,maximum:8192,shared:true});
-  new WebAssembly.Instance(module,{env:{mem:memory}}).exports.__rt_init();
+  new WebAssembly.Instance(module,{env:{mem:memory,__rt_init_failed:failed}}).exports.__rt_init();
   const workers=['Producer','Consumer'].map(entry=>new Worker(new URL(import.meta.url),{workerData:{module,memory,entry}}));
   const timer=setTimeout(()=>{for(const worker of workers)worker.terminate();},10000);
   try {

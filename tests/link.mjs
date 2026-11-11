@@ -24,7 +24,7 @@ U0 Dead() { MissingHost; "unreachable-string-sentinel"; GrCircle(gr.dc,1,2,3); }
 I64 Read() { I64 gr=42; return gr; }
 `,{exports:['Read']});
   assert.equal(result.instance.exports.Read(),42n);
-  assert.deepEqual(imports(result.module),['__gr_width','__gr_height']);
+  assert.deepEqual(imports(result.module),['__rt_init_failed','__gr_width','__gr_height']);
   assert(!Buffer.from(result.bytes).includes(Buffer.from('unreachable-string-sentinel')));
   assert(!Buffer.from(result.bytes).includes(Buffer.from(FONT)),
     'unused font data is not linked');
