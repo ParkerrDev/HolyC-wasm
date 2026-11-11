@@ -8,6 +8,7 @@ import {GR_PRIMITIVES_SRC} from "./gr-primitives.js";
 import {GR_MATH_SRC} from "./gr-math.js";
 import {GR_TYPES_SRC,GR_SRC} from "./gr-prelude.js";
 import {TASK_TYPES_SRC,TASK_SRC} from "./task-prelude.js";
+import {TASK_MESSAGE_SRC} from "./task-message.js";
 import {FONT} from "./runtime/font.js";
 import {STR_SRC} from "./str-prelude.js";
 import {GR_COMPOSITES_SRC} from "./gr-composites.js";
@@ -658,6 +659,7 @@ ${STR_SRC}
 ${GR_COMPOSITES_SRC}
 ${SPRITE_SRC}
 ${TASK_SRC}
+${TASK_MESSAGE_SRC}
 
 public I64 DistSqrI64(I64 x1,I64 y1,I64 x2,I64 y2)
 {
@@ -808,6 +810,8 @@ U0 __hcrt_init()
   Fs->pix_right=Fs->pix_width-1;
   Fs->pix_bottom=Fs->pix_height-1;
   Fs->next_task=sys_winmgr_task=Fs;
+  Fs->next_input_filter_task=Fs->last_input_filter_task=Fs;
+  JobCtrlInit(&Fs->srv_ctrl);
 }
 
 U0 __hgr_init()

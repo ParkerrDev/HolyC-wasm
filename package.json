@@ -22,7 +22,8 @@
     "test:numeric-runtime": "node tests/numeric-runtime.mjs",
     "test:browser-games": "node tests/browser-games.mjs",
     "test:float-scale": "node tests/oracle-scale.mjs",
-    "test:core": "node tests/core.mjs"
+    "test:core": "node tests/core.mjs",
+    "test:messages": "node tests/messages.mjs"
   },
   "license": "MIT",
   "author": "Built with Claude Code"

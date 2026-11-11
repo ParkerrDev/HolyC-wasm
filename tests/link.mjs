@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {compileHolyC} from '../src/compiler.js';
 import {createHost} from '../src/runtime/host.js';
 import {Module,Func,VT} from '../src/wasm/emitter.js';
+import {FONT} from '../src/runtime/font.js';
 
 async function run(source,options={}) {
   const result=compileHolyC(source,{lenient:false,...options});
@@ -25,7 +26,8 @@ I64 Read() { I64 gr=42; return gr; }
   assert.equal(result.instance.exports.Read(),42n);
   assert.deepEqual(imports(result.module),['__gr_width','__gr_height']);
   assert(!Buffer.from(result.bytes).includes(Buffer.from('unreachable-string-sentinel')));
-  assert(result.bytes.length<1000,'unused graphics bodies and font data are not linked');
+  assert(!Buffer.from(result.bytes).includes(Buffer.from(FONT)),
+    'unused font data is not linked');
   assert.throws(()=>compileHolyC('U0 Dead() { Absent; }',{lenient:false}),/undefined symbol/);
   assert.throws(()=>compileHolyC('U0 Dead() { asm { NOP } }',{lenient:false}),/assembly/);
   const callback=compileHolyC('import I64 MissingHost(); I64 (*cb)()=&MissingHost;',

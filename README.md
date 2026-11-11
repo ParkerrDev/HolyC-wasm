@@ -198,6 +198,18 @@ are rejected even in unused classes. Native `pad`, `reserved` and `_anon_`
 members may repeat: lookup selects the first own declaration, before a base
 class member, while every declaration still contributes storage.
 
+Circular queue operations and posted message queues now follow V5.03:
+`QueInit`, `QueIns`, `QueInsRev`, `QueRem`, `QueCnt`, `QueDel`, `TaskMsg`,
+`PostMsg`, `Msg`, `ScanMsg` and `FlushMsgs`. Masks discard unmatched messages;
+negative down/up codes enqueue both messages; input-filter and popup routing
+use the native task fields. Scan filtering saves the scan value before freeing
+its node, correcting the original use-after-free. `Suspend` and `IsSuspended`
+read/write the native flag but do not themselves provide a scheduler.
+Executable job requests fail explicitly with `JobHost`; dynamic compilation,
+input-filter task creation and macro recording are not implemented. The
+`Messages` and `Queue` fixtures compare independent native behavior, while
+`test:messages` checks failed allocation, poisoned freed nodes and cleanup.
+
 `npm run test:heap` checks allocation lifetime, splitting/coalescing, cleared
 reuse, failed growth, full-memory restoration, legacy restoration and four
 workers allocating/freeing the same growing shared memory.

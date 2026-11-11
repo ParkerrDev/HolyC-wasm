@@ -1,5 +1,72 @@
 //Native V5.03 task, settings and keyboard record layouts.
 export const TASK_TYPES_SRC=String.raw`
+#define WIF_SELF_FOCUS		0x0001 //If active this task cannot have focus
+		//MENU		0x0002
+#define WIF_SELF_CTRLS		0x0004
+#define WIF_SELF_MS_L		0x0008
+		//MS_L_D	0x0010
+#define WIF_SELF_MS_R		0x0020
+		//MS_R_D	0x0040
+#define WIF_SELF_MS_WHEEL	0x0080 //Does nothing, yet
+#define WIF_SELF_BORDER		0x0100
+#define WIF_SELF_GRAB_SCROLL	0x0200
+#define WIF_SELF_DOC		0x0400
+#define WIF_SELF_ODE		0x0800
+#define WIF_SELF_KEY_DESC	0x1000
+		//FOCUS		0x00010000
+#define WIF_FOCUS_TASK_MENU	0x00020000
+#define WIF_FOCUS_TASK_CTRLS	0x00040000
+#define WIF_FOCUS_TASK_MS_L	0x00080000
+#define WIF_FOCUS_TASK_MS_L_D	0x00100000
+#define WIF_FOCUS_TASK_MS_R	0x00200000
+#define WIF_FOCUS_TASK_MS_R_D	0x00400000
+#define WIF_FOCUS_TASK_MS_WHEEL	0x00800000 //Does nothing, yet
+#define WIF_FOCUS_TASK_BORDER	0x01000000
+#define WIF_FOCUS_TASK_GRAB_SCROLL 0x02000000
+
+#define WIG_DBL_CLICK		(WIF_FOCUS_TASK_MS_L_D|WIF_FOCUS_TASK_MS_R_D)
+#define WIG_TASK_DFT		(WIF_FOCUS_TASK_MENU|WIG_DBL_CLICK|\
+	0xFFFF-WIF_SELF_DOC-WIF_SELF_ODE)
+#define WIG_NO_FOCUS_TASK_DFT	(WIG_TASK_DFT-WIF_SELF_BORDER\
+	-WIF_SELF_MS_L-WIF_SELF_MS_R-WIG_DBL_CLICK)
+#define WIG_USER_TASK_DFT	WIF_SELF_KEY_DESC
+
+#define WIf_SELF_FOCUS		0
+#define WIf_SELF_CTRLS		2
+#define WIf_SELF_MS_L		3
+#define WIf_SELF_MS_R		5
+#define WIf_SELF_MS_WHEEL	7
+#define WIf_SELF_BORDER		8
+#define WIf_SELF_GRAB_SCROLL	9
+#define WIf_SELF_DOC		10
+#define WIf_SELF_ODE		11
+#define WIf_SELF_KEY_DESC	12
+#define WIf_FOCUS_TASK_MENU	17
+#define WIf_FOCUS_TASK_CTRLS	18
+#define WIf_FOCUS_TASK_MS_L	19
+#define WIf_FOCUS_TASK_MS_L_D	20
+#define WIf_FOCUS_TASK_MS_R	21
+#define WIf_FOCUS_TASK_MS_R_D	22
+#define WIf_FOCUS_TASK_MS_WHEEL	23
+#define WIf_FOCUS_TASK_BORDER	24
+#define WIf_FOCUS_TASK_GRAB_SCROLL 25
+
+#define JOBf_WAKE_MASTER	0
+#define JOBf_FOCUS_MASTER	1
+#define JOBf_EXIT_ON_COMPLETE	2
+#define JOBf_DONT_FILTER	3
+#define JOBf_HIGHEST_PRIORITY	4
+//MP flags
+#define JOBf_DONE		5
+#define JOBf_DISPATCHED		6
+#define JOBf_FREE_ON_COMPLETE	7
+#define JOBf_ADD_TO_QUE		8
+
+public class CQue
+{
+  CQue *next,*last;
+};
+
 #define JOBT_TEXT_INPUT		0 //$LK,"TaskText",A="MN:TaskText"$()	Feed StdIn
 #define JOBT_MSG		1 //$LK,"TaskMsg",A="MN:TaskMsg"$()	Post msg
 #define JOBT_EXE_STR		2 //$LK,"TaskExe",A="MN:TaskExe"$()	Compile & execute src code text
