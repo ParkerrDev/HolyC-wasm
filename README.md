@@ -34,6 +34,7 @@ npm run test:strict       # Unsupported assembly and unresolved callable symbols
 npm run test:callback     # Imported callbacks and null pointer traps.
 npm run test:varargs      # Variadic ABI, nested calls and exception cleanup.
 npm run test:format       # Native formatting ownership and unavailable OS formats.
+npm run test:console      # Shared Print path, terminal presentation and repeated output.
 npm run test:exception    # Cross-call unwinding and repeated stack cleanup.
 npm run test:oracle       # Boot V5.03 in QEMU and recheck the native results.
 npm run test:float-scale  # Reproduce the native Pow10I64 table in QEMU.
@@ -330,8 +331,13 @@ formats raise `FmtHost`, since their OS services are unavailable. They do not
 produce placeholders. Temporary formatting buffers are freed on allocation,
 format and drawing errors. New compiled formatters need the `__msize` host
 import; old embedded snapshots keep working with heap ABI 0 or 1 as before.
-The string-literal Print shortcut still uses the legacy host formatter pending
-its migration to this shared implementation.
+String-literal Print shortcuts and callable Print share this implementation,
+including argument bit patterns and calls with more than 64 extra arguments.
+The new `__puts` host import presents already-formatted DolDoc text through the
+terminal adapter; it preserves the existing color option without interpreting
+format specifiers again. This adapter is not a full DolDoc document renderer.
+The old `__printf` import remains for embedded snapshots, but new modules never
+use it. Without the prelude, printing requires an explicit Print declaration.
 
 `Format` compares 220 output records with original QEMU, using identical F64
 input bits, including 64 random large values. `Text` compares 64 formatted

@@ -1,4 +1,4 @@
-// console.js - TempleOS-flavored printf engine + DolDoc inline markup handling.
+// Legacy embedded-module formatter and terminal DolDoc presentation.
 //
 // Reads a NUL-terminated format string and a marshalled argument buffer from
 // linear memory and renders text. Supports the common HolyC format codes and
@@ -239,4 +239,17 @@ function dolDoc(cmd, ansi) {
   if (up in colorIdx) return `\x1b[${ANSI_FG[colorIdx[up]]}m`;
   // ignore links, buttons, highlights, macros, etc.
   return "";
+}
+
+export function docText(bytes,opts={}) {
+  const text=bytesToLatin1(bytes),ansi=opts.ansi!==false;
+  let out="";
+  for (let i=0;i<text.length;) {
+    if (text[i]!=="$") {out+=text[i++];continue;}
+    if (text[i+1]==="$") {out+="$";i+=2;continue;}
+    const end=text.indexOf("$",i+1);
+    if (end<0) break;
+    out+=dolDoc(text.slice(i+1,end),ansi);i=end+1;
+  }
+  return out;
 }

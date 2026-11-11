@@ -17,7 +17,7 @@ export const JUNK_ADDR = 32;                   // scratch for unknown field/symb
 export const MS_ADDR = 64;                     // CMouse mirror (host writes it)
 // CMouse field offsets relative to MS_ADDR (must match prelude class CMouse).
 export const MS = { x: 0, y: 4, z: 8, lb: 12, rb: 16, SIZE: 20 };
-export const ARG_BUF = 1024;                   // printf argument marshalling area
+export const ARG_BUF = 1024;                   // legacy embedded-module printf arguments
 export const ARG_SLOT = 16;                    // [tag @0 (i64)][value @8 (i64/f64)]
 export const ARG_MAX = 64;                     // max marshalled args per call
 export const DATA_BASE = 8192;                 // static data (globals, strings) start
@@ -49,6 +49,7 @@ const I = VT.i64, F = VT.f64;
 // Host imports (module "env"). name -> {params, results} in wasm value types.
 export const HOST_IMPORTS = {
   __printf:      { params: [I, I], results: [] },        // (fmtAddr, nargs)
+  __puts:        { params: [I], results: [] },
   __print_bytes: { params: [I, I], results: [] },        // (addr, n)
   __putc:        { params: [I], results: [] },           // (ch)
 

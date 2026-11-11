@@ -921,10 +921,15 @@ U8 *CatPrint(U8 *_dst,U8 *fmt,...)
   return _dst;
 }
 
+U0 PutS(U8 *s)
+{//Present formatted text through the host's DolDoc adapter.
+  __puts(s);
+}
+
 U0 Print(U8 *fmt,...)
 {//Format text for the host output stream.
   U8 *buf=StrPrintJoin(NULL,fmt,argc,argv);
-  __print_bytes(buf,StrLen(buf));
+  PutS(buf);
   Free(buf);
 }
 

@@ -19,7 +19,7 @@ import {
 } from "./types.js";
 import {
   HOST_IMPORTS, DATA_BASE, STACK_TOP, HEAP_BASE, MEM_INITIAL_PAGES,
-  MEM_MAX_PAGES, ARG_BUF, ARG_SLOT, TAG_INT, TAG_FLT, MS_ADDR, JUNK_ADDR,
+  MEM_MAX_PAGES, MS_ADDR, JUNK_ADDR,
   COLOR_NAMES, GR_WIDTH, GR_HEIGHT,
 } from "./abi.js";
 import { foldConstInt, foldDim } from "./fold.js";
@@ -1121,26 +1121,9 @@ class FnCtx {
 
   // ================================================== print
   genPrint(s) {
-    const fmtAddr=this.cg.internBytes(s.bytes,true,this.f),args=s.args.filter(arg=>arg!=null),
-      values=[];
-    //Stage every value before writing the shared argument buffer: an argument
-    //may itself print, and native Print evaluates its arguments right to left.
-    for (let i=args.length-1;i>=0;i--) {
-      let type=this.cg.resolveType(this.genExpr(args[i]));
-      if (i>=64) {this.dropIfValue(type);continue;}
-      if (isVoid(type)) {this.f.i64_const(0);type=T.I64;}
-      const local=this.newWLocal(wasmValType(type));
-      this.f.local_set(local);
-      values[i]={local,float:isFloat(type)};
-    }
-    values.forEach((value,i)=>{
-      const slot=ARG_BUF+i*ARG_SLOT;
-      this.f.i32_const(slot).i64_const(value.float?TAG_FLT:TAG_INT);
-      this.emitRawStore("i64_store",0);
-      this.f.i32_const(slot+8).local_get(value.local);
-      this.emitRawStore(value.float?"f64_store":"i64_store",0);
-    });
-    this.f.i64_const(fmtAddr).i64_const(values.length).call(this.cg.imports.__printf.index);
+    const fn=this.cg.functions.get("Print");
+    if (!fn) this.err(s,"Print requires the runtime or an explicit declaration");
+    this.dropIfValue(this.emitCall(fn,[{...s,kind:"StrLit"},...s.args],s));
   }
 
   genPutChars(bytes) {

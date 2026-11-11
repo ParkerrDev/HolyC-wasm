@@ -4,7 +4,7 @@
 //   - Node headless (console only; graphics/sound/input are stubs or buffers)
 //   - Browser worker (real OffscreenCanvas graphics, SAB sleep/input, sound ring)
 // Pass in adapters; sensible no-op defaults are used otherwise.
-import { format, readCStr, bytesToLatin1 } from "./console.js";
+import { format, readCStr, bytesToLatin1, docText } from "./console.js";
 import { MS_ADDR, MS } from "../abi.js";
 import {Heap,LegacyHeap,HOST_HEAP_ABI} from "./heap.js";
 export {HOST_HEAP_ABI} from "./heap.js";
@@ -39,6 +39,7 @@ export function createHost(opts = {}) {
   function u8() { return new Uint8Array(state.mem.buffer); }
 
   const imports = {
+    __puts:addr=>state.out(docText(readCStr(mem(),Number(addr)),{ansi:state.ansi})),
     __printf(fmtAddr, nargs) {
       const fb = readCStr(mem(), Number(fmtAddr));
       state.out(format(fb, mem(), Number(nargs), { ansi: state.ansi }));
