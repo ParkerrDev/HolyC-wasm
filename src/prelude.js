@@ -9,6 +9,7 @@ import {GR_MATH_SRC} from "./gr-math.js";
 import {GR_TYPES_SRC,GR_SRC} from "./gr-prelude.js";
 import {FONT} from "./runtime/font.js";
 import {STR_SRC} from "./str-prelude.js";
+import {GR_COMPOSITES_SRC} from "./gr-composites.js";
 import {SPRITE_TYPES_SRC} from "./gr-sprite.js";
 
 // Runtime initialization is a dependency of the globals it establishes. The
@@ -664,6 +665,7 @@ ${GR_MATH_SRC}
 ${GR_SRC}
 ${GR_PRIMITIVES_SRC}
 ${STR_SRC}
+${GR_COMPOSITES_SRC}
 
 public I64 DistSqrI64(I64 x1,I64 y1,I64 x2,I64 y2)
 {
@@ -851,6 +853,12 @@ U8 *MemCpy(U8 *dst,U8 *src,I64 cnt)
   else
     __memcopy(dst,src,cnt);
   return dst+cnt;
+}
+
+U32 BFieldExtU32(U8 *bit_field,I64 bit,I64 size)
+{
+  U64 *ptr=bit_field+(bit(U64)>>3);
+  return (*ptr>>(bit&7))&((1<<size)-1);
 }
 
 I64 MemCmp(U8 *a,U8 *b,I64 cnt)

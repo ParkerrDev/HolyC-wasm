@@ -964,4 +964,117 @@ public I64 GrPrint3(CDC *dc=gr.dc,I64 x,I64 y,I64 z,U8 *fmt,...)
   Free(buf);
   return res;
 }
+#define SUF_REM_CTRL_CHARS	0x001
+#define SUF_REM_LEADING		0x002
+#define SUF_REM_TRAILING	0x004
+#define SUF_REM_SPACES		0x008
+#define SUF_SINGLE_SPACE	0x010
+#define SUF_TO_UPPER		0x020
+#define SUF_TO_LOWER		0x040
+#define SUF_S2T			0x080
+#define SUF_T2S			0x100 //Only works with MStrUtil
+#define SUF_SCALE_INDENT	0x200
+#define SUF_SAFE_DOLLAR		0x400
+
+U32 char_bmp_white_space[16]=
+{0x80002600,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+  char_bmp_safe_dollar[16]=
+{0x80000000,0xFFFFFFEF,0xFFFFFFFF,0x7FFFFFFF,
+0xFFFFFFFF,0xFFFFFFFF,0xFFFFFFFF,0xFFFFFFFF,0,0,0,0,0,0,0,0};
+
+I64 Spaces2Tabs(U8 *dst,U8 *src)
+{//Src buf with spaces to dst buf without.
+  U8 *src2;
+  I64 chged=0,space_cnt,space_cnt2,col=0;
+  if (*src)
+    while (TRUE) {
+      src2=src;
+      while (*src2==CH_SPACE)
+	src2++;
+      space_cnt=src2-src;
+      while (col+space_cnt>=8) {
+	space_cnt2=8-col;
+	if (space_cnt2==1)
+	  *dst++=CH_SPACE;
+	else {
+	  *dst++='\t';
+	  chged+=space_cnt2-1;
+	}
+	space_cnt-=space_cnt2;
+	col=0;
+      }
+      if (*src2=='\t') {
+	if (space_cnt==1 && col==7)
+	  *dst++=CH_SPACE;
+	else
+	  chged+=space_cnt;
+	*dst++='\t';
+	col=0;
+      } else {
+	while (space_cnt--) {
+	  *dst++=CH_SPACE;
+	  if (++col==8)
+	    col=0;
+	}
+	if (*src2) {
+	  *dst++=*src2;
+	  if (++col==8)
+	    col=0;
+	} else
+	  break;
+      }
+      src=++src2;
+    }
+  *dst=0;
+  return chged;
+}
+
+U8 *StrUtil(U8 *_src,I64 flags)
+{//Modifies in place. See $LK,"flags",A="MN:SUF_REM_SPACES"$ for all the options.
+  U8 *src=_src,*dst=_src;
+  I64 ch;
+
+  if (flags & SUF_REM_LEADING)
+    while (Bt(char_bmp_white_space,*src))
+      src++;
+  while (ch=*src++)
+    if (Bt(char_bmp_white_space,ch)) {
+      if (!(flags & SUF_REM_SPACES)) {
+	if (flags & SUF_SINGLE_SPACE) {
+	  *dst++ = CH_SPACE;
+	  while ((ch=*src++) && Bt(char_bmp_white_space,ch));
+	  src--;
+	} else
+	  *dst++ = ch;
+      }
+    } else if (!(flags & SUF_REM_CTRL_CHARS) || ch>=CH_SHIFT_SPACE)
+      *dst++=ch;
+  *dst=0;
+
+  if (flags & SUF_REM_TRAILING)
+    while (dst!=_src && (!*dst || Bt(char_bmp_white_space,*dst)))
+      *dst-- =0;
+  if (flags & SUF_TO_UPPER)
+    for (dst=_src;*dst;dst++) {
+      ch=*dst;
+      if ('a'<=ch<='z')
+	*dst=ch-0x20;
+    }
+  if (flags & SUF_TO_LOWER)
+    for (dst=_src;*dst;dst++) {
+      ch=*dst;
+      if ('A'<=ch<='Z')
+	*dst=ch+0x20;
+    }
+  if (flags & SUF_SAFE_DOLLAR)
+    for (dst=_src;*dst;dst++) {
+      ch=*dst;
+      if (!Bt(char_bmp_safe_dollar,*dst))
+	*dst='.';
+    }
+  if (flags & SUF_S2T)
+    Spaces2Tabs(_src,_src);
+  return _src;
+}
+
 `;

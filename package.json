@@ -17,6 +17,7 @@
     "test:heap": "node tests/heap.mjs",
     "test:link": "node tests/link.mjs",
     "test:graphics": "node tests/graphics.mjs",
+    "test:composites": "node tests/composites.mjs",
     "test:browser-games": "node tests/browser-games.mjs",
     "test:float-scale": "node tests/oracle-scale.mjs"
   },

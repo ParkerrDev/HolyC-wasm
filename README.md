@@ -35,6 +35,7 @@ npm run test:callback     # Imported callbacks and null pointer traps.
 npm run test:varargs      # Variadic ABI, nested calls and exception cleanup.
 npm run test:format       # Native formatting ownership and unavailable OS formats.
 npm run test:console      # Shared Print path, terminal presentation and repeated output.
+npm run test:composites   # Text/mesh allocation failures, callbacks and recovery.
 npm run test:exception    # Cross-call unwinding and repeated stack cleanup.
 npm run test:oracle       # Boot V5.03 in QEMU and recheck the native results.
 npm run test:float-scale  # Reproduce the native Pow10I64 table in QEMU.
@@ -356,3 +357,14 @@ overlay its original base. This is measured V5.03 behavior, not C union layout.
 `SpriteLayout` checks the native sprite and mesh records, including CSprite's
 45-byte size and embedded payload offsets. These declarations prepare the
 sprite renderer; they do not implement Sprite3 rendering by themselves.
+
+`GrArrow3`, `GrTextBox3`, `GrTextDiamond3` and `Gr3Mesh` use the native drawing
+algorithms, including transforms, symmetry, depth and lighting callbacks.
+`Composites` compares 384 drawing cases with original QEMU. Temporary strings,
+vertices and reflected meshes are released after allocation or callback errors;
+the failure gate verifies six allocation sites and state restoration on retry.
+`StrUtil`, `Spaces2Tabs` and `BFieldExtU32` supply the renderer's remaining string
+and bit-field operations. `StringUtil` checks all 2,048 flag combinations,
+128 in-place/out-of-place tab conversions and 4,224 unaligned bit-field reads.
+The bit-field API, like its native assembly counterpart, reads an unaligned U64;
+callers must provide that accessible storage even for smaller requested fields.
