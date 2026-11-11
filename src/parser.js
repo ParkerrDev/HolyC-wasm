@@ -445,15 +445,12 @@ export class Parser {
 
     // statement-level string -> Print
     if (t.type === "str") return this.parsePrintStmt();
-    // statement-level char const -> maybe PutChars
+    // A zero character literal selects a following packed-character expression.
     if (t.type === "char") {
-      const expr = this.parseExpression();
+      if (!t.value) this.next();
+      const expr=this.parseExpression();
       this.optP(";");
-      if (expr.kind === "CharLit") {
-        const bytes = Array.from(expr.text, (c) => c.charCodeAt(0) & 0xff);
-        return mk("PutChars", { bytes }, t);
-      }
-      return mk("ExprStmt", { expr }, t);
+      return mk("PutChars",{expr},t);
     }
 
     // expression statement
@@ -484,16 +481,16 @@ export class Parser {
 
   parsePrintStmt() {
     const t = this.cur();
-    // collect adjacent string literals
-    const bytes = [];
-    while (this.cur().type === "str") { bytes.push(...this.cur().value); this.next(); }
+    // An empty-leading-byte literal selects a following format expression.
+    if (!t.value[0]) this.next();
+    const format=this.parseExpression();
     const args = [];
     while (this.optP(",")) {
       if (this.isP(";")) break;
       args.push(this.parseAssignment());
     }
     this.optP(";");
-    return mk("Print", { bytes, args }, t);
+    return mk("Print", { format, args }, t);
   }
 
   parseIf() {

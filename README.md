@@ -608,6 +608,14 @@ formats raise `FmtHost`, since their OS services are unavailable. They do not
 produce placeholders. Temporary formatting buffers are freed on allocation,
 format and drawing errors. New compiled formatters need the `__msize` host
 import; old embedded snapshots keep working with heap ABI 0 or 1 as before.
+Output shortcuts accept expressions as native TempleOS does: `'A'+1;` calls
+PutChars with the resulting value, `'' value;` selects a dynamic packed-character
+expression, and `"" format,args;` selects a dynamic format expression. A zero-valued
+character or string whose first byte is zero selects the following expression;
+a marker with no expression is a compile error. Older permissive output no-ops
+for `'';` and `"";` are intentionally rejected. The native OutputExpr fixture
+checks values, format-pointer arithmetic and exactly-once side effects.
+
 String-literal Print shortcuts and callable Print share this implementation,
 including argument bit patterns and calls with more than 64 extra arguments.
 The new `__puts` host import presents already-formatted DolDoc text through the

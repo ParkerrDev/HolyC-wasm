@@ -887,7 +887,7 @@ class FnCtx {
       }
       case "ExprStmt": { const t = this.genExpr(s.expr); this.dropIfValue(t); return; }
       case "Print": this.genPrint(s); return;
-      case "PutChars": this.genPutChars(s.bytes); return;
+      case "PutChars": this.genPutChars(s.expr); return;
       case "If": this.genIf(s); return;
       case "While": this.genWhile(s); return;
       case "DoWhile": this.genDoWhile(s); return;
@@ -1230,15 +1230,13 @@ class FnCtx {
   genPrint(s) {
     const fn=this.cg.functions.get("Print");
     if (!fn) this.err(s,"Print requires the runtime or an explicit declaration");
-    this.dropIfValue(this.emitCall(fn,[{...s,kind:"StrLit"},...s.args],s));
+    this.dropIfValue(this.emitCall(fn,[s.format,...s.args],s));
   }
 
-  genPutChars(bytes) {
+  genPutChars(expr) {
     const fn=this.cg.functions.get("PutChars");
     if (!fn) this.err(null,"Character output requires the runtime or an explicit PutChars declaration");
-    let value=0n;
-    for (let i=0;i<bytes.length;i++) value|=BigInt(bytes[i])<<BigInt(i*8);
-    this.dropIfValue(this.emitCall(fn,[{kind:"IntLit",value}],null));
+    this.dropIfValue(this.emitCall(fn,[expr],expr));
   }
 
   // A reference parsed before a same-named local still names its global.

@@ -48,4 +48,12 @@ const chars=compileHolyC("import U0 PutChars(U64 ch); 'abcdefgh';",{noPrelude:tr
 const charHost=createHost(),charInstance=new WebAssembly.Instance(new WebAssembly.Module(chars.bytes),
   {env:{...charHost.env,PutChars:value=>packed=value}});
 charHost.attach(charInstance);charInstance.exports.__main();assert.equal(packed,0x6867666564636261n);
-console.log("Print shortcuts share native formatting, preserve terminal colors and release 1,000 repeated outputs; silent state and packed-character output match native without task requirements; explicit no-prelude imports work.");
+const expression=compileHolyC(readFileSync(new URL('v503/OutputExpr.HC',import.meta.url)),{lenient:false});
+let exprOut='';
+const exprHost=createHost({ansi:false,onText:text=>exprOut+=text});
+const exprInstance=new WebAssembly.Instance(new WebAssembly.Module(expression.bytes),{env:exprHost.env});
+exprHost.attach(exprInstance);exprInstance.exports.__main();
+assert.equal(exprOut,readFileSync(new URL('v503/OutputExpr.out',import.meta.url),'latin1'));
+for (const source of ["'';",'"";',"'\\0';",'"\\0ignored";'])
+  assert.throws(()=>compileHolyC(source,{lenient:false}),/unexpected token in expression/);
+console.log("Print shortcuts share native formatting, preserve terminal colors and release 1,000 repeated outputs; silent state and packed-character output match native without task requirements; dynamic format/character expressions, missing-expression rejection and explicit no-prelude imports work.");
