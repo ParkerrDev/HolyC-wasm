@@ -24,6 +24,8 @@ export function createHost(opts = {}) {
     scanChar: opts.scanChar || (() => 0),  // () => int (nonblocking)
     getChar: opts.getChar || (() => 0),    // (echo,scan) => int (blocking)
     timeMs: opts.timeMs || (() => Date.now()),
+    dateMs: opts.dateMs || (() => Date.now()),
+    clockError:null,
     onFlip: opts.onFlip || null,
     onTick: opts.onTick || null,           // called before scan/sleep/yield (e.g. mouse mirror)
   };
@@ -111,6 +113,18 @@ export function createHost(opts = {}) {
     __scan_char() { if (state.onTick) state.onTick(); return BigInt(state.scanChar() | 0); },
     __get_char(echo, scan) { if (state.onTick) state.onTick(); return BigInt(state.getChar(Number(echo), Number(scan)) | 0); },
     __time_ms() { return state.timeMs(); },
+    __date_utc() {
+      try {
+        const date=new Date(state.dateMs()),year=date.getUTCFullYear();
+        if(!Number.isFinite(year) || year<0 || year>65535)
+          throw new RangeError('HolyC UTC clock requires a valid year from 0 through 65535');
+        const value=BigInt(date.getUTCSeconds()) | BigInt(date.getUTCMinutes())<<8n |
+          BigInt(date.getUTCHours())<<16n | BigInt(date.getUTCDay())<<24n |
+          BigInt(date.getUTCDate())<<32n | BigInt(date.getUTCMonth()+1)<<40n |
+          BigInt(year)<<48n;
+        state.clockError=null;return value;
+      } catch(cause) {state.clockError=cause;return -1n;}
+    },
     __task_require:taskRequired,
     __task_spawn:taskRequired,
     __task_kill:taskRequired,

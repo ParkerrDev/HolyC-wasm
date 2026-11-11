@@ -11,6 +11,7 @@ import {GR_TYPES_SRC,GR_SRC} from "./gr-prelude.js";
 import {TASK_TYPES_SRC,TASK_SRC} from "./task-prelude.js";
 import {TASK_MESSAGE_SRC} from "./task-message.js";
 import {DIR_TYPES_SRC,DIR_SRC} from "./dir-prelude.js";
+import {FILE_SRC} from "./file-prelude.js";
 import {TASK_INTERFACE,TASK_SCHEDULE_SRC} from "./task-schedule.js";
 import {DOC_TYPES_SRC,WINDOW_SRC} from "./window-prelude.js";
 import {FIFO_TYPES_SRC,FIFO_SRC} from "./fifo-prelude.js";
@@ -721,6 +722,7 @@ ${FIFO_SRC}
 ${KBD_SRC}
 ${WINDOW_SRC}
 ${DIR_SRC}
+${FILE_SRC}
 
 public I64 DistSqrI64(I64 x1,I64 y1,I64 x2,I64 y2)
 {

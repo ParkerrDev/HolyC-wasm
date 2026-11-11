@@ -728,8 +728,45 @@ to retry. Context-construction failures restore saved directory state
 without allocating. Runtime mutations are not general transactions.
 Directory diagnostics currently use the console transport; native DolDoc
 error decoration and physical block operations remain unsupported. Nonzero
-DirMk entry preallocation rejects explicitly. General file I/O, compressed
-files, registry and directory listing APIs are separate remaining work.
+DirMk entry preallocation rejects explicitly. Compressed files, resident-file
+hash caching, registry, directory listing and open/block-file APIs remain
+separate work.
+
+`FileNameAbs`, `FileExtDot/Rem`, `ExtChg/Dft`, `IsDotZ/C`, `FileAttr`,
+`ToggleZorNotZ`, `FileFind`, `FileRead` and `FileWrite` now operate on this
+volume. Filename helpers enforce the length of their result. Lookup preserves
+native original/alternate-name ordering and optional parent search, including
+4095/4096-byte paths. `FileFind`'s caller owns `full_name`; `FileRead` returns
+a caller-owned, NUL-terminated byte copy with native block-rounded capacity.
+Exact heap allocation spans still differ from V5.03. Written bytes belong to
+the session and survive child exit. Replacement reserves/copies new data
+before releasing old data, and failure restores directory/exception state.
+
+`FileWrite` returns an opaque virtual node token on success, zero on refusal;
+its token and `CDirEntry.clus` are not physical block addresses. Ordinary file
+attributes and explicit CDate timestamps persist.
+Runtime-created directories receive `Now`; seeded entries have timestamp zero
+because the byte bridge supplies no historical timestamp. Directory sizes are
+zero in this volume, which stores no physical directory-block image.
+Negative uncompressed write sizes become zero as in native TempleOS.
+Compression (`FsArc`), resident-file
+caching (`FsRes`) and unsupported physical/directory attributes (`FsAttr`)
+reject before creating parent directories. Supported writes retain native
+`make_dirs` behavior: a later allocation failure can leave newly created parent
+directories, while replacement file data remains intact. Existing directories
+cannot be overwritten as ordinary files. Missing files return NULL with zero
+size/attributes; this backend does not silently treat a compressed file as raw
+uncompressed content. The byte seed/export bridge carries file bytes and names;
+full-memory snapshots also retain attributes and dates.
+
+`YearStartDate`, `Struct2Date`, `CDateStruct` and `Now` use native calendar
+arithmetic. The separate `__date_utc` device reports one UTC calendar sample
+from `dateMs` (default `Date.now`), with whole-second precision and years
+0..65535. `Now` subtracts `local_time_offset` once; the virtual device defaults
+that offset to zero and does not apply the browser's local timezone. Monotonic
+`timeMs` remains independent. Device failures raise HolyC `Clock`, preserving
+cleanup; `state.clockError` retains the cause. New clock/file-write modules
+need the paired host import; old embedded modules keep their existing imports.
 
 Volume nodes/data belong to the session. A spawned child starts at the
 configured home directory, as stock TaskInit does, with its own current
@@ -745,5 +782,8 @@ require JSPI; unused filesystem code/imports remain unlinked.
 `test:files` verifies original QEMU directory layouts/path/context/mkdir/name
 and child-start behavior, exact binary seed/export, memory restore, all
 startup allocation failures, operation/child-constructor failures, quotas
-and composed-path bounds. `test:tasks-browser` also exports a live browser
-volume during GetKey suspension and checks two native child-directory runs.
+and composed-path bounds. File probes add native data/lookup/metadata/error
+state, 144 calendar dates and final-length boundaries. Failure injection
+checks read/write ownership, unchanged replacement data and retry. The browser
+gate also runs native child file writes/reads twice, exports their bytes during
+GetKey suspension and verifies disposal releases all owned allocations.

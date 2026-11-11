@@ -45,8 +45,10 @@ try {
     assert(result.match,result.name+': '+result.output);
     assert.equal(result.tasks,1);assert.equal(result.allocations,0);
   }
-  const directory={source:await readFile(new URL('probes/DirectoryTask.HC',import.meta.url),'latin1'),
-    expected:await readFile(new URL('probes/DirectoryTask.out',import.meta.url),'latin1')};
+  const volumes=await Promise.all(['DirectoryTask','FileTask'].map(async name=>({name,
+    source:await readFile(new URL('probes/'+name+'.HC',import.meta.url),'latin1'),
+    expected:await readFile(new URL('probes/'+name+'.out',import.meta.url),'latin1')})));
+  for(const directory of volumes) {
   const volume=await page.evaluate(async fixture=>{
     const {compileHolyC}=await import('/src/compiler.js');
     const {createTaskHost}=await import('/src/runtime/tasks.js');
@@ -59,6 +61,11 @@ try {
     for(let i=0;i<2;i++) {
       output='';const waiting=new Promise(resolve=>ready=resolve),running=host.run();await waiting;
       const entries=host.files(),file=entries.find(entry=>entry.path.length===4 && entry.path[3]===255);
+      if(fixture.name==='FileTask') {
+        const generated=entries.find(entry=>String.fromCharCode(...entry.path)==='B:/FileTask/Data.BIN');
+        if(generated?.bytes.length!==777 || generated.bytes.some((byte,index)=>byte!==(index*17&255)))
+          throw new Error('Child file bytes did not survive native task exit');
+      }
       rows.push({match:output===fixture.expected+'VOLUME_WAIT\n',bytes:Array.from(file.bytes)});
       if(!host.postMessage(2,27,1))throw new Error('Directory session did not remain ready for input');
       await running;
@@ -66,6 +73,7 @@ try {
     await host.dispose();return {rows,allocations:host.state.tasks[0].allocations};
   },directory);
   assert.deepEqual(volume,{rows:[{match:true,bytes:[0,255,10]},{match:true,bytes:[0,255,10]}],allocations:0});
+  }
   await page.evaluate(async()=>{
     const {compileHolyC}=await import('/src/compiler.js');
     const {createTaskHost}=await import('/src/runtime/tasks.js');

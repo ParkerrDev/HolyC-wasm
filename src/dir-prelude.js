@@ -13,6 +13,29 @@ export const DIR_TYPES_SRC=String.raw`
 #define FSG_TYPE_MASK 0x7FFF
 #define FSt_HOST 0x1000
 #define BDT_HOST 0x1000
+#define RS_ATTR_READ_ONLY 0x01
+#define RS_ATTR_HIDDEN 0x02
+#define RS_ATTR_SYSTEM 0x04
+#define RS_ATTR_VOL_ID 0x08
+#define RS_ATTR_DIR 0x10
+#define RS_ATTR_ARCHIVE 0x20
+#define RS_ATTR_LONG_NAME 0x0F
+#define RS_ATTR_LONG_NAME_MASK 0x3F
+#define RS_ATTR_DELETED 0x100
+#define RS_ATTR_RESIDENT 0x200
+#define RS_ATTR_COMPRESSED 0x400
+#define RS_ATTR_CONTIGUOUS 0x800
+#define RS_ATTR_FIXED 0x1000
+#define FUf_JUST_DIRS 10
+#define FUf_JUST_FILES 11
+#define FUf_Z_OR_NOT_Z 18
+#define FUf_SCAN_PARENTS 20
+#define FUF_JUST_DIRS 0x400
+#define FUF_JUST_FILES 0x800
+#define FUF_Z_OR_NOT_Z 0x40000
+#define FUF_SCAN_PARENTS 0x100000
+#define FUG_FILE_FIND (FUF_JUST_DIRS|FUF_JUST_FILES|FUF_Z_OR_NOT_Z|\
+  FUF_SCAN_PARENTS)
 extern class CFile;
 extern class CFAT32FileInfoSect;
 extern class CCacheBlk;
@@ -121,6 +144,8 @@ class CDirHostNode
   Bool is_dir;
   U8 *data;
   I64 size;
+  I64 attr;
+  CDate datetime;
 };
 
 CBlkDevGlbls blkdev;
@@ -175,6 +200,7 @@ CDirHostNode *DirHostNodeNew(CDirHostNode *parent,CDrv *dv,U8 *name,
   res->parent=parent;
   res->dv=dv;
   res->is_dir=is_dir;
+  if (is_dir) res->attr=RS_ATTR_DIR;
   StrCpy(res->name,name);
   if (parent) {
     res->next=parent->child;
@@ -209,6 +235,14 @@ CDrv *DirHostVolume(U8 letter)
   dv->root_clus=root;
   blkdev.let_to_drv[i]=dv;
   return dv;
+}
+
+CDirHostNode *DirHostDirNew(CDirHostNode *parent,CDrv *dv,U8 *name)
+{//Stamp a runtime-created directory before publishing it.
+  CDate date=Now;
+  CDirHostNode *res=DirHostNodeNew(parent,dv,name,TRUE);
+  res->datetime=date;
+  return res;
 }
 
 CDirHostNode *DirHostFind(CDrv *dv,U8 *path)
@@ -479,7 +513,7 @@ Bool Cd(U8 *dirname=NULL,Bool make_dirs=FALSE)
 	res=node && node->is_dir;
 	if (!res && make_dirs && parent && parent->is_dir &&
 	      FileNameChk(part) && !node) {
-	  DirHostNodeNew(parent,dv,part,TRUE);
+	  DirHostDirNew(parent,dv,part);
 	  "Make Directory:%s\n",part;
 	  res=TRUE;
 	}
@@ -650,7 +684,7 @@ Bool DirMk(U8 *filename,I64 entry_cnt=0)
       throw('FsPath');
     if (FileNameChk(name) && StrCmp(name,".") && StrCmp(name,"..") &&
 	  parent && parent->is_dir && !DirHostChild(parent,name)) {
-      DirHostNodeNew(parent,dirc->dv,name,TRUE);
+      DirHostDirNew(parent,dirc->dv,name);
       "Make Directory:%s\n",filename;
       res=TRUE;
     }
@@ -717,6 +751,7 @@ Bool DirHostSeed(U8 *path,U8 *bytes,I64 size,Bool directory=FALSE)
       Free(child->data);
       child->data=data;
       child->size=size;
+      child->attr=FileAttr(child->name);
       dir_host_byte_cnt=len+size;
     }
     node=child;
