@@ -67,5 +67,5 @@
     "test:return-width": "node tests/return-width.mjs && NOFOLD=1 node tests/return-width.mjs && node tests/return-width-negative.mjs && node tests/local-storage-regressions.mjs"
   },
   "license": "MIT",
-  "author": "Built with Claude Code"
+  "author": "ParkerrDev"
 }

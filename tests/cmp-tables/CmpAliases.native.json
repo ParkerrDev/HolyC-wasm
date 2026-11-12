@@ -15,7 +15,7 @@
     "accelerator": "kvm",
     "version": "QEMU emulator version 11.1.2"
   },
-  "evidence": "/home/aphunt/Dev/GitHub/TempleOS/wt/HolyC-wasm-A1/tests/.oracle/qemu-b_rgl6w0",
+  "evidence": "tests/.oracle/qemu-b_rgl6w0",
   "sourceSha256": "7a904f636b4bd07a3894f406f93a880399bba8bb56d9d773ff83c2e5c9d0fab7",
   "before": "CCmpGlbls cmp;\nMemSet(&cmp,0,sizeof(CCmpGlbls));\n",
   "init": "CmpTablesHostInit;\n",

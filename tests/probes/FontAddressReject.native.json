@@ -4,7 +4,7 @@
     "accelerator": "kvm",
     "version": "QEMU emulator version 11.1.2"
   },
-  "evidence": "/home/aphunt/Dev/GitHub/TempleOS/wt/HolyC-wasm-A1/tests/.oracle/qemu-draybcpx",
+  "evidence": "tests/.oracle/qemu-draybcpx",
   "cases": [
     {
       "name": "assign",

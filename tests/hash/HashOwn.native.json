@@ -15,7 +15,7 @@
     "accelerator": "kvm",
     "version": "QEMU emulator version 11.1.2"
   },
-  "evidence": "/home/aphunt/Dev/GitHub/TempleOS/wt/HolyC-wasm-A1/tests/.oracle/qemu-pnmrspjt",
+  "evidence": "tests/.oracle/qemu-pnmrspjt",
   "sourceSha256": "071a2746ed0d0cff1b81be6bf345e50423299e8dbde4c7e5586d4595109be526",
   "nativePrefix": "I64 HashHeapUsed()\n{\n  return Fs->data_heap->used_u8s;\n}\n",
   "wasmPrefix": "import I64 __hash_live_span();\nI64 HashHeapUsed()\n{\n  return __hash_live_span;\n}\n",

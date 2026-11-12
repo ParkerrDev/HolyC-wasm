@@ -73,6 +73,15 @@ def screen_text(path, font):
     return "\n".join(lines)
 
 
+def evidence_name(work):
+    #Repo-relative, so recorded evidence names no local home directory.
+    root = Path(__file__).resolve().parents[2]
+    try:
+        return str(work.resolve().relative_to(root))
+    except ValueError:
+        return work.name
+
+
 def run(config):
     cache = Path(config["cache"])
     accelerator = config.get("accelerator", "kvm" if os.access("/dev/kvm", os.R_OK | os.W_OK) else "tcg")
@@ -156,7 +165,7 @@ def run(config):
                     results.append({"out": data[first + len(start):last.start()].decode("latin1"),
                                     "except": exception})
                 return {"results": results, "backend": {"engine": "qemu", "accelerator": accelerator,
-                        "version": version}, "evidence": str(work)}
+                        "version": version}, "evidence": evidence_name(work)}
             finally:
                 if process.poll() is None:
                     try:

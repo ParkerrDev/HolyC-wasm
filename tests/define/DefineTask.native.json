@@ -15,7 +15,7 @@
     "accelerator": "kvm",
     "version": "QEMU emulator version 11.1.2"
   },
-  "evidence": "/home/aphunt/Dev/GitHub/TempleOS/wt/HolyC-wasm-A1/tests/.oracle/qemu-2df3tcf1",
+  "evidence": "tests/.oracle/qemu-2df3tcf1",
   "sourceSha256": "ea1afdc3567fb7993ceb73c1f665d72e4514492b95c03671f5469d0e6b244b94",
   "prefixSha256": "b670e190623d0c19dbc7645f13be3eeb3f4f87d612950803aac28c20d1b4ca42",
   "nativeMetadataCheck": "U0 DefineMetaChk(CHashDefineStr *entry)\n{\n  U8 *ptr=entry->src_link;\n  if (!ptr || ptr[0]!='A' || ptr[1]!='D' || ptr[2]!=':' ||\n\tptr[3]!='0' || ptr[4]!='x' || !ptr[5]) throw('DefMeta');\n  ptr+=5;\n  while (*ptr) {\n    if (!('0'<=*ptr<='9' || 'A'<=*ptr<='F')) throw('DefMeta');\n    ptr++;\n  }\n}\n",

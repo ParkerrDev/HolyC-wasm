@@ -15,7 +15,7 @@
     "accelerator": "kvm",
     "version": "QEMU emulator version 11.1.2"
   },
-  "evidence": "/home/aphunt/Dev/GitHub/TempleOS/wt/HolyC-wasm-A1/tests/.oracle/qemu-ti9a14nk",
+  "evidence": "tests/.oracle/qemu-ti9a14nk",
   "sourceSha256": "3d2a5a7fc64cea25bd7358da9d17bc73d9fa312fb064d76f73d428dd5a5cc253",
   "nativeBindings": "extern U0 LexIncludeStr(CCmpCtrl *cc,U8 *filename,U8 *src,Bool actual);\n",
   "typesSha256": "e34c07a9459dba5bd89461377d751476dd63ff768a1cb55911f0d45c2f70c0d8",
