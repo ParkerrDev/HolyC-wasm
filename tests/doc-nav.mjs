@@ -41,8 +41,8 @@ for(const name of cases) {
   assert.equal(live.size,0);console.log(name,'matches original native state/bytes through five lifetimes, ownership and disposal');
 }
 for(const profile of ['console','keydev']) {
-  for(const name of ['DocNew','DocPrint','EdLeftClickLink'])
+  for(const name of ['DocNew','EdLeftClickLink'])
     assert.throws(()=>compileHolyC(name+';',{lenient:false,runtimeProfile:profile}),/undefined symbol/);
 }
-assert.throws(()=>compileHolyC('DocClear;',{lenient:false,runtimeProfile:'keydev'}),/undefined symbol/);
-console.log('Native base/navigation functions do not introduce unfinished construction/output, link-editor or clear APIs.');
+assert.throws(()=>compileHolyC('DocPrint;',{lenient:false}),/undefined symbol/);
+console.log('Native document construction/link editing remain unavailable; console keeps its independent output profile.');

@@ -25,5 +25,5 @@ try{
 assert.equal(live.size,0);console.log(out.trim(),'five lifetimes, plateau and complete disposal');
 }
 for(const name of ['DocPutS','DocPrint'])assert.throws(()=>compileHolyC(name+';',{lenient:false}),/undefined|untyped/);
-for(const name of ['DocNew','DocClear','DocPrintPartial','EdLeftClickLink'])
+for(const name of ['DocNew','DocPrintPartial','EdLeftClickLink'])
   assert.throws(()=>compileHolyC(name+';',{lenient:false,runtimeProfile:'keydev'}),/undefined|untyped/);

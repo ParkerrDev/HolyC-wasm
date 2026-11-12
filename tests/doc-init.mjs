@@ -28,7 +28,6 @@ for(const name of cases) {
 }
 for(const name of ['DocInit','DocNew','DocRst','DocRecalc'])
   assert.throws(()=>compileHolyC(name+';',{lenient:false}),/undefined symbol/);
-assert.throws(()=>compileHolyC('DocClear;',{lenient:false,runtimeProfile:'keydev'}),/undefined symbol/);
 const plain=compileHolyC('I64 Value(){return 1;}',{lenient:false,exports:['Value']});
 assert(!WebAssembly.Module.imports(new WebAssembly.Module(plain.bytes)).some(entry=>entry.name.startsWith('__malloc')));
 for(const source of [

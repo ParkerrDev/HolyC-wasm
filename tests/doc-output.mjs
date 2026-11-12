@@ -24,6 +24,6 @@ for(const test of tests){
   assert.equal(live.size,0);console.log(out.trim().split('\n').at(-1),'five lifetimes, plateau and complete disposal');
 }
 assert.throws(()=>compileHolyC('PrsDollarCmd;',{lenient:false}),/undefined|untyped/);
-for(const name of ['DocNew','DocClear','EdLeftClickLink','LexExpression','LexExpressionI64'])
+for(const name of ['DocNew','EdLeftClickLink','LexExpression','LexExpressionI64'])
   assert.throws(()=>compileHolyC(name+';',{lenient:false,runtimeProfile:'keydev'}),/undefined|untyped/);
 console.log('Finite descriptors are KeyDev-only; expression execution, binary linking, data scanning, constructors and editor callbacks stay explicit unavailable boundaries.');

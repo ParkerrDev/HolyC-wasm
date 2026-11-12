@@ -1026,10 +1026,10 @@ DocEntryDel/Size/Copy, DocUndoDel, DocEntryNewTag, DocRemSoftNewLines and
 DocInsEntry. It uses native CDoc/entry/bin layouts and real RawPrint diagnostics.
 These utilities operate on correctly initialized, caller-owned document queues;
 they do not construct or render a document. The metadata initializer and flag
-parser are described below. DocNew, native DocClear, full DolDoc
-output and the window manager remain unsupported in this profile. In particular, the inherited default-console
-`DocClear()` no-op is a **legacy compatibility gap**, not native support; the
-KeyDev profile excludes it and rejects DocClear during strict compilation.
+parser, finite output and native CL-based clearing are described below. DocNew,
+full DolDoc output and the window manager remain unsupported in this profile.
+The inherited default-console `DocClear()` no-op is a **legacy compatibility
+gap**, not native support; KeyDev uses the real command path instead.
 
 The entry API source is selected with KeyDev because its deletion/error paths
 require that real output chain. The strict compiler checks all defined bodies
@@ -1460,8 +1460,8 @@ that module before user effects; a fresh instance succeeds. Native allocator
 failure injection is not claimed. `node tests/doc-init-oracle.mjs` repeats the
 source/wrapper/library/layout/capture/output-bound native proof.
 
-DocNew, native DocClear, full document output and the window
-manager remain separate unfinished dependencies. The cursor/reset lifecycle below
+DocNew, full document output and the window manager remain separate unfinished
+dependencies; finite output and clearing are described below. The cursor/reset lifecycle below
 uses DocFormFwd and normal layout; DocNew still needs the real EdLeftClickLink
 callback. The initializer does not fabricate editor behavior.
 
@@ -1480,8 +1480,8 @@ wrapper, capture and output-bound stock/ported V5.03 proof. Native MHeapCtrl
 confirms allocation ownership; it is not exposed as a fabricated host heap ABI.
 The shortened entry must not be accessed as though it owned every full-record
 field. Native entry-type/queue preconditions and the existing allocator-span
-difference remain. DocNew, link editing and native DocClear remain
-unavailable; the explicit KeyDev profile has no substitute clearing routine.
+difference remain. DocNew and link editing remain unavailable; the explicit
+KeyDev profile clears through native command output as described below.
 
 ### Document layout helpers
 
@@ -1531,8 +1531,8 @@ this is not whole-operation rollback. `node tests/doc-recalc-oracle.mjs` repeats
 the source/wrapper/capture/output-bound native proof;
 `node tests/doc-recalc-bounds-oracle.mjs` checks the staged rejection contract
 under V5.03. Native allocation-failure
-injection and native IRQ/CLI equivalence are not claimed. DocNew,
-native DocClear and the actual editor/window-manager lifecycle remain open.
+injection and native IRQ/CLI equivalence are not claimed. DocNew and the actual
+editor/window-manager lifecycle remain open; native clearing is described below.
 
 ### Document cursor and reset lifetimes
 
@@ -1552,8 +1552,8 @@ V5.03 and staged-native heap-span probes distinguish those leaks and verify the
 exception chain; repeated host lifetimes test actual owner sets. Native/host
 allocator sizes are not asserted equal. `npm run test:doc-life` exercises native
 state, ownership, rejection, allocation-failure and original-source negative
-controls. The constructor, DocClear, editor and window manager remain separate
-dependencies; no placeholder callback is installed. Finite output is described below.
+controls. The constructor, editor and window manager remain separate dependencies;
+no placeholder callback is installed. Finite output and clearing are described below.
 
 ### Finite dollar-command descriptors
 
@@ -1588,5 +1588,23 @@ native rejections and 1,344 allocation failures. Original-source controls catch
 lost entries, modified input, retained locks and leaked format buffers.
 See the [output contract](docs/DocInit.md#finite-document-output) and repeat its
 native proof with `node tests/doc-put-oracle.mjs`. Document rendering, partial
-commands, DocNew, native DocClear and editor/window-manager startup remain open;
+commands, DocNew and editor/window-manager startup remain open;
 default-console output is unchanged.
+
+
+### Native command-based clearing
+
+KeyDev DocClear now follows actual DocBottom → DocPrint(CL/CL+H) → DocRecalc.
+It preserves held/filter entries, native clear_holds and literal plain-mode
+output. Planned layout effects reject unsupported modes before mutation, while
+exceptions release only newly acquired locks. Completed native layout/output
+work can remain after allocation failure or pending Break; this is not a
+transactional document reset.
+
+`npm run test:doc-clear` checks 3,205 native states, foreign ownership, Break,
+24 staged-native rejection cases and 656 allocation failures plus Break/OOM
+collisions. The original-source lock-leak control fails the ownership contract.
+See the [precise clear contract](docs/DocInit.md#clear-through-native-commands)
+and repeat the original V5.03 proof with `node tests/doc-clear-oracle.mjs`.
+DocNew, real editor callbacks, rendering and session startup remain open. The
+default-console legacy no-op remains explicitly separate.

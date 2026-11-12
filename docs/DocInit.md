@@ -4,8 +4,8 @@ This maps implemented foundations and the remaining dependency chain against
 original TempleOS V5.03. A67 supplies finite byte-token Lex; A68 runs the actual
 DocInit metadata algorithm once for the root session and exposes PrsDocFlags.
 Later checkpoints provide normal-layout Recalc, cursor/reset/destruction,
-finite command descriptors and explicit DocPutS/DocPrint output into valid
-caller-owned queues in the KeyDev profile. DocNew, native Clear and full
+finite command descriptors, explicit DocPutS/DocPrint output and actual CL-based
+clearing of valid caller-owned queues in the KeyDev profile. DocNew and full
 DolDoc/window-manager output remain unavailable. Boot-only DocInit is not a
 callable refresh API.
 
@@ -166,8 +166,8 @@ bitmap, LINK/SKIP_IN_FORM flags and sentinel recovery. Native backward navigatio
 also skips indent entries in the forward direction; the port preserves that
 measured behavior. There is no document creation or layout hidden in these APIs.
 
-DocTop now invokes DocFormFwd and actual DocRecalc. The remaining output path
-must let DocClear emit a real CL command through DocPrint and recalculate. DocNew also
+DocTop now invokes DocFormFwd and actual DocRecalc. A82 below makes DocClear
+emit a real CL command through DocPrint and recalculate. DocNew still
 installs EdLeftClickLink, whose file/compiler/UI behavior needs its own explicit
 capability boundary. None of these may be replaced with a silent callback or
 no-op layout routine merely to compile native games.
@@ -299,8 +299,8 @@ The page-adjustment divisor's earlier I64 widening remains native-equivalent;
 A74 also fixes the direct primitive expression in the shared compiler. The next
 dependency after DocTop/Bottom/Rst is the real constructor,
 DocPrint/DocPutS command path and editor invocation. None are added as stand-ins;
-KeyDev DocClear remains unavailable and the separate console legacy no-op remains
-explicitly documented.
+A82 below completes the CL-based KeyDev clear path; the separate console legacy
+no-op remains explicitly documented.
 
 ## Cursor, reset and deletion lifecycle
 
@@ -443,9 +443,9 @@ native proof. Native allocation-failure injection is not claimed.
 
 This checkpoint supplied the parser prerequisite only. A81 below adds actual
 DocPutS queue insertion and DocPrint format-buffer ownership. Partial command
-output, DocNew, EdLeftClickLink and native DocClear remain unavailable.
-Default-console legacy DocClear remains a named compatibility gap; it is not
-exposed in KeyDev.
+output, DocNew and EdLeftClickLink remain unavailable. A82 below completes the
+real KeyDev clear path. Default-console legacy DocClear remains a named
+compatibility gap; that no-op is not exposed in KeyDev.
 
 ## Finite document output
 
@@ -491,5 +491,48 @@ semantic, rejection, ownership and leak proofs.
 This does not route the KeyDev stdout chain into documents, render a document,
 retain partial commands or create an editor/window-manager session. Tests build
 valid queues explicitly; they do not stand in for public DocNew. The next step
-is native DocClear's real DocBottom → DocPrint(CL/CL+H) → DocRecalc path. DocNew's
+is completed by A82 below: DocBottom → DocPrint(CL/CL+H) → DocRecalc. DocNew's
 actual EdLeftClickLink dependency remains open.
+
+
+## Clear through native commands
+
+A82 adds KeyDev DocClear through the real DocBottom, DocPrint("CL" or "CL+H")
+and DocRecalc chain. It does not replace clearing with a queue-deletion shortcut.
+Native held/filter entries, clear_holds, wrapping, default DocPut selection,
+invalid-signature phases, repeated calls and literal plain-text output remain
+measured behavior. The console profile retains its separate legacy no-op.
+
+Before cursor or queue mutation, the normal-layout validator checks the planned
+repeat created by a CL command. Plain modes append literal text instead: they
+retain otherwise valid page transitions, but reject a trailing active highlight
+which would make that new text require the absent source-highlighting path.
+Both checks are repeated after acquiring the actual document lock. Unsupported
+modes and callbacks are not executed. The new lock is released on exceptions;
+an inherited lock stays owned by the caller.
+
+This is not whole-operation rollback. Completed DocBottom wrapping/cursor work,
+published parser DOCT_ERROR fallbacks, and committed clear results survive later
+failures according to the actual sequence. A caller must remove or handle a
+published error entry before recalculating again. Pending Break from the final
+unlock leaves the completed clear in place. All unpublished buffers and entries
+are released, and retained queue allocations still belong to doc->mem_task.
+
+`npm run test:doc-clear` checks 3,205 full native document/queue states, three
+foreign-owner lifetimes surviving caller destruction, pending Break/retry, and
+24 staged-native preflight rejections with unchanged state/heap/exception chain.
+The proof compares stock, copied-original and staged code compiled by original
+V5.03. Normal and NOFOLD host runs cover five lifetimes and complete disposal,
+656 one-shot/persistent allocation failures across current/foreign owners and
+new/inherited locks, plus four Break/OOM collisions. The fault observer compares
+all remaining live allocations with the actual reachable document pointers;
+it allows completed native work and tests explicit error-entry removal/retry.
+An original-source negative control retains its acquired lock after layout OOM.
+Native allocator-failure injection is not claimed.
+
+`node tests/doc-clear-oracle.mjs` repeats the source/library/wrapper/capture/output
+bound native proof. The existing layout and lifecycle native proofs were also
+rerun because the shared validator gained explicit planned effects. Default
+HEMU and four browser-game artifacts are byte-identical to A81/A79. DocNew's
+real EdLeftClickLink/Ed/PopUpEd dependencies, document rendering, stdout routing,
+partial commands, Settings and window-manager startup remain separate work.

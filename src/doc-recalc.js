@@ -69,14 +69,16 @@ Bool DocHostSourceName(U8 *name)
 	DocHostWildMatch(name,"*.PRJ*");
 }
 
-Bool DocHostRecalcCheck(CDoc *doc,I64 flags)
+Bool DocHostRecalcCheck(CDoc *doc,I64 flags,Bool repeated=FALSE,
+	Bool text_after=FALSE)
 {//Reject active capabilities this finite normal-layout pass cannot perform.
   CDocEntry *entry=doc->head.next;
   I64 page_len=doc->settings_head.page_len,
 	header=doc->settings_head.header,footer=doc->settings_head.footer,
 	held=0,k,source_highlight,highlight,
 	page_min=page_len,header_max=header,footer_max=footer,
-	has_text=FALSE,any_high,repeated=doc->max_entries!=I64_MAX;
+	has_text=FALSE,any_high;
+  repeated|=doc->max_entries!=I64_MAX;
   if (flags || !doc->win_task || doc->flags&DOCF_HAS_SONG)
     throw('DocMode');
   source_highlight=
@@ -132,6 +134,7 @@ Bool DocHostRecalcCheck(CDoc *doc,I64 flags)
   }
   if (doc->max_entries<0 || doc->max_entries!=I64_MAX && held>1024)
     throw('DocLimit');
+  if (text_after && highlight) throw('DocHigh');
   if (repeated) {
     if (has_text && any_high) throw('DocHigh');
     if (header_max+footer_max>=page_min) throw('DocPage');

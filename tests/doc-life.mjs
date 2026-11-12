@@ -24,7 +24,7 @@ for(const name of cases) {
   } finally {await host.dispose();}
   assert.equal(live.size,0);console.log(test.output.trim(),'five lifetimes and complete disposal');
 }
-for(const name of ['DocNew','DocClear','EdLeftClickLink'])
+for(const name of ['DocNew','EdLeftClickLink'])
   assert.throws(()=>compileHolyC(name+';',{lenient:false,runtimeProfile:'keydev'}),/undefined|untyped/);
 for(const name of ['DocTop','DocBottom','DocRst','DocDel'])
   assert.throws(()=>compileHolyC(name+';',{lenient:false}),/undefined|untyped/);

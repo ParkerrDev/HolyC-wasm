@@ -15,14 +15,14 @@
     "accelerator": "kvm",
     "version": "QEMU emulator version 11.1.2"
   },
-  "evidence": "/home/aphunt/Dev/GitHub/TempleOS/wt/HolyC-wasm-A1/tests/.oracle/qemu-keoveoqt",
+  "evidence": "/home/aphunt/Dev/GitHub/TempleOS/wt/HolyC-wasm-A1/tests/.oracle/qemu-9w5_tmej",
   "sourceSha256": "bbf2e4b2d68043411c7f0755554537d5394ed8d39f283457e4cc68c096a86146",
-  "librarySha256": "b40746bad8f58ab2e2898e66ac0e3353ff96af299531d21952aecfa08065b2c6",
+  "librarySha256": "fe28d05c73e4ebce631089f8c528cdefcaeb6ef9f75c4427e9f30e40065b2547",
   "nativeSourceSha256": "aabb1fe12dc5bb24540524e34865f5645e9c886969b0f0d1b6c33bd7418b839d",
   "inputSha256": [
     "bbf2e4b2d68043411c7f0755554537d5394ed8d39f283457e4cc68c096a86146",
     "c15f7c2b06c2c8ea3362a54a962ace44f029828ced0c972819f5f4f50bb46328",
-    "d3c33f4158c98b64b48819ba590d87c5af083c5a1319bb60c0975ebc3e846d0c"
+    "38c57421c729d5750507750b1f620ae167b87f211fcc9f4b6a326c8645d97750"
   ],
   "captureSha256": "baa39e21c404a0da05762f7630e2c10b3c52e7e16d305546b306254c35056317",
   "results": [

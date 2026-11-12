@@ -18,13 +18,14 @@ import {DOC_RECALC_SRC} from "./doc-recalc.js";
 import {DOC_LIFE_SRC} from "./doc-life.js";
 import {DOC_OUTPUT_SRC} from "./doc-output.js";
 import {DOC_PUT_SRC} from "./doc-put.js";
+import {DOC_CLEAR_SRC} from "./doc-clear.js";
 import { FLOAT_CONVERT_SRC,FLOAT_MUL_I64 } from "./float-convert.js";
 
 export function compileHolyC(source, opts = {}) {
   if (![undefined,'console','keydev'].includes(opts.runtimeProfile))
     throw new Error('Unknown HolyC runtime profile: '+opts.runtimeProfile);
   const keydev=opts.runtimeProfile==='keydev';
-  const prelude=keydev?Prelude(KEYDEV_SRC,DOC_ENTRY_SRC+DOC_LAYOUT_SRC+DOC_RECALC_SRC+DOC_LIFE_SRC+DOC_OUTPUT_SRC+DOC_PUT_SRC):PRELUDE_SRC;
+  const prelude=keydev?Prelude(KEYDEV_SRC,DOC_ENTRY_SRC+DOC_LAYOUT_SRC+DOC_RECALC_SRC+DOC_LIFE_SRC+DOC_OUTPUT_SRC+DOC_PUT_SRC+DOC_CLEAR_SRC):PRELUDE_SRC;
   const hooks=keydev?[...RUNTIME_INITIALIZERS,
     {name:'KeyOutputHostInit',globals:['keydev']}]:RUNTIME_INITIALIZERS;
   const userName = opts.filename || "<holyc>";

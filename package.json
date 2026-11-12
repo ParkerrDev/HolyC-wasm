@@ -56,6 +56,7 @@
     "test:integer-promotion": "node tests/integer-promotion.mjs && NOFOLD=1 node tests/integer-promotion.mjs && node tests/integer-promotion-negative.mjs",
     "test:doc-life": "node tests/doc-life.mjs && node tests/doc-life-owned.mjs && node tests/doc-life-fault.mjs && node tests/doc-life-reject.mjs && node tests/doc-life-negative.mjs",
     "test:doc-output": "node tests/doc-output.mjs && node tests/doc-output-fault.mjs && node tests/doc-output-negative.mjs",
+    "test:doc-clear": "node tests/doc-clear.mjs && node tests/doc-clear-fault.mjs && node tests/doc-clear-negative.mjs",
     "test:doc-put": "node tests/doc-put.mjs && node tests/doc-put-fault.mjs && node tests/doc-put-negative.mjs",
     "test:doc-recalc": "node tests/doc-recalc.mjs && node tests/doc-recalc-reject.mjs && node tests/doc-recalc-fault.mjs && node tests/doc-recalc-abort.mjs && node tests/doc-recalc-negative.mjs",
     "test:doc-layout": "node tests/doc-layout.mjs && node tests/doc-layout-fault.mjs && node tests/doc-layout-negative.mjs && node tests/doc-layout-promotion.mjs",
