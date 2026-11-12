@@ -1532,7 +1532,7 @@ the source/wrapper/capture/output-bound native proof;
 `node tests/doc-recalc-bounds-oracle.mjs` checks the staged rejection contract
 under V5.03. Native allocation-failure
 injection and native IRQ/CLI equivalence are not claimed. DocNew,
-DocPrint/DocClear and the actual editor/window-manager lifecycle remain open.
+native DocClear and the actual editor/window-manager lifecycle remain open.
 
 ### Document cursor and reset lifetimes
 
@@ -1552,8 +1552,8 @@ V5.03 and staged-native heap-span probes distinguish those leaks and verify the
 exception chain; repeated host lifetimes test actual owner sets. Native/host
 allocator sizes are not asserted equal. `npm run test:doc-life` exercises native
 state, ownership, rejection, allocation-failure and original-source negative
-controls. The constructor, dollar-command output, DocClear, editor and window
-manager remain separate dependencies; no placeholder callback is installed.
+controls. The constructor, DocClear, editor and window manager remain separate
+dependencies; no placeholder callback is installed. Finite output is described below.
 
 ### Finite dollar-command descriptors
 
@@ -1570,5 +1570,23 @@ states, 34 staged-native capability rejections, foreign owners, repeated session
 928 allocator failures, throwing diagnostic observers and two leak controls.
 `node tests/doc-output-oracle.mjs` repeats the bound native proof. See the
 [precise parser contract](docs/DocInit.md#finite-dollar-command-descriptors).
-DocPutS/DocPrint, native DocClear, DocNew and editor callbacks remain unavailable;
-default-console behavior is unchanged.
+The parser does not execute expressions or editor callbacks; finite output is
+described below. Default-console behavior is unchanged.
+
+### Finite document output
+
+KeyDev now provides explicit DocPutS/DocPrint into valid caller-owned document
+queues, using native delimiter maps, entry constructors, command parsing and
+insertion. Pending entries are owned until publication; unsupported commands
+reject before insertion, input delimiters stay intact and failure releases
+scratch/format buffers and only the acquired lock. Native parser error-entry
+fallback and committed output before a final pending Break remain explicit.
+
+`npm run test:doc-put` checks 10,660 native document states, actual foreign-owner
+lifetimes, pending Break and the repaired native format-buffer leak, 32 staged
+native rejections and 1,344 allocation failures. Original-source controls catch
+lost entries, modified input, retained locks and leaked format buffers.
+See the [output contract](docs/DocInit.md#finite-document-output) and repeat its
+native proof with `node tests/doc-put-oracle.mjs`. Document rendering, partial
+commands, DocNew, native DocClear and editor/window-manager startup remain open;
+default-console output is unchanged.

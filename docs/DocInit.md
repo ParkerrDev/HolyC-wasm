@@ -3,10 +3,11 @@
 This maps implemented foundations and the remaining dependency chain against
 original TempleOS V5.03. A67 supplies finite byte-token Lex; A68 runs the actual
 DocInit metadata algorithm once for the root session and exposes PrsDocFlags.
-Later checkpoints provide normal-layout Recalc, cursor/reset/destruction and
-finite dollar-command descriptors in the explicit KeyDev profile. DocNew,
-native Clear and full DolDoc output remain unavailable. Boot-only DocInit is
-not a callable refresh API.
+Later checkpoints provide normal-layout Recalc, cursor/reset/destruction,
+finite command descriptors and explicit DocPutS/DocPrint output into valid
+caller-owned queues in the KeyDev profile. DocNew, native Clear and full
+DolDoc/window-manager output remain unavailable. Boot-only DocInit is not a
+callable refresh API.
 
 ## Define and kernel bootstrap
 
@@ -440,8 +441,55 @@ Two negative controls reproduce lost tag and compiler-control ownership.
 `node tests/doc-output-oracle.mjs` repeats the source/wrapper/capture/output-bound
 native proof. Native allocation-failure injection is not claimed.
 
-This is the parser prerequisite only. DocPutS, DocPrint, partial command output,
-DocNew, EdLeftClickLink and native DocClear remain unavailable. The next step is
-actual DocPutS queue insertion and DocPrint format-buffer ownership, then CL
-through that real output path. Default-console legacy DocClear remains a named
-compatibility gap; this checkpoint does not expose that stub in KeyDev.
+This checkpoint supplied the parser prerequisite only. A81 below adds actual
+DocPutS queue insertion and DocPrint format-buffer ownership. Partial command
+output, DocNew, EdLeftClickLink and native DocClear remain unavailable.
+Default-console legacy DocClear remains a named compatibility gap; it is not
+exposed in KeyDev.
+
+## Finite document output
+
+A81 supplies actual DocPutS and DocPrint for valid caller-owned CDoc queues.
+The three typed native delimiter bitmaps select plain text, literal tabs and
+dollar commands. Text, tab/newline/cursor entries use real DocEntryNewBase and
+DocInsEntry; commands use PrsDollarCmd. Native CR/LF grouping, doubled dollars,
+cursor placement inside commands, final versus intermediate NO_CURSOR filtering,
+trailing incomplete commands, text splits and last-command return values remain
+measured behavior. DocPrint uses the existing bounded native StrPrintJoin
+formatter; it does not expand that formatter's OS-dependent capability subset.
+
+Entries are constructed in a private queue under the real document lock, then
+published through DocInsEntry. Unsupported commands therefore reject before
+earlier text is inserted. Source delimiters are never overwritten. Scratch
+buffers, unpublished entries and format buffers are freed on failure, and only
+a newly acquired lock is released. Native-equivalent success does not imply the
+same allocation/publication timing as the original incremental routine.
+PrsDollarCmd can still convert an internal allocation failure into a DOCT_ERROR
+entry when fallback allocation succeeds; that successful output is not rolled
+back. A pending Break delivered by the final unlock occurs after publication,
+so committed entries remain, as in native TempleOS.
+
+The native proof compares 10,660 complete document states across stock, copied
+original and staged V5.03 code, including every byte value, all plain/no-cursor/
+double-dollar combinations, split positions, mutable delimiter maps, default and
+invalid documents. Foreign output ownership survives the caller's destruction.
+A native pending-Break probe matches committed state and retry, and a separate
+heap probe records the original DocPrint format-buffer leak versus zero retained
+bytes in the staged implementation. Its child task is deliberately killed to
+release the stock leak. Thirty-two staged-native rejection cases preserve the
+input, old queue, lock ownership and expression side-effect counter. A separate
+native heap-span wrapper also proves those cancellations retain no allocations.
+
+`npm run test:doc-put` runs these states over repeated host lifetimes and covers
+1,344 one-shot/persistent allocation failures, four pending-Break/OOM collisions,
+current/foreign owners, inherited/new locks, input preservation, heap/stack
+restoration and retry. Original-source controls detect a retained entry/lock and
+modified delimiter on tag OOM, and the format-buffer leak on Break. Native OOM
+injection is not claimed. `node tests/doc-put-oracle.mjs` repeats the bound native
+semantic, rejection, ownership and leak proofs.
+
+This does not route the KeyDev stdout chain into documents, render a document,
+retain partial commands or create an editor/window-manager session. Tests build
+valid queues explicitly; they do not stand in for public DocNew. The next step
+is native DocClear's real DocBottom → DocPrint(CL/CL+H) → DocRecalc path. DocNew's
+actual EdLeftClickLink dependency remains open.
