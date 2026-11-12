@@ -1554,3 +1554,21 @@ allocator sizes are not asserted equal. `npm run test:doc-life` exercises native
 state, ownership, rejection, allocation-failure and original-source negative
 controls. The constructor, dollar-command output, DocClear, editor and window
 manager remain separate dependencies; no placeholder callback is installed.
+
+### Finite dollar-command descriptors
+
+KeyDev now supplies `PrsDollarCmd` using real document metadata and finite
+Lex/LexExtStr. It constructs native entry fields and owned tag/auxiliary/define/
+link/macro strings for `doc->mem_task`. Numeric expression arguments, data and
+hex editors, binary linking and data-scan operations reject explicitly. Creating
+a link, sprite or macro descriptor does not implement its UI or execute it.
+
+Error cleanup frees strings before discarding their ownership flags and releases
+the compiler control. Original V5.03 verifies the stock error-tag leak and the
+staged correction. `npm run test:doc-output` covers 210 full native descriptor
+states, 34 staged-native capability rejections, foreign owners, repeated sessions,
+928 allocator failures, throwing diagnostic observers and two leak controls.
+`node tests/doc-output-oracle.mjs` repeats the bound native proof. See the
+[precise parser contract](docs/DocInit.md#finite-dollar-command-descriptors).
+DocPutS/DocPrint, native DocClear, DocNew and editor callbacks remain unavailable;
+default-console behavior is unchanged.

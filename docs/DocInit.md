@@ -3,8 +3,10 @@
 This maps implemented foundations and the remaining dependency chain against
 original TempleOS V5.03. A67 supplies finite byte-token Lex; A68 runs the actual
 DocInit metadata algorithm once for the root session and exposes PrsDocFlags.
-DocNew/Rst/Recalc/native Clear and full DolDoc output remain unavailable in the
-explicit KeyDev profile. Boot-only DocInit is not a callable refresh API.
+Later checkpoints provide normal-layout Recalc, cursor/reset/destruction and
+finite dollar-command descriptors in the explicit KeyDev profile. DocNew,
+native Clear and full DolDoc output remain unavailable. Boot-only DocInit is
+not a callable refresh API.
 
 ## Define and kernel bootstrap
 
@@ -163,8 +165,8 @@ bitmap, LINK/SKIP_IN_FORM flags and sentinel recovery. Native backward navigatio
 also skips indent entries in the forward direction; the port preserves that
 measured behavior. There is no document creation or layout hidden in these APIs.
 
-The remaining concrete chain is DocNew/Rst/Top/Recalc. DocTop invokes the now
-available DocFormFwd and actual DocRecalc. DocClear emits a real CL command through DocPrint and recalculates. DocNew also
+DocTop now invokes DocFormFwd and actual DocRecalc. The remaining output path
+must let DocClear emit a real CL command through DocPrint and recalculate. DocNew also
 installs EdLeftClickLink, whose file/compiler/UI behavior needs its own explicit
 capability boundary. None of these may be replaced with a silent callback or
 no-op layout routine merely to compile native games.
@@ -392,8 +394,54 @@ Normal and NOFOLD address lowering agree. No new globals/imports are introduced;
 A72/A73 produce byte-identical complete HEMU 253af3d and four current browser-game
 artifacts. This supplies string ownership, not LexExpression or document output.
 
-Before a larger command-parser layer, the recorded I32(-23)/U16(12) signed
-quotient/remainder mismatch will be reduced across mixed integer types/operators
-and corrected in general lowering if bounded. The existing page-modulo widening
-is not evidence that the primitive is correct. Then PrsDollarCmd/DocPutS/DocPrint
-and real editor invocation resume along the dependency chain above.
+The recorded I32(-23)/U16(12) quotient/remainder gap was subsequently corrected
+in general mixed-integer lowering, followed by measured register-local, static
+lifetime and return-width fixes. Their source-bound evidence lives in the
+integer-promotion, local-storage, static-local and return-width gates. The command
+parser work resumes on those corrected primitives.
+
+## Finite dollar-command descriptors
+
+A80 ports `PrsDollarCmd` from Adam/DolDoc/DocPlain.HC over the real document
+metadata, PrsDocFlags and finite Lex/LexExtStr implementations. It allocates
+208-byte CDocEntry descriptors and their owned strings in `doc->mem_task`.
+Native default attributes, raw types, flags, checkbox/tree/list tag decoration,
+macro-derived tags, adjacent-string handling and trailing-token behavior remain
+measured native behavior. Constructing a descriptor does not execute its macro,
+follow its link, render a sprite or implement its editor interaction.
+
+Arguments requiring LexExpression/LexExpressionI64 reject with `DocCaps` rather
+than substituting a constant evaluator. This includes quoted operands to numeric
+controls: native evaluates them as expression addresses, not label text. Data and
+hex-editor descriptors, binary-pointer linking, raw-type name lookup through the
+absent ST_RAW_TYPES bootstrap list, and data scan/format transitions also reject.
+The parser releases its unpublished control/strings/entry, leaves the document
+and input bytes unchanged, and propagates the capability exception. LexCaps and
+LexMode remain capability exceptions, not apparently supported DOCT_ERROR nodes.
+No expression/compiler symbol graph is supplied by the new raw-type constants.
+
+Ordinary syntax and allocation failures inside the native parser's try region
+still return a DOCT_ERROR descriptor when its allocation succeeds. Failure of
+CmpCtrlNew or the fallback error-entry allocation propagates. Error entries now
+release owned strings before clearing flags, and the exception path releases the
+compiler control. Stock loses an owned tag for `TX,"owned",A=` when normal entry
+deletion follows; the source-bound native witness reports one retained tag in
+stock and zero in the staged implementation. This intentional ownership repair
+does not claim identical leaked-pointer fields on native error entries.
+
+`npm run test:doc-output` verifies 210 complete descriptor states against stock,
+copied-original and staged code compiled by original V5.03, plus three real
+foreign-owner lifetimes over all seven entry/string allocations. The recorded
+34-case capability contract is also executed by V5.03 on the staged source.
+Normal and NOFOLD host runs cover five lifetimes, 928 one-shot/persistent actual
+allocator failures across current/foreign owners and root/child callers, eight
+throwing diagnostic observers, exact heap/stack/ownership restoration and retry.
+Two negative controls reproduce lost tag and compiler-control ownership.
+`node tests/doc-output-oracle.mjs` repeats the source/wrapper/capture/output-bound
+native proof. Native allocation-failure injection is not claimed.
+
+This is the parser prerequisite only. DocPutS, DocPrint, partial command output,
+DocNew, EdLeftClickLink and native DocClear remain unavailable. The next step is
+actual DocPutS queue insertion and DocPrint format-buffer ownership, then CL
+through that real output path. Default-console legacy DocClear remains a named
+compatibility gap; this checkpoint does not expose that stub in KeyDev.
