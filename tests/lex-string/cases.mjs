@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {LEX_TYPES_SRC,LEX_SRC} from '../../src/lex-stream.js';
-import {LEX_STRING_SRC} from '../../src/lex-string.js';
+import {LEX_TYPES_SRC,LEX_SRC,LEX_STRING_SRC} from "../../src/runtime-source.js";
 export const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 export const read=name=>readFileSync(new URL(name,import.meta.url),'latin1');
 export function fixture() {

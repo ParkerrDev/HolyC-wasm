@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {MEMBER_TYPES_SRC,MEMBER_SRC} from '../../src/member.js';
-import {HASH_TYPES_SRC} from '../../src/hash-prelude.js';
+import {MEMBER_TYPES_SRC,MEMBER_SRC,HASH_TYPES_SRC} from "../../src/runtime-source.js";
 export const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 export const read=name=>readFileSync(new URL(name,import.meta.url),'latin1');
 export const cases=['Member','MemberTask'];

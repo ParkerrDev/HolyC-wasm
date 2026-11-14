@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {compileHolyC} from '../src/compiler.js';
-import {DOC_OUTPUT_SRC} from '../src/doc-output.js';
+import {DOC_OUTPUT_SRC} from "../src/runtime-source.js";
 import {createTaskHost} from '../src/runtime/tasks.js';
 import {Framebuffer} from '../src/runtime/graphics.js';
 import {rename,recordedSpecial} from './doc-output/cases.mjs';

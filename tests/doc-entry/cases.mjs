@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {DOC_ENTRY_SRC,DOC_ENTRY_TYPES_SRC} from '../../src/doc-entry.js';
+import {DOC_ENTRY_SRC,DOC_ENTRY_TYPES_SRC} from "../../src/runtime-source.js";
 export const cases=['DocEntriesChk','DocInsertChk','DocSharedCopyChk','DocEntryTask'];
 export const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 export const read=name=>readFileSync(new URL(name,import.meta.url),'latin1');

@@ -8,18 +8,13 @@
 import { lex } from "./lexer.js";
 import { preprocess } from "./preprocess.js";
 import { parse } from "./parser.js";
-import { compile as codegen } from "./codegen.js";
+import { compile as codegen,FLOAT_MUL_I64 } from "./codegen.js";
 import { PRELUDE_SRC, Prelude, RUNTIME_INITIALIZERS, RUNTIME_INTERFACES, RUNTIME_ADDRESSES } from "./prelude.js";
 import {RUNTIME_FUNCTION_EXPORTS} from "./function-exports.js";
-import {KEYDEV_SRC} from "./keydev-prelude.js";
-import {DOC_ENTRY_SRC} from "./doc-entry.js";
-import {DOC_LAYOUT_SRC} from "./doc-layout.js";
-import {DOC_RECALC_SRC} from "./doc-recalc.js";
-import {DOC_LIFE_SRC} from "./doc-life.js";
-import {DOC_OUTPUT_SRC} from "./doc-output.js";
-import {DOC_PUT_SRC} from "./doc-put.js";
-import {DOC_CLEAR_SRC} from "./doc-clear.js";
-import { FLOAT_CONVERT_SRC,FLOAT_MUL_I64 } from "./float-convert.js";
+import {
+  KEYDEV_SRC,DOC_ENTRY_SRC,DOC_LAYOUT_SRC,DOC_RECALC_SRC,DOC_LIFE_SRC,
+  DOC_OUTPUT_SRC,DOC_PUT_SRC,DOC_CLEAR_SRC,FLOAT_CONVERT_SRC
+} from "./runtime-source.js";
 
 export function compileHolyC(source, opts = {}) {
   if (![undefined,'console','keydev'].includes(opts.runtimeProfile))

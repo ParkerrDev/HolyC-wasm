@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {DOC_OUTPUT_SRC} from '../../src/doc-output.js';
-import {DOC_PUT_SRC} from '../../src/doc-put.js';
-import {DOC_RECALC_SRC} from '../../src/doc-recalc.js';
+import {DOC_OUTPUT_SRC,DOC_PUT_SRC,DOC_RECALC_SRC} from "../../src/runtime-source.js";
 export const hash=b=>createHash('sha256').update(b).digest('hex');
 export const read=name=>readFileSync(new URL(name,import.meta.url),'latin1');
 const symbols=/\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b(DocPutS|DocPrint|DocOutText|PrsDollarCmd|DocParseOwnedFree|char_bmp_zero_cr_nl_cursor|char_bmp_zero_tab_cr_nl_cursor|char_bmp_zero_tab_cr_nl_cursor_dollar)\b/g;

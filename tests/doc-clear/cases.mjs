@@ -1,11 +1,9 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {DOC_RECALC_SRC} from '../../src/doc-recalc.js';
-import {DOC_LIFE_SRC} from '../../src/doc-life.js';
-import {DOC_OUTPUT_SRC} from '../../src/doc-output.js';
-import {DOC_PUT_SRC} from '../../src/doc-put.js';
-import {DOC_CLEAR_SRC} from '../../src/doc-clear.js';
+import {
+  DOC_RECALC_SRC,DOC_LIFE_SRC,DOC_OUTPUT_SRC,DOC_PUT_SRC,DOC_CLEAR_SRC
+} from "../../src/runtime-source.js";
 export const hash=b=>createHash('sha256').update(b).digest('hex');
 export const read=name=>readFileSync(new URL(name,import.meta.url),'latin1');
 const names='DocRecalc|DocTop|DocBottom|DocRst|DocDel|PrsDollarCmd|DocParseOwnedFree|DocPutS|DocPrint|DocOutText|DocClear|DocHostClearCheck|char_bmp_zero_cr_nl_cursor|char_bmp_zero_tab_cr_nl_cursor|char_bmp_zero_tab_cr_nl_cursor_dollar';

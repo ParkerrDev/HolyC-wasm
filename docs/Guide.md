@@ -37,6 +37,27 @@ zeros for some unsupported symbols and calls, so successful compilation in that
 mode is not evidence that a program works. Strict `import` prototypes become
 WebAssembly imports; `src/abi.js` defines the browser runtime's host interface.
 
+## Runtime source
+
+`Kernel/`, `Compiler/` and `Adam/` own the runtime HolyC in `.HC` and `.HH`
+files. `src/prelude.js` retains source ordering, output-profile composition and
+compiler dependency metadata. The JavaScript compiler and browser adapters stay
+in `src/`.
+
+After editing the HolyC, run `npm run generate`. `Misc/RuntimeMk.mjs` reads the
+UTF-8 source without changing its code units, whitespace or line endings, and
+writes the single committed `src/runtime-source.js` transport module. The font
+and native power-of-ten table remain owned by `src/runtime/font.js` and
+`src/float-scale.js`; the generator expands their two named initializer markers.
+`npm run build` checks that the generated module is current, and `npm test` runs
+that check automatically. Consumers import the committed module, so
+`compileHolyC` stays synchronous in Node and browsers without source fetches.
+
+This moves existing HolyC out of JavaScript string literals; it does not convert
+JavaScript algorithms into HolyC. These files preserve the earlier source text,
+including its existing formatting and byte-valued characters. They target this
+compiler's host ABI and are not a standalone native TempleOS runtime.
+
 ## Checks
 
 ```sh
@@ -604,7 +625,7 @@ bounds and constant initializers. They do not evaluate an object. As in V5.03,
 and parameters can shadow the `offset` and `sizeof` keywords. Native machine
 code size queries for functions are not implemented.
 
-`gr-math.js` holds the original V5.03 graphics math, including fixed-point
+`Adam/Gr/GrMath.HC` holds the original V5.03 graphics math, including fixed-point
 matrices, 2D/3D symmetry, reflection, ellipse/polygon tracing and quadratic/cubic
 Bézier and B-spline callbacks. `GraphicsMath.HC` compares matrix values, point
 sequences, callback cancellation and degenerate symmetry behavior with the
@@ -630,7 +651,7 @@ and consumes only a minus sign there. Consequently `1e+2` is the expression
 1.0 + 2, while `1e2` is 100.0. `FloatBoundary` records these token boundaries
 against V5.03 alongside the existing 623 floating-literal bit comparisons.
 
-`gr-primitives.js` uses the original `GrBlot3` bitmap transform and depth-buffer
+`Adam/Gr/GrPrimitives.HC` uses the original `GrBlot3` bitmap transform and depth-buffer
 algorithm, plus native 2D ellipse/polygon/Bézier/B-spline wrappers and
 `GrPutChar3`. Bitmap brushes now work with a depth buffer. `Bitmap3.HC` compares
 128 combinations of transform, symmetry, mirror selection, depth, draw
@@ -703,7 +724,8 @@ the original native algorithms. `Polygon.HC` compares 512 clipped/degenerate
 triangle cases, 64 transformed polygon/rectangle cases and a reversed rectangle
 with V5.03, including depth, raster operations, dithering and window offsets.
 The 2D primitive functions now live with the 3D primitives in
-`gr-primitives.js`; bitmap and device-context operations stay in `gr-prelude.js`.
+`Adam/Gr/GrPrimitives.HC`; bitmap and device-context operations stay in
+`Adam/Gr/Gr.HC`.
 
 ## Native formatting
 

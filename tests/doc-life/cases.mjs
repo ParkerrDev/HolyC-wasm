@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {DOC_RECALC_SRC} from '../../src/doc-recalc.js';
-import {DOC_LIFE_SRC} from '../../src/doc-life.js';
+import {DOC_RECALC_SRC,DOC_LIFE_SRC} from "../../src/runtime-source.js";
 export const cases=['LifeMove','LifeReset','LifeOwner'];
 export const hash=b=>createHash('sha256').update(b).digest('hex');
 export const read=name=>readFileSync(new URL(name,import.meta.url),'latin1');

@@ -25,7 +25,8 @@ import {
 import { foldConstInt, foldDim } from "./fold.js";
 import { usesGoto, Gotos } from "./goto.js";
 import {nativeRegisters} from "./local-storage.js";
-import { FLOAT_MUL_I64 } from "./float-convert.js";
+// A product rounds to x87's 64-bit significand before native FISTTP.
+export const FLOAT_MUL_I64="#mul-f64-i64";
 
 const PINNED_GLOBALS = { ms: MS_ADDR };
 const REPEATED_MEMBERS=new Set(["pad","reserved","_anon_"]);

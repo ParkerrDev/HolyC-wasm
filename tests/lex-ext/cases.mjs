@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {LEX_EXT_SRC} from '../../src/lex-ext.js';
+import {LEX_EXT_SRC} from "../../src/runtime-source.js";
 export const read=name=>readFileSync(new URL(name,import.meta.url),'latin1');
 export const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 export const rename=(source,suffix)=>source.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b(LexExtStr)\b/g,(text,name)=>name?name+suffix:text);

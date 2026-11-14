@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {compileHolyC} from '../src/compiler.js';
 import {createTaskHost} from '../src/runtime/tasks.js';
 import {Framebuffer} from '../src/runtime/graphics.js';
-import {DOC_RECALC_SRC} from '../src/doc-recalc.js';
+import {DOC_RECALC_SRC} from "../src/runtime-source.js";
 import {read} from './doc-recalc/cases.mjs';
 const start=DOC_RECALC_SRC.indexOf('public Bool DocRecalc'),prefix=DOC_RECALC_SRC.slice(0,start);
 const cleanup='  } catch {\n    if (unlock) DocHostRecalcUnlock(doc,marker);\n  }';

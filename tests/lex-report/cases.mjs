@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {CMP_TYPES_SRC} from '../../src/cmp-control.js';
-import {LEX_REPORT_SRC} from '../../src/lex-report.js';
+import {CMP_TYPES_SRC,LEX_REPORT_SRC} from "../../src/runtime-source.js";
 export const cases=['LexReport','LexPlain'];
 export const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 export const read=name=>readFileSync(new URL(name,import.meta.url),'latin1');

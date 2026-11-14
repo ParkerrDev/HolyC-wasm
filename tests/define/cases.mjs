@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {DEFINE_SRC} from '../../src/define-prelude.js';
+import {DEFINE_SRC} from "../../src/runtime-source.js";
 export const cases=['DefineChk','DefineTask'];
 export const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 export const read=name=>readFileSync(new URL(name,import.meta.url),'latin1');

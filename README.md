@@ -61,6 +61,9 @@ npm test
 npm run test:strict
 ```
 
+Runtime HolyC lives in `Kernel/`, `Compiler/` and `Adam/`. Run `npm run generate`
+after editing it; `npm test` also checks that its generated browser module is current.
+
 The tests compare WASM behavior with recorded TempleOS V5.03 results. Reproducing the native oracle also needs its documented QEMU and disk setup.
 
 [Full check list and evidence](docs/Guide.md#checks) · [ABI](src/abi.js)

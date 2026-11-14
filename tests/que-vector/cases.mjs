@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {QUE_VECT_TYPES_SRC,QUE_VECT_SRC} from '../../src/que-vector.js';
-import {LEX_REM_SRC} from '../../src/lex-rem.js';
+import {QUE_VECT_TYPES_SRC,QUE_VECT_SRC,LEX_REM_SRC} from "../../src/runtime-source.js";
 export const cases=['QueVector','LexRemainder','QueVectorTask'];
 export const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 export const read=name=>readFileSync(new URL(name,import.meta.url),'latin1');

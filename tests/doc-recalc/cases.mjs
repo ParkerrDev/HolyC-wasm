@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {DOC_RECALC_SRC} from '../../src/doc-recalc.js';
+import {DOC_RECALC_SRC} from "../../src/runtime-source.js";
 export const cases=['RecalcBasic','RecalcControls','RecalcClear','RecalcEmpty','RecalcTrim','RecalcLock','RecalcOwner'];
 export const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 export const read=name=>readFileSync(new URL(name,import.meta.url),'latin1');
