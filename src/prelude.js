@@ -21,6 +21,7 @@ import {MEMBER_TYPES_SRC,MEMBER_SRC} from "./member.js";
 import {CMP_TYPES_SRC,CMP_SRC} from "./cmp-control.js";
 import {DEFINE_SRC} from "./define-prelude.js";
 import {TASK_TYPES_SRC,TASK_SRC} from "./task-prelude.js";
+import {TASK_SETTINGS_SRC} from "./task-settings.js";
 import {TASK_MESSAGE_SRC} from "./task-message.js";
 import {DIR_TYPES_SRC,DIR_SRC} from "./dir-prelude.js";
 import {FILE_SRC} from "./file-prelude.js";
@@ -748,6 +749,7 @@ ${TASK_SCHEDULE_SRC}
 ${FIFO_SRC}
 ${KBD_SRC}
 ${WINDOW_SRC}
+${TASK_SETTINGS_SRC}
 ${DIR_SRC}
 ${FILE_SRC}
 ${HASH_SRC}

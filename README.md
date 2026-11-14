@@ -329,9 +329,13 @@ valid documents. They do not create, clear, parse or render DolDoc documents.
 
 `WinHostDraw(task,layer)` invokes a registered draw callback with a fresh alias,
 owned by the target task, and releases the alias even when the callback throws.
-This is the measured window-manager callback boundary; an automatic manager,
-its persistent surfaces/occlusion allocations and settings lifecycle are still
-pending. `WindowGeometry` tests 2,252 state captures plus 34,200 edge points.
+`SettingsPush` starts a cooperative `WinMgrTask` for the program, which invokes
+`draw_it` and presents at up to 120 Hz. `SettingsPop` restores window, directory,
+palette, callback, song and animation state. These routines are part of both
+runtime profiles; callers do not prepend a separate Adam file. The browser has
+no AutoComplete task, so `AutoComplete` returns false. Persistent surfaces and
+full native window-manager composition remain outside this drawing adapter.
+`WindowGeometry` tests 2,252 state captures plus 34,200 edge points.
 `test:window` checks native document layouts/state, 1,280 ordering/focus cases,
 6,144,000 occlusion cells and repeated draw/exception ownership. The native draw
 probe supplies the isolated alias/callback adapter; it does not claim that the
@@ -450,8 +454,9 @@ Suspended JSPI continuations cannot be serialized: `snapshot()` explicitly
 rejects task sessions. HEMU's guest-machine snapshots remain the portable
 TempleOS full-state path, and HEMU builds do not acquire the JSPI requirement.
 Hosts without JSPI still need a genuine alternative continuation backend.
-Automatic window-manager dispatch and native settings/document allocation
-remain subsequent work. Legacy `ScanChar` and `KeyGet` adapters are retained
+The settings manager does not allocate DolDoc documents; document lifecycle
+uses the explicit APIs described below. Legacy `ScanChar` and `KeyGet` adapters
+are retained
 for unmigrated browser consumers and explicitly rejected by the task host; they are not native input
 parity. Native ScanChar's wait-for-release behavior is still pending. A caller
 can reject those legacy imports at launch before any program side effects.
@@ -460,7 +465,12 @@ can reject those legacy imports at launch before any program side effects.
 ten same-instance runs, refusal before side effects, cross-task ownership,
 failed Spawn cleanup, stack bounds, full scan values and nested cancellation.
 `test:tasks-browser` runs the native fixtures under actual Chromium JSPI and
-real browser key events through the site's shared physical-key mapping.
+real browser key events. `src/runtime/keyboard.js` supplies `KEY`, `KeyBytes`
+and `KeyInput` for set-1 packets, physical/touch ownership, text chords and
+release-all; UI focus routing remains with each host. `test:tasks` also checks
+settings restoration, nested song/animation lifetimes, frame presentation and
+repeat-run cleanup in both profiles. `tests/task-settings-oracle.mjs --record`
+refreshes the settings fixture against original V5.03.
 
 `keyBytes(bytes)` accepts one complete PC set-1 packet of one to eight bytes.
 Native `KbdBuildSC`, `Char2ScanCode` and `ScanCode2Char` update the public `kbd`
