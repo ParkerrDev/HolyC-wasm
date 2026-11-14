@@ -1,0 +1,1620 @@
+# HolyC-wasm
+
+A HolyC compiler that emits WebAssembly, with a browser graphics, sound and input
+runtime. TempleOS-Web uses it for its source editor and native games. HEMU uses
+the compiler with its own host imports to build its x86 emulator. HolyC-fmt uses
+it to run the formatter written in HolyC.
+
+The compiler is a library. This checkout contains `src/` and `tests/`; the browser
+editor and emulator launchers live in TempleOS-Web.
+
+```js
+import {compileHolyC} from "./src/compiler.js";
+import {createHost} from "./src/runtime/host.js";
+
+const {bytes}=compileHolyC('"Hello\\n";',{lenient:false});
+const host=createHost({ansi:false,onText:text=>process.stdout.write(text)});
+const {instance}=await WebAssembly.instantiate(bytes,{env:host.env});
+host.attach(instance);
+instance.exports.__main();
+```
+
+Use `lenient:false` for compatibility checks. The older lenient mode substitutes
+zeros for some unsupported symbols and calls, so successful compilation in that
+mode is not evidence that a program works. Strict `import` prototypes become
+WebAssembly imports; `src/abi.js` defines the browser runtime's host interface.
+
+## Checks
+
+```sh
+npm test                 # Compare WASM behavior with recorded V5.03 results.
+npm run test:intrinsics   # Emitter, atomic memory operations and import linking.
+npm run test:document     # Full DolDoc input, sprite integrity and CP437 transport.
+npm run test:strict       # Unsupported assembly and unresolved callable symbols.
+npm run test:callback     # Imported callbacks and null pointer traps.
+npm run test:varargs      # Variadic ABI, nested calls and exception cleanup.
+npm run test:format       # Native formatting ownership and unavailable OS formats.
+npm run test:console      # Shared Print path, terminal presentation and repeated output.
+npm run test:keydev       # Scoped KeyDev/raw output, native ScrollLock, faults and ownership.
+npm run test:hash         # Native hash lookup, deletion ownership and task lifetimes.
+npm run test:composites   # Text/mesh allocation failures, callbacks and recovery.
+npm run test:exception    # Cross-call unwinding and repeated stack cleanup.
+npm run test:oracle       # Boot V5.03 in QEMU and recheck the native results.
+npm run test:float-scale  # Reproduce the native Pow10I64 table in QEMU.
+```
+
+The fixtures in `tests/v503/` cover postfix casts, goto, operator precedence,
+chained comparisons, conditional versus value logical evaluation, comma
+statements, case ranges, packed class layout, pointer arithmetic, writable
+strings, initialization, unsigned operations and signed floating conversion.
+They also cover native bit operations, deterministic random sequences, math
+rounding, floating remainder and decimal literal conversion.
+Typed callbacks cover local/global variables, members, arrays, parameters,
+default arguments and native evaluation order. Direct calls and Print evaluate
+arguments right to left; an indirect call captures its target first. Nested
+printing cannot overwrite the outer call's staged argument values.
+Variadic functions expose native `I64 argc` and `I64 argv[127]`; the declared
+array size is descriptive, and calls may pass more than 127 values. Extra
+arguments preserve their raw 64-bit representation, including floating values.
+Their caller-owned argument blocks are reentrant and released after normal
+returns or caught exceptions. A variadic WASM import/export has one hidden
+final I64 parameter pointing to the count followed by contiguous I64 arguments.
+This calling convention does not reproduce the native x86 machine stack.
+
+`no_warn` accepts a comma-separated list of already-declared locals (including
+parameters), or an empty list. It marks declarations and emits no variable read.
+Global names, fields and expressions are rejected as in V5.03. Native unused and
+unneeded-no_warn warning counts are not reproduced by this bounded syntax fix.
+Original V5.03 optimization is observable in integer arithmetic: a variable
+divided by a constant power of two uses a shift, so signed negative values
+round down. Fully constant divisions and variable divisors truncate toward
+zero. Compound `/=` uses the same shift; `%=` by a constant power of two uses
+a mask, including signed operands. `PowerDivide` records these distinctions,
+unsigned operands, the sign-bit divisor and subsequent shifts/comparisons.
+
+Primitive integer arithmetic retains the native raw-type order, with distinct
+runtime arithmetic, immediate folding and comparison signedness. Integer chains
+carry the preceding comparison class; constant rewrites retain native pass-order
+comparison flags. `npm run test:integer-promotion` checks original native matrices
+and four executable negative controls. See [integer type evidence](../docs/IntegerTypes.md)
+for scope. [Native local storage](../docs/LocalStorage.md) separately covers
+register selection, narrow spills, casts and compound expression results.
+[Static locals](../docs/StaticLocals.md) initialize in declaration order and retain
+their cells across calls, recursion and child-task access; their code-heap and
+compiler-time automatic-local boundaries remain explicit.
+[Integer returns](../docs/ReturnWidth.md) preserve native full-register values even
+for narrow declared return types; narrow memory operands retain their load width.
+
+Compile-known switch labels use signed 64-bit values. Reversed ranges are
+normalized before empty-case numbering; duplicate/overlapping cases, empty
+case sets and native-invalid table spans reject. Repeated `default` labels
+select the last, including in functions lowered for `goto`. The SwitchBounds
+and negative Switch fixtures record the original compiler's boundary behavior.
+Case expressions requiring execution at declaration time remain incomplete:
+a global changed by an earlier top-level statement is not faithfully captured
+by the current initial-value folding/runtime comparison path. Such programs
+still need native execution through TempleOS/HEMU. The independently recorded
+`tests/probes/SwitchCapture.HC` preserves a concrete witness outside the passing
+compiler fixture set.
+
+Subswitch `start:` prefixes run on case dispatch, while fall-through skips a
+case's repeated prefixes. A grouped `break` reaches its `end:`; nested groups
+and ordinary loop breaks retain their own targets. Original V5.03 rejects a
+break from a try/catch to an enclosing loop, which this compiler now rejects too.
+Scalar-backed classes such as `U32 class CColorROPU32` retain their integer or
+F64 value operations and named fields. Layouts whose byte size differs from
+their underlying storage type remain unsupported in strict mode.
+Negative fixtures exercise native compile errors. Each fixture has native
+source/output hashes; changing it requires rerunning the oracle. These checks
+do not establish full TempleOS compatibility.
+
+Pass a complete source file as a `Uint8Array`, `ArrayBuffer` or Latin-1 byte
+string. DolDoc `$IB` inserts a private copy of the named binary record and `$IS`
+inserts its length. Text-only editor views must append the original binary tail
+before compilation. Missing records and truncated payloads are errors. Binary
+data extraction and native Sprite3 rendering are supported.
+CP437 identifier bytes map to their Unicode names, and Greek Unicode character
+literals use CP437 values. Other Unicode characters outside CP437 are rejected.
+Cursor and nonbreaking-space document controls and continued source lines are
+read without truncating the rest of the program.
+
+`DolDoc.HC` embeds binary record 1 from TempleOS-Web's pinned TinkerOS Rocket.HC;
+its native test checks every payload byte, separate literal allocations and
+write isolation. SpriteDocument then compares drawing that same bitmap asset
+against original V5.03, including clipping, depth, transforms and symmetry.
+
+Runtime startup initializes prelude data, then required runtime facilities,
+then user globals. Successful initialization runs once. If a hook/global
+initializer throws, traps, or reenters startup, that instance remains poisoned:
+subsequent `__rt_init`, `__main`, and task runs reject before executing user code.
+Create a fresh module instance to recover; startup side effects are not replayed.
+Prelude data initializes before its device hooks. Captured runtime defaults
+(such as the default screen CDC) follow those hooks, before user initializers.
+New modules with initialization require the paired host's `__rt_init_failed`
+import, which reports this state clearly. Initializer-free no-prelude modules
+remain self-contained. Full snapshots retain their embedded module and guard
+state; heap/snapshot formats are unchanged. `test:runtime-init` covers typed and
+host exceptions, traps, reentrancy, real allocation failure and JSPI startup.
+The same poison state covers declarations and captured defaults initialized
+after top-level statements. A failure there rejects the next entry before those
+earlier statements repeat. Successful deferred initialization still occurs once
+at its declaration position. This recovery policy does not claim native
+incremental recompilation or deletion of partially compiled functions.
+
+## Native oracle
+
+`tests/oracle.mjs` boots the original V5.03 disk under QEMU, injects fixtures into
+a private FAT32 disk copy, and runs the real HolyC compiler in a fresh task per
+fixture. A guest output hook sends bytes through QEMU's debug port. The compiler
+under test is not used to compile those fixtures.
+
+Requires Node, Python 3, `git`, `tar`, `qemu-img` and `qemu-system-x86_64`. KVM is
+used when accessible; set `ORACLE_ACCEL=tcg` to run QEMU's CPU emulator instead.
+The default 384 MiB guest is single-core. The pinned disk, snapshot, compiler and
+emulator revisions/hashes are in `tests/oracle/Manifest.json`. Original assets
+are read from sibling checkouts, or from these environment variables:
+
+| Variable | Checkout / required asset |
+|---|---|
+| `TEMPLEOS_WEB` | TempleOS-Web, including `vendor/images/templeos-hd.qcow2.gz` |
+| `HEMU_REPO` | HEMU, including `live.bin.gz` |
+| `HOLYC_ORACLE_COMPILER` | HolyC-wasm, with the pinned revision in Git history |
+
+The cache and small run logs/screenshots stay in ignored `tests/.oracle/`.
+Live QMP sockets use a short system temporary directory so long checkout paths
+do not exceed Unix socket path limits.
+Private writable disk copies are removed after each QEMU run. Original disk and
+snapshot files are never changed.
+
+Other native probes can import `QemuRun` from `tests/oracle/Qemu.mjs` and pass
+`QemuRun(sources,{files:[{name,bytes}],timeout:180})`. Sources and extra binary
+files are copied into `C:/ORACLE`; file names must be unique uppercase 8.3 names.
+The timeout is in seconds. This permits real asset tests without embedding data
+in HolyC initializers.
+
+```sh
+node tests/oracle.mjs --check tests/v503/Convert.HC
+node tests/oracle.mjs --record tests/v503/Convert.HC
+node tests/run.mjs Convert
+```
+
+`--engine=hemu` runs the native compiler in the frozen baseline HEMU as a
+secondary diagnostic. It is deliberately not accepted as independent evidence
+by `npm test`: the baseline emulator's float-to-integer saturation once agreed
+with the same incorrect compiler behavior. QEMU/KVM exposed the mismatch.
+
+## Compatibility limits
+
+The browser runtime implements a subset of TempleOS APIs. Many stock programs
+still need task/window lifecycle, file services and other native APIs. The compiler
+also has unsupported assembly, runtime-generated declarations and class-field
+`format` metadata. `#ifdef` currently tests macros only, unlike native symbol
+lookup; declaring a `kbd` variable does not yet activate `#ifdef kbd` branches.
+F64 truth tests and equality compare the promoted 64-bit representations, as
+V5.03 does: negative zero is true and differs from positive zero; a NaN equals
+the same stored NaN bits. `x!=x` is therefore not a native NaN test. The KeyDev
+clock guard checks exponent bits before using a clock reading. Native
+`OptLib.HC` also converts a direct F64 load compared with constant positive zero
+using `<` or `>=` into a signed integer-bit comparison. Comparisons against
+variable or negative zero, other relational operators, calls/arithmetic results,
+comparison chains and the immediate right operand of `&&` retain their distinct
+paths. Native optimization order also distinguishes floating `1.0-1.0` from
+integer `1-1` here; only the former receives that rewrite. The source-bound
+`FloatTruth` fixture covers these rules in value and
+branch contexts, fields/arrays/pointers/casts, signed zeros, finite values,
+infinities and NaN representations, with a recorded failing prior compiler.
+
+General unordered relational lowering remains incomplete. Native value and
+branch templates differ for NaNs, and native `if (0<d<1)` differs from its value
+expression at `d==1.0`. `tests/probes/FloatRelationalContexts.HC` preserves the
+original QEMU observations; it is not a passing WASM parity claim. Floating
+equality/truth compatibility does not establish complete native comparison
+or x87 execution equivalence.
+
+WebAssembly F64 arithmetic does not reproduce the full x87 extended-precision
+environment. Passing a compiler fixture does not prove a game's rendering,
+input, performance or behavior on QEMU, other virtual machines or bare metal.
+
+The compiler also preserves native register-local width using measured
+reference scoring and spill selection. `test:local-storage` compares 4,220
+values and 2,699 native register assignments, including try/catch, address
+escape, unnamed parameters and memory-result distinctions. See
+[local storage and its remaining return/physical-ABI boundaries](../docs/LocalStorage.md).
+
+Fresh WebAssembly memory and register locals start at zero. Native HolyC
+storage can contain old data: initialize pointers and counters explicitly.
+Tests of source that relies on zero-initialized globals are not proof that it
+will run on TempleOS. Some self-modifying expressions also have native optimizer
+effects not fully reproduced; retained examples and native outputs are in
+`tests/probes/`.
+
+HolyC has different precedence from C: `1<<4+1` is `(1<<4)+1`, bitwise operations
+bind above addition, and comparisons can chain through equality. Consumers
+ported from C must audit those expressions when moving to this compiler.
+
+Decimal literals also follow V5.03, including its signed 64-bit mantissa
+overflow and measured power-of-ten table. For example, native
+`9223372036854775808.0` is zero; use `0x43E0000000000000(F64)` for exact 2^63.
+The stored table is reproducible by `tests/oracle-scale.mjs`; KVM and TCG give
+the same 617 entries. This matches literal compilation, not all x87 arithmetic.
+
+Update the compiler and runtime together: floating `%` uses the `__fmod` host
+import. `Seed(nonzero)` and the Rand family reproduce native task-local random
+sequences. Timer-mixed randomness uses the host clock, not a physical CPU's TSC.
+
+Function pointers are opaque nonzero indexes into the exported `__functions`
+WASM table; zero is null and calling it traps. They are callable references,
+not addresses of x86 machine code in linear memory. Native V5.03 rejects an
+initializer on a local function-pointer declaration; declare it first, then
+assign it. Required argument omissions and surplus arguments fail in strict
+mode. Native callback defaults remain available at the pointer's call site.
+
+Function redefinitions keep separate implementations. Earlier direct/bare calls,
+stored pointers, callback defaults and recursive bodies retain the definition
+they referenced. Extern headers resolve to their next definition; each earlier
+call keeps the header/defaults visible when parsed. Output shortcuts similarly
+retain their Print/PutChars function, independently of same-named local variables.
+Runtime initialization and its exported host entry points retain prelude bindings.
+The 18 implemented private APIs recorded as native raw system exports have a
+distinct first-extern rule: that header binds the original export, until a typed
+user declaration shadows it. This is function binding, not a populated native
+runtime symbol table or x86 code-address export.
+
+`npm run test:function-bind` checks source-bound original V5.03 cases and the
+MemSet redefinition that exposed initializer coupling. The native header-default
+fixture explicitly disables header-mismatch warnings, which are not implemented
+here. Header changes that alter a WebAssembly call signature reject explicitly,
+as do conflicting runtime and user exports of the same host-facing name.
+The existing undeclared forward-reference extension remains; fully unresolved
+functions reject in strict mode. Function declaration execution timing is still
+different: a pointer initialized from an unresolved extern before its later
+definition can observe that later implementation in WASM, while native JIT
+captures its then-current UndefinedExtern address. This remaining boundary does
+not affect the tested pointers captured from already-defined functions.
+
+HolyC exceptions propagate through direct calls and callbacks using typed
+[WebAssembly exception handling](https://github.com/WebAssembly/exception-handling/blob/main/proposals/exception-handling/legacy/Exceptions.md).
+Catches restore the HolyC shadow stack. A catch that falls through handles the
+exception only when `Fs->catch_except` is true; otherwise it propagates outward.
+`Fs->except_ch` holds the code. An uncaught exception reaches the host as a
+`WebAssembly.Exception` with the exported `__exception_tag` and I64 code.
+Native AdamLog and machine return-address logging are not reproduced. Ordinary
+WASM traps and unrelated JavaScript exceptions are not HolyC exceptions.
+
+`Free` returns allocations to a coalescing heap; `CAlloc` clears reused storage.
+The allocator keeps its headers, free list and shared-memory lock in linear
+memory, so a complete RAM snapshot restores allocation state. `MAlloc` throws
+`'OutMem'` on failure. `MemSet` and `MemCpy` return the pointer after the written
+range, as native V5.03 does; overlapping `MemCpy` copies forward byte by byte.
+Nonoverlapping copies and fills use WASM bulk-memory instructions.
+
+Full snapshots that embed compiled WASM must also record `host.state.heapAbi`.
+The current `HOST_HEAP_ABI` is 1. Restore that mode with
+`createHost({heapAbi:1})`, restore linear memory, then assign the saved
+`host.state.heapPtr`; the setter checks the cursor against the RAM metadata.
+Pre-ABI-1 snapshots need `createHost({heapAbi:0})`, which retains their original
+bump allocator and no-op `Free`. An omitted option selects the current ABI;
+snapshot loaders must choose the old mode explicitly when metadata is absent.
+Do not switch an existing heap between modes. Heap addresses, native internal
+header layout is not reproduced. Ordinary `createHost` has one allocation
+owner; the continuation backend below tracks separate task lifetimes.
+
+The task, settings, message, scroll and keyboard records have their complete
+V5.03 layouts, including the 1,192-byte `CTask`. `TaskValidate` checks the native
+self pointer and signature. The independent `TaskLayout` fixture checks every
+field offset and narrow stores; these declarations do not supply scheduling,
+message delivery or settings-stack behavior. Ordinary duplicate class members
+are rejected even in unused classes. Native `pad`, `reserved` and `_anon_`
+members may repeat: lookup selects the first own declaration, before a base
+class member, while every declaration still contributes storage.
+
+Circular queue operations and posted message queues now follow V5.03:
+`QueInit`, `QueIns`, `QueInsRev`, `QueRem`, `QueCnt`, `QueDel`, `TaskMsg`,
+`PostMsg`, `Msg`, `ScanMsg` and `FlushMsgs`. Masks discard unmatched messages;
+negative down/up codes enqueue both messages; input-filter and popup routing
+use the native task fields. Scan filtering saves the scan value before freeing
+its node, correcting the original use-after-free. `Suspend` and `IsSuspended`
+read/write the native flag but do not themselves provide a scheduler.
+Executable job requests fail explicitly with `JobHost`; dynamic compilation,
+input-filter task creation and macro recording are not implemented. The
+`Messages` and `Queue` fixtures compare independent native behavior, while
+`test:messages` checks failed allocation, poisoned freed nodes and cleanup.
+
+Native window geometry (`WinHorz`, `WinVert`, `WinBorder`, `WinMax`, scrolling
+and hit testing), ordering/focus and the text-cell occlusion map follow V5.03.
+The initial root describes the existing full-screen borderless canvas, preserving
+legacy display bounds. `CDoc`, entry/bin/settings records have their native
+layouts; `DocPut`, `DocDisplay`, `DocBorder` and cursor/scroll flags operate on
+valid documents. They do not create, clear, parse or render DolDoc documents.
+
+`WinHostDraw(task,layer)` invokes a registered draw callback with a fresh alias,
+owned by the target task, and releases the alias even when the callback throws.
+`SettingsPush` starts a cooperative `WinMgrTask` for the program, which invokes
+`draw_it` and presents at up to 120 Hz. `SettingsPop` restores window, directory,
+palette, callback, song and animation state. These routines are part of both
+runtime profiles; callers do not prepend a separate Adam file. The browser has
+no AutoComplete task, so `AutoComplete` returns false. Persistent surfaces and
+full native window-manager composition remain outside this drawing adapter.
+`WindowGeometry` tests 2,252 state captures plus 34,200 edge points.
+`test:window` checks native document layouts/state, 1,280 ordering/focus cases,
+6,144,000 occlusion cells and repeated draw/exception ownership. The native draw
+probe supplies the isolated alias/callback adapter; it does not claim that the
+browser currently executes the full original window manager.
+
+`CFifoU8`/`CFifoI64` and their New/Del/Ins/Rem/Peek/Flush/Cnt functions use
+native layouts and mask arithmetic. A power-of-two buffer has `size-1` usable
+slots; the runtime does not round or reinterpret the caller's mask. Empty reads
+leave their output value unchanged. Constructors release their header if buffer
+allocation throws. The operations are uninterrupted in the cooperative
+single-core backend; they are not a general cross-worker synchronization API.
+`Fifo` compares 45,056 paired operation sequences against V5.03, including wrap,
+full/empty and non-power-of-two masks. `FifoFocus` checks native keyboard queue
+retention/delivery, and `test:fifo` fails each constructor allocation and verifies
+lazy keyboard ownership, reset and cleanup.
+
+Native palette Get/Set functions reproduce six-bit VGA DAC quantization and
+wrapped 256-entry addressing; PaletteSetStd restores the standard sixteen.
+The host must provide `gfx.palette(index,bgr48)` or instantiation fails before
+program initialization. `Framebuffer` accepts an optional shared 256-entry
+Uint32 palette; changes recolor existing indexed pixels. Its display maps each
+pixel through the low four bits, matching original DCBlotColor4 and stock planar
+VGA, while the full DAC table remains readable/writable. Initial DAC entries
+16–255 are not claimed to match arbitrary native boot state. `test:palette`
+checks native DAC state, all shared entries, original planar conversion, RGBA
+presentation and refusal without a device adapter.
+
+The console-only output profile honors native `Silent`/`IsSilent` state for
+PutS, formatted strings, PutKey and packed PutChars. Character statements call
+PutChars, just as native code does: up to eight bytes are emitted and internal
+zero bytes are skipped while higher bytes remain. This adds no keyboard or
+continuation requirement. Character statements in no-prelude modules need an
+explicit PutChars declaration, like explicit Print for formatted output.
+The full native KeyDev/ScrollLock/DolDoc terminal chain remains a separate
+runtime profile; console transport does not claim those UI behaviors.
+
+`MAllocIdent(src,mem_task)` copies the source allocation's full usable capacity
+into the selected live task; `AMAllocIdent(src)` uses session kernel ownership.
+Both return NULL for a NULL source. `MSize2` reports the real internal span:
+this allocator uses a 32-byte header, while release V5.03 uses 16 bytes and
+has different capacity rounding. These sizes are deliberately not presented
+as binary heap-layout parity. Legacy heap ABI 0 cannot recover allocation
+sizes and rejects non-NULL MSize/MSize2 queries. Headers and snapshot ABI are
+unchanged; only new code using MSize2 requires the paired `__msize2` import.
+`test:alloc-ident` compares native copies, verifies native/current span bounds,
+and tests child/parent/session lifetime plus allocation failure and retry.
+
+## Cooperative task backend
+
+Reachable `Spawn`, `Kill`, `Exit`, `GetMsg`, `GetKey`, `GetChar`, `PressAKey`
+`BreakUnlock`, or access to `kbd` requires
+`result.requiredCapabilities` to include `"task-continuations"`. An unreachable
+reference adds no requirement. The module also has a capability-only WASM start
+function: an ordinary host or a host without JSPI refuses instantiation before
+source initializers, allocation or main can run. The site must use this metadata
+to decide launch availability before starting a program.
+
+Use `createTaskHost` from `src/runtime/tasks.js` on engines with
+`WebAssembly.Suspending` and `WebAssembly.promising` (`taskSupport()` checks
+both). Instantiate with its `env`, call `attach(instance)`, then await
+`run(entry="__main",...args)`. Named library entries also initialize their
+runtime first. `postMessage(code,arg1,arg2,target?)` delivers exact native
+messages; the default target is the session root, and scan arguments can be
+64-bit BigInts. `stop()` requests task termination; `dispose()` also releases
+session-owned storage, including after an error. A caller should handle errors
+from both the run and teardown promises. `onTaskError(error,task)` receives
+child faults; without that callback they are reported to the output adapter.
+
+`GetChar(I64 *_scan_code=NULL,Bool echo=TRUE,Bool raw_cursor=FALSE)` now has
+its real native signature. It ignores zero-character key-downs and non-key
+messages, waits cooperatively, and preserves the final complete scan code.
+`PressAKey()` displays the native prompt and returns that character. The former
+incorrect `(echo,do_scan)` GetChar signature is no longer supported. `GetChar`
+and `test:char` compare native waiting, return values and exact echo/prompt
+control sequences. Raw cursor editing remains explicitly unsupported.
+
+`Break`, `BreakLock` and `BreakUnlock` preserve native exception, message and
+flag behavior. `breakTask(target=0)` requests interruption of the focus task
+(or an explicit live task); it returns false for absent/inhibited focus. The
+first request clears a break lock and marks a pending break. Unlock delivers
+it; an additional request can interrupt immediately. Normal requests wake
+sleep/message waits and throw a typed, catchable `Break` inside that task.
+Shift-Esc mode emits its native key instead and preserves existing readiness,
+as does cross-task delivery by BreakUnlock. Explicit Suspend still wins.
+These operations cannot interrupt a non-yielding WASM loop. Hardware disk-lock
+release and CPU RIP replacement are outside this cooperative backend.
+`test:break` compares original QEMU lock/request behavior, repeated catch and
+stack/heap recovery, sleep/suspension, physical Ctrl-Alt-C and uncaught cleanup.
+
+Task audio uses a nonblocking `snd.tone(frequency)` adapter. The scheduler owns
+note duration and switches the tone off afterward; it never calls a legacy
+blocking `snd.note`. A note-only adapter is rejected explicitly.
+
+Tasks have real suspended continuations, separate guarded shadow stacks, `Fs`
+and exception contexts, native parent/child links and message queues. Sleep,
+Yield and message waits release the worker event loop. Suspension flags are
+honored. Task termination callbacks can wait and yield; native `Kill(task,TRUE)`
+can return after a callback starts, before the task dies. Check `TaskValidate`
+when actual death is required. Task-owned allocations are released only after
+the continuation and descendants terminate. `MAlloc(size,task)` supports other
+live tasks; `AMAlloc`/`ACAlloc` and posted messages belong to the session kernel
+owner and survive their sending task. Raw `CHeapCtrl` owners are unsupported.
+The allocator headers/ABI remain unchanged, but new modules require the paired
+host's `__malloc_for` and `__malloc_kernel` imports.
+
+This is a cooperative, single-core, unshared-memory backend, not a model of
+native CPU contexts or preemption. A task must reach Sleep, Yield or a message
+wait for other tasks and external input to run. Only current-core Spawn with
+`JOBf_ADD_TO_QUE` is supported. Fixed child stacks accept 4 KiB through 64 MiB
+(default 1 MiB); frame and varargs reservations trap before crossing their
+lower bound. A termination callback that never finishes can prevent cooperative
+shutdown. Debugger breaks and raw cursor echo fail explicitly. PutKey supports
+the host text-output adapter; the DolDoc device pipeline remains separate.
+
+Suspended JSPI continuations cannot be serialized: `snapshot()` explicitly
+rejects task sessions. HEMU's guest-machine snapshots remain the portable
+TempleOS full-state path, and HEMU builds do not acquire the JSPI requirement.
+Hosts without JSPI still need a genuine alternative continuation backend.
+The settings manager does not allocate DolDoc documents; document lifecycle
+uses the explicit APIs described below. Legacy `ScanChar` and `KeyGet` adapters
+are retained
+for unmigrated browser consumers and explicitly rejected by the task host; they are not native input
+parity. Native ScanChar's wait-for-release behavior is still pending. A caller
+can reject those legacy imports at launch before any program side effects.
+
+`Tasks` and `TaskExcept` compare original QEMU behavior. `test:tasks` also checks
+ten same-instance runs, refusal before side effects, cross-task ownership,
+failed Spawn cleanup, stack bounds, full scan values and nested cancellation.
+`test:tasks-browser` runs the native fixtures under actual Chromium JSPI and
+real browser key events. `src/runtime/keyboard.js` supplies `KEY`, `KeyBytes`
+and `KeyInput` for set-1 packets, physical/touch ownership, text chords and
+release-all; UI focus routing remains with each host. `test:tasks` also checks
+settings restoration, nested song/animation lifetimes, frame presentation and
+repeat-run cleanup in both profiles. `tests/task-settings-oracle.mjs --record`
+refreshes the settings fixture against original V5.03.
+
+`keyBytes(bytes)` accepts one complete PC set-1 packet of one to eight bytes.
+Native `KbdBuildSC`, `Char2ScanCode` and `ScanCode2Char` update the public `kbd`
+record and deliver native key-down/up messages to `sys_focus_task` (initially
+Fs). Both held-key bitmaps, merged/unmerged scan identities, modifiers, repeats,
+lock keys, PrintScreen and Pause follow V5.03. `resetInput()` releases held
+physical keys and clears an incomplete prefix after focus loss or overflow.
+The default task host handles Ctrl-Alt-C as a cooperative break request. An
+`onControlAlt(sc,index,inIrq)` adapter overrides that route and must handle all
+requested system actions explicitly; other unhandled actions throw. The index is 0–25 for
+registered letter actions and -1 for Ctrl-Alt-Delete. `onKeyboardLeds(sc)` is an
+optional physical-indicator notification. Hardware ports, macro recording,
+raw-cursor editing are not implemented by this host bridge. Native scan codes
+wait in the bounded `kbd.scan_code_fifo` while no task has focus; `KbdMsgsQue()`
+delivers them when focus returns. Its lazy storage belongs to the session, not
+the interrupted child, and reset discards pending old scan codes.
+
+For a worker, `src/runtime/protocol.js` appends a bounded native packet ring to
+`makeControlSAB()` while preserving every legacy offset. `keyPacketPush(ctrl,
+bytes)` publishes the whole packet and returns false on overflow or an
+unacknowledged reset. The producer must also clear its local held-key sources
+when delivery fails. `keyPacketReset(ctrl)` requests reset on focus loss;
+`keyPacketRead(ctrl)` returns `{reset,packets,overflow}`. A reset discards pending
+bytes: call `host.resetInput()` before delivering later packets. `KEY_PACKET`
+exports the shared offsets including `WAKE`, an atomic notification counter.
+The worker must drain input while idle, using a message kick or asynchronous
+wait; the host's `onTick` runs at suspension and is not an idle polling loop.
+
+`Keyboard` compares 57,600 native character/decoder cases; the full original
+`KbdHndlr`/`KbdMsgsQue` probe also checks 44 physical packets, every held bitmap
+word and all queued message values. `test:keyboard` verifies those outputs,
+reset, explicit device effects, allocation-failure recovery, bounded transport,
+index wrap and 10,000 concurrent whole-packet publications.
+
+The compiler's reserved WASM atomic intrinsics include
+`__a_load{8,16,32,64}(address)` and
+`__a_store{8,16,32,64}(address,value)`, alongside the existing RMW operations.
+Loads return an I64 bit pattern; narrow loads zero-extend. Stores truncate to
+their width and return U0. These are native WASM seq-cst atomic instructions,
+with no host imports or read-modify-write polling; naturally aligned addresses
+are required, and invalid alignment/bounds trap. These names are compiler
+extensions, not stock TempleOS APIs. `test:intrinsics` checks all widths and
+5,000 publication handshakes between two actual shared-memory WASM workers.
+
+`npm run test:heap` checks allocation lifetime, splitting/coalescing, cleared
+reuse, failed growth, full-memory restoration, legacy restoration and four
+workers allocating/freeing the same growing shared memory.
+
+## Device contexts and drawing
+
+The runtime now uses the 408-byte V5.03 `CDC` layout and native HolyC algorithms
+for bitmap allocation, aliases, pens, matrices, depth buffers, pixel reads
+and writes, filled polygons, bitmap blits, thick/transformed lines and curves,
+circle outlines, flood fills and glyphs.
+Aliases own their context/matrix and borrow the source bitmap and depth buffer.
+Replacing an alias depth buffer gives it its own allocation. Alias deletion
+keeps borrowed buffers alive; this corrects a native V5.03 double-free hazard. The QEMU-backed
+`Graphics` fixture checks colors, raster operations, both dithers, clipping,
+fonts, extent tracking and depth behavior against the original OS. `MemCmp`
+compares unsigned bytes and returns -1, 0 or 1, including equal empty ranges.
+
+`GrBorder` takes two endpoint coordinates, not a width and height. `GrCircle`
+draws an outline. `DCFill` defaults to `TRANSPARENT`. These native semantics can
+expose assumptions in programs written for the previous browser approximations.
+The drawing runtime is still a single-window host; window occlusion and the
+native window-manager lifecycle remain unsupported. Native `GrFloodFill` and
+`GrFloodFill3` use the original iterative scanline algorithm, including its
+28 MiB scratch allocation. The scratch is freed after each fill and reused on
+subsequent fills. The `Flood` fixture compares 512 combinations of depth,
+clipping, transforms, symmetry, dithering and draw suppression with QEMU.
+
+Update compiler and host together for the new `__gr_update` bitmap import.
+The graphics adapter should expose its byte index buffer as `gfx.indices` for
+efficient, exact row updates, including transparent bytes. `Refresh` also
+publishes direct screen-bitmap writes. Older compiled modules can still use the
+retained legacy host drawing imports. The allocator ABI remains 1.
+
+`npm run test:graphics` checks 1,000 context lifetimes, 100 repeated flood fills,
+offscreen isolation and immediate bitmap/display agreement. With a TempleOS-Web checkout and its Playwright
+dependency installed, `TEMPLEOS_WEB=/path/to/TempleOS-Web npm run
+test:browser-games` launches HolyCraft, Babel, Volley and Snake in Chromium with
+this checkout's compiler/runtime, checks advancing rendered frames, and saves
+screenshots in `tests/.oracle/browser-games/`. Keyboard events are sent, but a
+changing animation does not prove they were accepted. This checks rendering
+and liveness; behavioral input and complete gameplay need separate tests.
+
+
+Runtime linkage checks every function body before removing unreachable code.
+Strict errors in an unused function still reject the program. Main, explicit
+`exports`, user global initializers, and referenced callbacks are roots;
+ordinary calls, global references, and runtime initialization hooks supply the
+dependencies. The prelude owns its hook metadata: task initialization always
+runs; graphics initialization runs when reachable code needs its globals.
+Unused imports and literal/constant data segments are omitted as well.
+
+`npm run test:link` covers omission of an unavailable host import, retained
+callback imports, strict errors in unused bodies, user initializer side effects
+and ordering, repeated initialization, graphics dependencies, and function index
+relocation across LEB128 widths. Literal storage is assigned after reachability,
+so an omitted literal leaves neither bytes nor address-space padding. The tests
+add large unused literals before/after live code and require identical live
+addresses, dataEnd and binaries; binary DolDoc records have the same check.
+Distinct source literals retain distinct mutable storage. Address operands,
+function calls and task stack guards relocate correctly in all six pass orders.
+
+Named WASM exports remain stable, but numeric WASM function indices and static
+addresses are private to a compiled artifact. HolyC callback values remain table
+slots. Global storage reservations, including omitted prelude globals, remain
+unchanged; only literals are deferred. Fixed memory/stack/heap boundaries and
+existing saved modules retain their contracts. Parsing/type-checking still runs
+on unused bodies; this is not lazy validation or a full static-data compactor.
+
+Native layout queries accept class or variable names: `sizeof(CDC.palette)`,
+`offset(CDC.body)`, and the equivalent bare offset `CDC.body`. Nested members,
+array widths and pointer type widths are constants, including in array
+bounds and constant initializers. They do not evaluate an object. As in V5.03,
+`offset(ptr.member)` and C-style `sizeof(value+1)` are invalid. Local variables
+and parameters can shadow the `offset` and `sizeof` keywords. Native machine
+code size queries for functions are not implemented.
+
+`gr-math.js` holds the original V5.03 graphics math, including fixed-point
+matrices, 2D/3D symmetry, reflection, ellipse/polygon tracing and quadratic/cubic
+Bézier and B-spline callbacks. `GraphicsMath.HC` compares matrix values, point
+sequences, callback cancellation and degenerate symmetry behavior with the
+original compiler in QEMU. The drawing primitives and sprite renderer share
+this math.
+
+Character constants are limited to eight decoded bytes, as in V5.03. Escapes
+and doubled DolDoc dollars count as their resulting byte, including zero bytes;
+the source spelling can be longer than eight characters. Oversized constants
+now fail lexing instead of silently losing high bytes during 64-bit emission.
+CharBytes and four native rejection fixtures cover eight/nine-byte boundaries,
+embedded zeros, escaped/doubled dollars and raw CP437 high bytes.
+
+Source string/character escapes also use native byte rules: `\0`, escaped quotes,
+backtick, backslash, `\d`, `\n`, `\r`, `\t`, and at most two hex digits after
+`\x`/`\X`. There are no C octal escapes; `\012` means zero followed by `1` and `2`.
+Unknown escapes preserve the backslash and the following byte, so `\a` is two
+bytes, not BEL. EscapeBytes and EscapeWide record accepted bytes and the native
+eight-byte rejection after this expansion.
+
+The native numeric lexer permits an empty exponent (`1e` or `1e-` means 1.0)
+and consumes only a minus sign there. Consequently `1e+2` is the expression
+1.0 + 2, while `1e2` is 100.0. `FloatBoundary` records these token boundaries
+against V5.03 alongside the existing 623 floating-literal bit comparisons.
+
+`gr-primitives.js` uses the original `GrBlot3` bitmap transform and depth-buffer
+algorithm, plus native 2D ellipse/polygon/Bézier/B-spline wrappers and
+`GrPutChar3`. Bitmap brushes now work with a depth buffer. `Bitmap3.HC` compares
+128 combinations of transform, symmetry, mirror selection, depth, draw
+suppression and four raster operations against V5.03 in QEMU. It checks exact
+bitmap/depth hashes, extents, collision counts and restored context state.
+
+Integer token boundaries also follow V5.03: any initial decimal digit can
+precede `x`/`b`, and that digit starts the accumulator (`1xA` is 26, `2b101`
+is 21). Empty suffixes are allowed; integer accumulation wraps to 64 bits.
+Underscores begin separate identifiers, not digit separators. The eight native
+fixtures for these boundaries also cover `reg`/`noreg` as global, static-local
+and member names, while keeping their automatic-local qualifier behavior.
+Global variable redeclarations have distinct storage. Earlier functions,
+initializers, layout queries and captured defaults retain their original
+binding, including across includes. Each `extern` creates a forward binding;
+its next definition supplies the address, while earlier references retain the
+extern's declared load type. A superseded unresolved extern has address zero;
+reading that address is not a portable initialized value. The returned globals
+map exposes the latest declaration. Runtime device hooks retain their prelude
+bindings even when user code reuses names such as `gr`, `kbd` or `text`.
+The native `Global*` fixtures and `test:global-binding` cover these boundaries,
+including a global used before a later same-named local declaration. Function
+and class redefinition semantics remain separate compatibility work.
+
+The live V5.03 `sys_font_std` and `sys_font_cyrillic` symbols are exported
+address values, backed here by the original font bytes. They are not array
+variables: use an explicit pointer cast to index glyphs. Address-of keeps the
+same value and arithmetic has byte stride; assignment, postfix increment and
+`sizeof` are invalid. Native prefix increment/decrement on a bare exported
+address are accepted but leave its value unchanged. Earlier declarations keep
+their binding when a user shadows either name. The returned globals map marks
+these entries `kind:"exportedAddress"`; their `addr` is the symbol value, not a
+mutable pointer cell. `test:font-address` checks native output and rejection
+fixtures with and without address folding. Strict compilation also rejects
+indexing ordinary integer values without a pointer cast.
+
+Argument defaults capture their values once at their declaration, as V5.03
+compilation does. Nonconstant defaults, including function calls and callback
+types, use private cells in WASM memory; calls read the captured value. The
+native `DefaultOrder` fixture checks effects, floating conversion, member/local
+callbacks, later global initializers and declaration-scope name resolution.
+
+`__rt_init` initializes the declaration-only prefix once, making exported
+libraries ready without calling `__main`. The latter executes top-level
+statements and intervening declaration initializers in source order. Hosts
+must call `__main` for a source file with executable top-level code. Repeated
+initialization does not repeat captured defaults. This preserves observable
+execution order; the JavaScript compiler does not execute arbitrary HolyC code
+during compilation, so dynamic source generation and runtime-defined array
+bounds still need further work.
+
+Native `GrHLine`/`GrVLine` now preserve depth interpolation, clipping, dither,
+collision counts, extent recording and nearest-point behavior. `GrPlot3B`
+provides transformed/symmetric points without pen thickness. `Span.HC` checks
+256 span combinations and transformed points against original V5.03 in QEMU;
+the host display test verifies immediate bitmap/display agreement for depth
+spans. The task adapter includes the native `scroll_z` field for this path.
+
+The original 64 pen sizes (normal, collision, even and odd brushes), circle
+limits, thick 3D points/lines, transformed curves and native `GrBorder` are now
+available. `Pen.HC` checks every brush bitmap and limit table; `Thick.HC` checks
+1,040 native outputs across thickness 0–65, raster operations, depth, transforms,
+symmetry, mirror selection, curves and borders. Runtime initializer metadata
+tracks referenced global fields, so programs that use only unrelated graphics
+fields do not allocate these tables. Taking the address of the whole graphics
+object conservatively retains all its field dependencies.
+
+`GrFillTri0`, convex `GrFillPoly3`, `GrRect3` and endpoint-based `GrRectB` use
+the original native algorithms. `Polygon.HC` compares 512 clipped/degenerate
+triangle cases, 64 transformed polygon/rectangle cases and a reversed rectangle
+with V5.03, including depth, raster operations, dithering and window offsets.
+The 2D primitive functions now live with the 3D primitives in
+`gr-primitives.js`; bitmap and device-context operations stay in `gr-prelude.js`.
+
+## Native formatting
+
+`StrPrintJoin`, `StrPrint`, `MStrPrint`, `CatPrint`, callable `Print`, `GrPrint`
+and `GrPrint3` use the original V5.03 numeric, string, character, quoting and
+list-format algorithms. They include the native Pow10I64 table. `%n` means
+engineering notation. `%c` accepts a packed character word. `MSize` reports
+available allocation capacity; heap alignment/capacity need not match x86.
+
+File/document `%F`, date/time `%D`/`%T`, Define-table `%S`/`%Z` and symbol `%p`/`%P`
+formats raise `FmtHost`, since their OS services are unavailable. They do not
+produce placeholders. Temporary formatting buffers are freed on allocation,
+format and drawing errors. New compiled formatters need the `__msize` host
+import; old embedded snapshots keep working with heap ABI 0 or 1 as before.
+Output shortcuts accept expressions as native TempleOS does: `'A'+1;` calls
+PutChars with the resulting value, `'' value;` selects a dynamic packed-character
+expression, and `"" format,args;` selects a dynamic format expression. A zero-valued
+character or string whose first byte is zero selects the following expression;
+a marker with no expression is a compile error. Older permissive output no-ops
+for `'';` and `"";` are intentionally rejected. The native OutputExpr fixture
+checks values, format-pointer arithmetic and exactly-once side effects.
+
+String-literal Print shortcuts and callable Print share this implementation,
+including argument bit patterns and calls with more than 64 extra arguments.
+The new `__puts` host import presents already-formatted DolDoc text through the
+terminal adapter; it preserves the existing color option without interpreting
+format specifiers again. This adapter is not a full DolDoc document renderer.
+The old `__printf` import remains for embedded snapshots, but new modules never
+use it. Without the prelude, printing requires an explicit Print declaration.
+
+`Format` compares 220 output records with original QEMU, using identical F64
+input bits, including 64 random large values. `Text` compares 64 formatted
+bitmap/extent records. `test:format` fails each of 20 internal allocations and
+checks recovery, zero leaks and explicit OS-format errors.
+`tests/probes/FloatIntermediate.HC` retains a known separate arithmetic gap:
+V5.03 keeps some x87 intermediates wider than F64; general F64 expression
+evaluation still narrows intermediate results in WASM. Five of its 64 `(Rand-0.5)*1e12` results differ by one ULP before
+formatting. The runtime does not claim full extended-precision parity.
+
+Anonymous unions inside classes preserve native packed offsets and expose their
+members through the enclosing class. A nested anonymous union begins at the
+enclosing union's current maximum size; subsequent ordinary members still
+overlay its original base. This is measured V5.03 behavior, not C union layout.
+`AnonymousUnion` verifies nested groups, inheritance, scalar overlays and writes.
+`SpriteLayout` checks the native sprite and mesh records, including CSprite's
+45-byte size and embedded payload offsets. The sprite renderer reads these
+native packed records directly.
+
+`GrArrow3`, `GrTextBox3`, `GrTextDiamond3` and `Gr3Mesh` use the native drawing
+algorithms, including transforms, symmetry, depth and lighting callbacks.
+`Composites` compares 384 drawing cases with original QEMU. Temporary strings,
+vertices and reflected meshes are released after allocation or callback errors;
+the failure gate verifies six allocation sites and state restoration on retry.
+`StrUtil`, `Spaces2Tabs` and `BFieldExtU32` supply the renderer's remaining string
+and bit-field operations. `StringUtil` checks all 2,048 flag combinations,
+128 in-place/out-of-place tab conversions and 4,224 unaligned bit-field reads.
+`StrOcc`, `StrFirstOcc`/`StrLastOcc`, `StrFirstRem`/`StrLastRem`, `Tabs2Spaces`,
+`ScaleIndent` and `MStrUtil` supply the shared path/text transformations.
+Markers are sets of bytes, removal consumes the native first/last segment,
+and tab expansion counts columns through newlines as V5.03 does. `PathString`
+compares 48 separator combinations, 12,288 flag/scaling transformations, 257
+long tab/newline strings and 390 indentation cases against original QEMU.
+`test:path-string` fails every temporary allocation and verifies cleanup,
+unchanged source bytes and successful retry. These are string operations;
+filesystem existence and directory context remain separate requirements.
+The bit-field API, like its native assembly counterpart, reads an unaligned U64;
+callers must provide that accessible storage even for smaller requested fields.
+
+`MyCore` is a host-runtime extension returning the WASM instance's configured
+core index. Bare and explicit calls agree, and a source-defined function of that
+name takes normal precedence. It is not a stock TempleOS symbol: native code
+uses `Gs->num` or an explicit host adapter. `CoreOverride` checks native user
+function semantics; `test:core` checks four configured host core IDs. The
+unresolved native probe remains in `tests/probes/HostCoreBare.HC` as evidence of
+that API boundary.
+
+Sprite3 supports all 29 drawing/control element types, single-element mode,
+transformed wrappers, extents, Sprite2DC and DC2Sprite. Sprite compares 1,920
+native drawing cases plus element sizes, type masks, bitmap conversion and
+context state. SpriteDocument exercises the embedded Rocket bitmap asset in
+32 more cases. These APIs expect valid native sprite streams and caller-owned
+storage; they are not bounded decoders for untrusted uploads. Unknown element
+types throw Graphics instead of allowing a non-advancing walk.
+
+`test:sprite` fails 52 allocation positions and exercises nested transform and
+lighting exceptions, spline cancellation/throws, aliases and retries. Context
+creation and transformed curves release their allocations on errors; sprite
+wrappers restore the caller's drawing state after a failed draw. These cleanup
+corrections improve failure behavior relative to the original native routines.
+
+Direct conversion of an F64-by-F64 product to an integer now preserves x87's
+64-bit significand rounding before truncation. The helper is pure HolyC over
+integer limbs and is linked only when used, including without the prelude.
+`FloatProduct` compares 1,380 input pairs through local/global stores, return
+values and arguments with QEMU, including invalid values and boundary cases.
+It also checks that an explicit intermediate F64 variable still rounds to F64.
+This fixes a measured one-pixel planar-symmetry difference; it does not establish
+full x87 expression precision, altered control-word behavior, or mixed
+integer/F64 extended-precision arithmetic.
+
+### Raw graphics output
+
+`RawPutChar` and the native 88-byte `CTextGlbls text` record provide the stock
+640x480 graphics-mode raw character path. Both original fonts are present;
+filtering, tabs, backspace, newline, wrapping and scrolling match the measured
+V5.03 cache and all four VGA planes. `text` initialization is selected by
+reachability and runs before user initializers. Its cache belongs to the session,
+so child exit does not invalidate it; disposing the task host frees it.
+
+The explicit `__gr_update_mono` import requires an indexed graphics device.
+Missing devices fail at module instantiation. Updates validate the complete
+source/destination range before changing pixels. Text-mode VGA and physical VGA
+aliases are not supplied; those alias fields remain null. Invalid glyph positions
+outside the fixed screen throw instead of reproducing native out-of-bounds writes.
+This API does not provide `Raw`, `RawPrint`, a window manager or a DolDoc terminal,
+and ordinary console transport remains unchanged.
+
+`npm run test:raw` checks original source-hashed character/font/VGA evidence,
+literal device pixels and clipping, rejected-range nonmutation, memory growth,
+child/session lifetime, failed initialization and fresh-instance recovery.
+
+### Session directories and byte volumes
+
+The native directory records and `DirCur`, `DirNameAbs`, `Cd`, `Drv`,
+`Let2Drv`, `Drv2Let`, `Let2Let`, `HomeSet`, `DirContextNew/Del`, `IsDir`,
+`DirMk`, `FileNameChk` and `AStrNew` are available. The bounded backend is
+explicitly `FSt_HOST`/`BDT_HOST`, not a simulated FAT32 or RedSea disk. Paths
+use exact byte names and case-sensitive lookup. Native path rules include
+relative same-drive changes, home/boot aliases, repeated-slash root resets
+and retaining the last valid prefix after a failed `Cd`. Filename checks
+cover all 256 byte values and the native length limit.
+
+A module reaching directory state receives virtual `B:/`, `C:/`, `C:/Home`
+and `C:/Tmp`; the root starts at `C:/Home`. `createHost` and `createTaskHost`
+accept `files: [{path, bytes}, {path, directory: true}]` for startup seeding.
+`path` is a Uint8Array or a byte-valued string; callers must encode Unicode
+filenames to CP437 explicitly. `bytes` is a Uint8Array. The bridge performs
+no path normalization; the native backend validates absolute paths and
+rejects aliases such as `..` in seeds. `host.files()` returns copied exact
+path/data bytes and directory flags, including directories created by HolyC.
+Seed options alone do not activate the volume in an otherwise unrelated
+module. After failed startup, `state.filesystemError` may contain a bridge
+validation error; the original HolyC exception remains observable.
+
+Limits are 4,096 total nodes, 64 MiB of file data/startup seed bytes and
+4,096 bytes per absolute path, including paths composed across relative
+changes. Allocation can fail before those limits. Failed startup releases
+the partial volume and poisons that instance; construct a fresh instance
+to retry. Context-construction failures restore saved directory state
+without allocating. Runtime mutations are not general transactions.
+Directory diagnostics currently use the console transport; native DolDoc
+error decoration and physical block operations remain unsupported. Nonzero
+DirMk entry preallocation rejects explicitly. Compressed files, resident-file
+hash caching, registry, directory listing and open/block-file APIs remain
+separate work.
+
+`FileNameAbs`, `FileExtDot/Rem`, `ExtChg/Dft`, `IsDotZ/C`, `FileAttr`,
+`ToggleZorNotZ`, `FileFind`, `FileRead` and `FileWrite` now operate on this
+volume. Filename helpers enforce the length of their result. Lookup preserves
+native original/alternate-name ordering and optional parent search, including
+4095/4096-byte paths. `FileFind`'s caller owns `full_name`; `FileRead` returns
+a caller-owned, NUL-terminated byte copy with native block-rounded capacity.
+Exact heap allocation spans still differ from V5.03. Written bytes belong to
+the session and survive child exit. Replacement reserves/copies new data
+before releasing old data, and failure restores directory/exception state.
+
+`FileWrite` returns an opaque virtual node token on success, zero on refusal;
+its token and `CDirEntry.clus` are not physical block addresses. Ordinary file
+attributes and explicit CDate timestamps persist.
+Runtime-created directories receive `Now`; seeded entries have timestamp zero
+because the byte bridge supplies no historical timestamp. Directory sizes are
+zero in this volume, which stores no physical directory-block image.
+Negative uncompressed write sizes become zero as in native TempleOS.
+Compression (`FsArc`), resident-file
+caching (`FsRes`) and unsupported physical/directory attributes (`FsAttr`)
+reject before creating parent directories. Supported writes retain native
+`make_dirs` behavior: a later allocation failure can leave newly created parent
+directories, while replacement file data remains intact. Existing directories
+cannot be overwritten as ordinary files. Missing files return NULL with zero
+size/attributes; this backend does not silently treat a compressed file as raw
+uncompressed content. The byte seed/export bridge carries file bytes and names;
+full-memory snapshots also retain attributes and dates.
+
+`YearStartDate`, `Struct2Date`, `CDateStruct` and `Now` use native calendar
+arithmetic. The separate `__date_utc` device reports one UTC calendar sample
+from `dateMs` (default `Date.now`), with whole-second precision and years
+0..65535. `Now` subtracts `local_time_offset` once; the virtual device defaults
+that offset to zero and does not apply the browser's local timezone. Monotonic
+`timeMs` remains independent. Device failures raise HolyC `Clock`, preserving
+cleanup; `state.clockError` retains the cause. New clock/file-write modules
+need the paired host import; old embedded modules keep their existing imports.
+
+Volume nodes/data belong to the session. A spawned child starts at the
+configured home directory, as stock TaskInit does, with its own current
+directory allocated after task registration. Child teardown frees that
+copy; session disposal frees the volume and rejects later enumeration.
+Directory state and nodes live entirely in WASM memory, so full-memory
+restore needs no hidden JavaScript path index. New volume modules require
+heap ABI 1; legacy bump-heap restore mode rejects their seed import before
+initialization, while old saved modules retain their original behavior. Cooperative task continuation
+snapshots remain unsupported. Modules using only directory APIs do not
+require JSPI; unused filesystem code/imports remain unlinked.
+
+`test:files` verifies original QEMU directory layouts/path/context/mkdir/name
+and child-start behavior, exact binary seed/export, memory restore, all
+startup allocation failures, operation/child-constructor failures, quotas
+and composed-path bounds. File probes add native data/lookup/metadata/error
+state, 144 calendar dates and final-length boundaries. Failure injection
+checks read/write ownership, unchanged replacement data and retry. The browser
+gate also runs native child file writes/reads twice, exports their bytes during
+GetKey suspension and verifies disposal releases all owned allocations.
+
+
+### Scoped KeyDev/raw output profile
+
+`compileHolyC(source,{runtimeProfile:'keydev'})` selects native `PutKey`/`PutS`
+chaining, `KeyDevAdd`/`KeyDevRem`, raw/input-filter handlers, `Raw`/`IsRaw`,
+`VGAFlush`, `Busy` and `RawPrint`. The default `console` profile remains a direct
+host text transport and does not acquire task or raw-screen dependencies. Unknown
+profile names, including the former private prototype name `terminal`, fail.
+Functions and initializers remain selected by actual reachability.
+
+The KeyDev queue uses the measured stock zero-priority sentinel and native
+positive-priority insertion/replacement algorithm. Zero and negative user
+priorities throw `KeyPrior` before allocation: native zero collides with the
+sentinel and negative priorities cannot precede it safely. This explicit host
+rejection does not reproduce those invalid native queue operations. The host initializes
+input filtering at `0x40000000`, raw output at `0x60000000`, and an explicit host
+text fallback at `0x7FFFFFFF`. That fallback is not DolDoc. There is no window
+manager, Ctrl-Alt callback registry or graphical terminal in this profile.
+`VGAFlush` sets the native semaphore; no window manager currently consumes it to
+restore a document after raw output. Leaving raw mode therefore does not promise
+a native window repaint.
+
+Reachable KeyDev printing requires the JSPI task/keyboard interface and the real
+packed-screen device (`gfx.indices`); missing continuation or display support
+fails before initialization. Raw output still uses the native packed cache and
+standard-font byte semantics documented above. Session-owned handlers and raw
+storage survive child task exit and are released by task-host disposal.
+
+`PutKey`/`PutS` honor Silent and focused ScrollLock. The scroll wait yields until
+another task or input device releases the lock; unfocused output does not wait.
+With ScrollLock off and the standard handlers, `RawPrint` formats, publishes raw
+pixels and busy-waits without scheduling another cooperative task. Custom output
+handlers can yield, and the ScrollLock path does yield. This is not CPU CLI,
+interrupt masking, SMP exclusion or general non-yielding output equivalence.
+Raw diagnostics retain native loosely timed `mS<<10` microseconds, not a precise
+millisecond deadline.
+
+`Busy` reads `__time_ms_checked`, a checked view of the host `timeMs` device.
+Thrown callbacks and nonfinite/non-number samples become a native `Clock`
+exception (`host.state.timerError` retains the host error); a backwards sample
+within a wait also throws `Clock`. A successful sample clears that host error.
+The device must advance monotonically while waiting; a frozen device cannot
+complete a busy wait. Existing `__time_ms` and the independent `__date_utc` import
+keep their prior contracts. New modules using `Busy` need the paired checked-time
+host; old modules and saved HEMU sessions keep their original imports.
+
+`RawPrint` restores raw/input-filter flags and frees its buffer when a HolyC
+exception escapes output or the clock. `Print` also frees its intermediate format
+buffer if a native KeyDev callback throws. These cleanup guarantees cover native
+exceptions, not arbitrary JavaScript exceptions thrown by custom graphics/text
+adapters. Failed runtime initialization remains poisoned, and disposing its task
+host releases partially initialized session allocations. DocEntry allocation
+failure behavior is not covered or promoted by this profile.
+
+`npm run test:keydev` checks seven original V5.03 QEMU fixtures, four repeated
+lifetimes each, startup capability/device rejection, allocation failure and
+callback/timer cleanup. `node tests/keydev-oracle.mjs` reruns native evidence;
+`--record` records it. Each proof binds fixture bytes, the exact native and WASM
+wrappers, native capture source and output hashes. Native raw-cache probes use a
+recorded test-only CLI wrapper to protect their temporary shared VGA/cache state;
+this wrapper is deliberately absent from the cooperative WASM run. Stock queue
+initialization and ScrollLock fixtures use the same wrapper on both backends.
+
+### Native hash records and task-owned tables
+
+`CHash`, `CHashTable`, `CHashGeneric`, `CHashSrcSym`, `CHashExport` and
+`CHashDefineStr` use measured V5.03 layouts. HashStr preserves the native shift,
+carry and final ADC arithmetic, including high-byte strings. HashBucketFind,
+HashAdd/After, HashSingleTableFind, HashFind, HashTypeNum, HashTableNew and
+HashLstAdd preserve native masks, insertion order, instance numbering, U32
+use-count wrap and `@` aliases. Constructors clean up detached allocations on
+failure; previously published list entries remain caller-owned. Valid table
+allocation sizes and valid native node/pointer layouts remain caller obligations.
+The operations do not yield in the cooperative backend; physical CLI state and
+concurrent shared-table synchronization are not implemented.
+
+HashDel reproduces the supported native ownership branches. Dictionary names
+are borrowed; file entries own `user_data0`. Export/define/help entries own their
+common source strings and import/export list nodes. Export entries also own
+`dbg_info`, and define entries own `data`; `sub_idx` is not freed. Import-symbol
+entries are deliberately not treated as source-owned merely because their
+native type inherits CHashSrcSym: the original HTG_SRC_SYM mask excludes them.
+Mixed type bits follow the native branch order, not a class-hierarchy guess.
+Class/function member graphs and global-variable graphs requiring compiler
+metadata throw `HashType` before any field is freed. A define/global mixed type
+uses the native earlier define branch. LinkedLstDel releases list nodes only.
+
+HashTableDel deletes one table and its entries, retaining its borrowed `next`
+ancestor. It preflights unsupported compiler graphs before deleting any entry.
+HashRemDel searches the specified table and instance, compares the resulting
+pointer, then unlinks/deletes only an exact match. The lookup increments the
+found entry's use count even if that pointer is different and removal fails.
+Its mask is native `type & ~HTG_FLAGS_MASK`; HTF_PRIVATE is outside that flags
+mask. An unsupported exact match raises HashType before unlinking, while retaining
+that native lookup side effect.
+
+HashGenericAdd creates a generic task-owned entry. Compiler/source record types
+requiring a larger structure are rejected before allocation. Generic payload
+ownership transfers on publication: a file payload remains the caller's if
+allocation fails. Dictionary strings remain caller-owned on deletion, including
+those duplicated by HashGenericAdd, following the native dictionary rule.
+
+Access to `CTask.hash_table` or APIs using it lazily initializes a 1024-bucket
+root table before user initializers. Spawn initializes each child's own table
+only after registering that task with the ownership backend; its `next` points
+to the parent's table. Constructor failure unwinds the registered child and its
+owned allocations. Child exit releases its own heap and preserves ancestor
+storage; session disposal releases the root table. HashStr or explicit local
+table utilities alone do not initialize task tables. The root table starts empty:
+this is runtime storage for program-managed entries, not the live TempleOS
+compiler's populated symbol table. Runtime compiler symbols, reflection, class
+member ownership and full compiler bootstrap remain unsupported. Runtime
+define loading and document metadata startup are described below.
+
+`npm run test:hash` checks 5,690 native hash decisions, native ownership branches,
+exact removal/ancestor behavior, repeated task lifetimes, 27 allocation failure
+sites, unsupported-graph nonmutation and initialization failure disposal.
+`node tests/hash-oracle.mjs` repeats the original QEMU cases (`--record` updates
+records). Proofs bind source, native/WASM prefixes, capture code, output and the
+V5.03 asset manifest. The ownership probe uses an explicit test-only observer:
+native `Fs->data_heap->used_u8s` versus the host's actual live allocation spans.
+It compares relative ownership changes, not native/host allocator header sizes,
+and does not supply a fabricated native CHeapCtrl API. The browser task gate
+checks foreign-task allocation, inherited lookup, shadowing, child exit and root
+session disposal with the same original-native fixture.
+
+### Document entry ownership and insertion
+
+The explicit `keydev` profile provides DocBinFindNum/Tag/Del, IsEditableText,
+DocEntryDel/Size/Copy, DocUndoDel, DocEntryNewTag, DocRemSoftNewLines and
+DocInsEntry. It uses native CDoc/entry/bin layouts and real RawPrint diagnostics.
+These utilities operate on correctly initialized, caller-owned document queues;
+they do not construct or render a document. The metadata initializer and flag
+parser, finite output and native CL-based clearing are described below. DocNew,
+full DolDoc output and the window manager remain unsupported in this profile.
+The inherited default-console `DocClear()` no-op is a **legacy compatibility
+gap**, not native support; KeyDev uses the real command path instead.
+
+The entry API source is selected with KeyDev because its deletion/error paths
+require that real output chain. The strict compiler checks all defined bodies
+before linking, so an undefined RawPrint declaration cannot be hidden in an
+unused function. Within the profile, normal reachability still controls devices:
+a pure IsEditableText program needs neither continuations nor a raw framebuffer;
+a program reaching deletion/copy diagnostics requires the complete KeyDev device
+and continuation contract before it runs. The default console profile is unchanged.
+
+Copying allocates each field using `doc->mem_task`. The partial copy records only
+successfully acquired ownership. A pending bin remains detached, and consumes no
+bin ID, until every allocation succeeds. Failure releases owned intermediates
+without freeing borrowed source fields or changing destination queues/IDs.
+Insertion allocates a pending text split before mutating the input entry or old
+text, and releases only the lock acquired by that call. Successful native fields,
+queue order, settings and cursor behavior are preserved. Allocation-failure
+rollback is an intentional improvement over stock V5.03's partial-copy leaks.
+
+A copied bin retains the stock `use_cnt`, even when it exceeds one. A source
+count of two creates a distinct clone with count two; deleting its sole copied
+entry leaves the clone queued at count one. This native-compatible behavior is
+explicitly tested as `SharedCopy:2:1:1`, with the remaining reference deliberately
+released afterward. No claim is made that deleting one entry frees every cloned
+bin. Callers must honor the native flags, pointer layouts and ownership rules.
+DocEntrySize sums the backend's actual MSize2 allocation spans and excludes bin
+storage, as native does. Its byte result can differ from V5.03 because this
+runtime's heap header/alignment differs; exact native allocator-size parity is
+not claimed. MAllocIdent likewise copies the source allocation's usable bytes.
+
+`npm run test:doc-entry` checks 512 copy-field combinations, 2,592 insertion/
+soft-line/lock cases, shared-bin counts and foreign-task lifetime against original
+QEMU results. Proofs bind the fixture, helper prefix, complete ported source,
+constants, capture, original asset manifest and outputs; each native gate runs
+stock and renamed ported functions separately. The host gates cover 3,968 copy
+allocation failures, four split failures, 14 foreign-mem_task failures, immediate
+retry, real raw diagnostics, original-source preservation and task/session cleanup.
+`node tests/doc-entry-oracle.mjs` repeats native evidence; `--record` updates it.
+The Chromium task gate also runs the native foreign-task fixture twice and checks
+stable allocation lifetimes and complete disposal.
+
+### Runtime defines and string lists
+
+DefineLoad, DefineLstLoad, Define/Sub/Cnt/Match/Print, UndefinedDefine and
+HashDefineLstAdd operate on program-owned task hash entries. LstMatch follows
+native prefix, ambiguity, alias, case and exact-match behavior. Repeated loads
+publish a new entry; they do not overwrite or free an older binding. Child tables
+inherit parent lookups and own their new entries. List expansion allocates on the
+calling task's heap, regardless of which task owns the destination table.
+
+DefineLstLoad copies the complete list into `data`, but its `sub_idx` points into
+the caller's **original buffer**, exactly as native V5.03 does. DefineSub therefore
+observes later mutations of that buffer, whereas Define/DefineMatch and hash-list
+expansion use the independent copied data. The caller must keep the original
+buffer alive. HashDel/HashRemDel retain the native rule that `sub_idx` is not freed;
+explicit entry teardown must separately release that index allocation. Task exit
+still releases all allocations owned by that task. Empty/alias-only lists retain
+the native count and allocation behavior. Constructor failures release detached
+fields/indexes before publication, preserving earlier bindings. DefinePrint also
+releases its formatting buffer when a load fails; partial HashDefineLstAdd output
+remains owned by its destination table/caller until explicitly deleted.
+
+The host loaders set `src_link=NULL`: native Caller return-address/debugger
+metadata is unavailable. They do not fabricate an `AD:` address. Native evidence
+separately checks that stock loaders produce a nonempty hexadecimal AD link and
+that the port deliberately leaves this field NULL; it excludes this diagnostic
+field from otherwise matching native behavior. Source navigation/debugger parity
+remains open. These tables contain no live compiler symbols and do not automatically
+load the kernel's SysDefinesLoad lists. Runtime DefineLoad cannot change compilation
+of the current source or turn a later unknown identifier into a compiled macro.
+
+`npm run test:define` verifies native loading, copied/borrowed data, shadowing,
+list expansion, errors and parent/child ownership over five lifetimes, plus 35
+allocation-failure/retry cases including formatting growth and child teardown.
+`node tests/define-oracle.mjs` repeats stock and renamed-ported native checks;
+`--record` updates source/wrapper/capture/output-bound evidence. The standard
+ListMatch fixture adds 16,769 native decisions, including aliases, ambiguous
+prefixes, exact/case flags and deterministic generated inputs. The browser task
+gate also runs the native define-child fixture and checks complete disposal.
+The remaining real DocInit/lexer/control dependencies are mapped in
+[docs/DocInit.md](../docs/DocInit.md), without substituting fixed document metadata.
+
+
+### Compiler-control buffer ownership
+
+CmpCtrlNew/Del/Size, LexFilePush/Pop and LexBackupLastChar/Push/PopRestore/
+PopNoRestore provide the native control records and finite byte-buffer ownership
+needed by the later lexer. CCmpCtrl, CLexFile, CLexHashTableContext, CCodeCtrl and
+their embedded records have measured V5.03 sizes and offsets. The two identifier
+bitmaps preserve all 512 native bits, including CCF_KEEP_AT_SIGN selection.
+These control APIs own streams; subsequent layers supply finite Lex and
+document metadata. Runtime compilation remains unavailable.
+
+A successful CmpCtrlNew owns its buffer unless CCF_DONT_FREE_BUF borrows it.
+A failed constructor leaves that input with the caller and releases its partial
+control, include record and filename. Only the outer buffer can be borrowed;
+nested buffers and each filename belong to their include records. Hash-context
+pointers borrow the current task's tables. Saved stream records also borrow their
+buffer/name pointers; deleting a save point frees only that record. LexPush stages
+allocation before changing the current stream, so allocation failure preserves
+its put-back state. Restoring across include boundaries remains invalid, as in
+native TempleOS. Saved `last_U16` really is a U8 field; its truncation is retained.
+
+CCF_PMT construction throws `LexMode` before allocation. LexFilePop, CmpCtrlDel
+and CmpCtrlSize reject document streams before releasing or changing ownership:
+real command-line and document lifetime devices remain absent. Empty save-point
+pops throw `LexState`. CmpCtrlSize counts the same fields as native, using actual
+backend MSize2 spans; it does not claim byte-identical native heap headers or
+count additional fields that the native size function omits. Filename resolution
+uses the documented virtual-volume contract.
+
+`npm run test:cmp-control` verifies 295,710 native layout/field/bitmap/save-state
+checks, parent/child ownership over repeated sessions and 38 host allocation
+failures with unchanged caller buffers, state, heap/stack and successful retries.
+`node tests/cmp-control-oracle.mjs` repeats original and renamed-ported native
+checks; `--record` updates source/type/wrapper/capture/output-bound evidence.
+The native harness declares the private exported LexFilePush/Pop functions with
+explicit extern prototypes; it does not replace their implementations. Actual
+Chromium task tests also verify child exit and complete session disposal.
+
+
+### Finite lexical byte streams
+
+LexGetChar, LexSkipEol and LexIncludeStr now handle NUL-terminated byte buffers,
+including nested input, one-character put-back, CH_CURSOR skipping,
+CH_SHIFT_SPACE conversion, line positions, saved state and selected-profile echo.
+LexIncludeStr adopts its nested input only after its record and name allocations
+succeed. Allocation failure retains the caller's buffer and the complete parent
+state; this rollback is a host improvement over native's mutation order.
+Interactive CCF_PMT and any document include record throw `LexMode` before reads,
+allocation or mutation. Source buffers must remain valid and NUL-terminated;
+this is the native pointer API, not a bounded untrusted-input parser.
+
+The complete CCmpGlbls, CIntermediateCode, CICArg, CICType and CICTreeLinks layouts
+are measured against V5.03. A fresh session explicitly zeroes `cmp`; its
+`compiled_lines` counter is shared across tasks. Native has already compiled its
+kernel/startup before a probe, so tests compare line-count changes, not the boot
+total. The six token/operator/register-map arrays and their count/mask fields
+are initialized when reachable, as described below. ASM tables, internal type
+graphs and live compiler/IR state remain unavailable. Their zero storage does
+not stand in for initialized graphs. CInit, CmpFillTables and runtime compilation
+remain absent; finite Lex and document metadata are described below. The printable and non-EOL bitmaps preserve all
+512 native bits. Console byte streams remain independent of task continuations;
+KeyDev echo deliberately uses the KeyDev profile and its real output chain.
+
+`npm run test:lex-stream` checks 101,953 native byte/state decisions, echo handler
+failure and recovery, task-shared line counts, five repeated lifetimes and final
+ownership release. Three host allocation failures cover nested input staging,
+with exact parent state, caller input, allocation count, stack and immediate
+retry checks. These are host failure tests, not native allocator injection.
+`node tests/lex-stream-oracle.mjs` repeats the original and renamed-port V5.03
+fixtures; `--record` updates source/type/library/global/wrapper/capture/output
+hashes. The echo exception uses native `throw(...,TRUE)` to keep Adam logging
+outside the fixture, and its temporary hook only handles its own task. Actual
+browser JSPI checks exercise the same echo recovery and child lifetime paths.
+
+### Compiler lookup tables
+
+The three dual-U16 token tables, binary-operator table and two register maps
+preserve the original CmpFillTables values and CCmpGlbls fields. Their six
+allocations belong to the session. The internal initializer stages every array
+and publishes pointers, masks and counts only after all allocations succeed;
+failure frees staged ownership and poisons that instance before user code runs.
+This is startup initialization, not the native boot routine or a refresh API.
+Public CmpFillTables and CInit remain undefined; calling native CmpFillTables
+again would allocate six replacements without releasing its old arrays.
+
+Counter-only access needs no table allocation. Field reads select their real
+initializer, while taking the aggregate or a subobject address, array decay,
+typed aliases and captured default pointers conservatively retain the table
+dependency. Audited reset-only initializer effects prevent the initial cmp
+clear from inventing a read of every field. Ordinary callers and dependencies
+of functions called by that reset retain their normal reachability rules. The
+effect requires a fixed prelude callee graph; actual externs resolved by user
+code, opaque host imports and indirect callbacks disable that assumption.
+
+`npm run test:cmp-tables` compares all 1,218 native table/map/count values,
+direct and escaped access, five lifetimes, child sharing and full disposal.
+Every one of the six allocation sites is denied in turn, checking no published
+partial state, user side effects or leaked allocations. A negative control
+without the reset effect demonstrates the needless counter-only allocation.
+`node tests/cmp-tables-oracle.mjs` repeats stock V5.03 tables and the staged
+initializer compiled by V5.03, with source/type/library/wrapper/capture/output
+hashes; `--record` refreshes that evidence. Allocation failures are host tests,
+not injected native failures. Native heap headers/spans and absent compiler
+graphs are outside this table-value and ownership proof.
+
+### Caller-owned member metadata
+
+MemberFind, MemberMetaFind, MemberMetaData, MemberClassBaseFind and MemberLstCmp
+operate on actual native records supplied by the caller. The complete layouts
+are present for CArrayDim (24 bytes), CMemberLstMeta (32), CMemberLst (144),
+CExternUsage (16), CHashClass (128) and CHashFun (168), including inherited fields
+and the native default/static-data union. MemberFind searches the member tree
+and base classes and increments only the matching member's U32 use count.
+Metadata results and class/member pointers remain borrowed.
+
+These queries allocate nothing and need no task backend. They do not create
+compiler symbols, populate task tables, build class/member graphs or own their
+records. MemberAdd, MemberLstNew, MemberLstDel, MemberLstSize, ClassMemberLstDel and
+CInit remain unavailable;
+HashDel still rejects compiler-owned class/function graphs before freeing fields.
+Callers must keep every referenced record and string alive throughout a query.
+
+`npm run test:member` checks 32,804 source-bound native layout/lookup/comparison
+decisions, including inherited and duplicate names, metadata, use-count wrapping,
+default flags, ignored flags and count/length boundaries. It verifies five
+lifetimes, allocation denial on the query path and parent-owned records shared
+with four child tasks, followed by complete session disposal. The browser task
+gate exercises the same borrowed-record lifetime. `node tests/member-oracle.mjs`
+repeats stock and renamed-port V5.03 behavior; `--record` refreshes the exact
+source/types/library/header/capture/output evidence. MemberLstCmp's private raw
+export is also measured by the function-export scan; MemberClassBaseFind already
+has a typed native header and must not be redeclared as an unresolved extern.
+
+### Finite string chunks
+
+`LexInStr(cc,buf,size,&done)` supplies the native string-chunk layer over these
+finite streams. A quote or EOF appends a zero byte and returns its count with
+`done=TRUE`. A full chunk returns at most `size-1` bytes with `done=FALSE` and
+does not add a terminator. Size zero or one makes no progress. Embedded
+escaped zeros are data, not completion. Unknown escapes retain their backslash
+and put the following character back; hex consumes at most two digits. Native
+`dollar_cnt` and nested-stream/put-back behavior persist across chunk calls.
+The caller owns valid output storage; decoding itself allocates nothing.
+
+`npm run test:lex-string` checks 1,135,763 original-native output/state decisions
+across every byte/escape introducer, small/full/partial chunks, dollar state,
+nested streams and saved characters, then verifies five lifetimes and decoding
+with all allocation attempts denied. `node tests/lex-string-oracle.mjs` repeats
+the source-bound stock and renamed-port proof. This is string chunk decoding,
+separate from the finite Lex layer below. The source JS lexer and native runtime
+tokenization remain separate implementations.
+
+
+### Queue vectors and lexical marker scans
+
+QueVectU8New/Put/Get/Del use the measured native CQueVectU8 record (552 bytes)
+and 512-byte blocks. The head stores the first block; sparse extension fills
+holes with zeros. Reads before min_idx or beyond total_cnt return zero, and
+writes below min_idx do nothing. Put allocates each new block in the calling
+task, matching native MAlloc ownership. A failed extension retains the valid
+zero-filled prefix already appended; retry continues from that state. As with
+native task heaps, shared vectors must not retain blocks owned by tasks that
+have exited. The child tests read the surviving parent's vector and keep all
+child-created blocks in the child's own lifetime.
+
+LexFirstRem returns an allocated NUL-terminated string through the next marker
+or EOF, including an allocated empty result. It leaves a found marker in the
+one-character put-back state and updates its optional length output only on
+success. Temporary queue blocks are released on success and on HolyC exceptions.
+Failure does not roll back source reads: an extension failure can occur after
+the current byte was consumed. The caller can continue from that position or
+restore an explicitly saved stream state. Output-buffer ownership transfers only
+when a result returns; marker/input strings remain borrowed. This cleanup is an
+intentional improvement over the original function's allocation-failure leak.
+
+`npm run test:que-vector` checks 1,543,765 original-native layout/index/queue
+choices and 142,298 marker/stream choices, nested input, task lifetimes and
+22 actual host allocation failures with retry, heap/stack and owner checks.
+The original cleanup-free function fails the same marker-allocation leak check.
+`node tests/que-vector-oracle.mjs` repeats source-bound original and renamed-port
+native proofs. Pure vectors need no session directory/hash allocation or task
+continuation capability. Actual Chromium tests verify the child ownership path.
+Native allocator-failure injection is not claimed; the fault tests use the real
+host allocator boundary. Full compiler-controlled Lex and compiler graphs remain
+absent; document metadata startup is described below.
+
+### Lexical output primitives
+
+LexPutToken emits the native token description through the selected console or
+KeyDev output chain. Its typed U32 char_bmp_displayable[16] matches KernelC.HH
+and the native bitmap values. LexPutLine emits a finite byte-buffer line through
+the same chain, ending at NUL, CR or LF. NULL produces no output; an empty string
+produces a newline. Neither operation mutates the compiler control or its input
+record. Document lines reject with LexMode before output; DocPutLine remains
+unavailable. Plain byte-line output requires neither allocation nor task
+continuations, while the explicitly selected KeyDev profile retains its real
+device and continuation requirements.
+
+LexPutLine's public native header returns U0 even though the original machine
+implementation leaves the next byte pointer in RAX. This runtime preserves the
+public U0 signature. Recovering that residual register by assigning a nominally
+void call or calling through a differently typed function pointer is not
+supported. The source-bound LexPutLineReturn probe records the native mismatch;
+it does not justify silently strengthening the public prototype.
+
+`npm run test:lex-report` checks 1,105 original-native token/line cases and
+55,245 output bytes, compiler/input nonmutation, both output profiles and five
+allocation lifetimes. Six real formatting-allocation failures and exceptions at
+all 66 output-byte callback positions preserve control/source state, release
+host formatting buffers and permit retry. Already-emitted bytes are not rolled
+back. These host failure/cleanup guarantees are separate from the original
+native valid-output proof. `node tests/lex-report-oracle.mjs` repeats the stock
+and renamed-port comparison with source/type/library/capture/output hashes.
+LexPutPos, LexExcept, LexWarn and full compiler-controlled Lex remain unavailable;
+native debugger, caller metadata, document output and Adam job dependencies
+must be supplied before those controllers can be implemented honestly.
+
+The compiler currently reserves storage for every declared global even when a
+prelude global is unused. This bitmap therefore adds 64 bytes to those program
+layouts and changes their address-dependent binaries. Unused literal/function
+elimination does not establish unused-global elimination. Consumer qualification
+must account for that layout change; no global-relocation change is bundled here.
+
+### Finite byte-token scanning
+
+Lex now scans the existing finite CCmpCtrl byte streams using native token,
+character-class and operator tables. It preserves native identifiers, caller-owned
+member/hash lookup, define-string expansion, integer bases, floating token syntax,
+strings and packed character constants, nested comments, byte classes, token
+flags, lookahead and input counters. This includes the actual default-token
+workload used by DocInit; it does not replace document initialization with fixed
+metadata. Runtime hash tables still contain no native compiler symbol graph.
+
+Interactive prompt and document streams are rejected before input mutation.
+Compiler directives without CCF_KEEP_SIGN_NUM raise LexCaps after consuming the
+marker, before loading files, evaluating expressions, changing definitions or
+calling debugger/Adam services. Native EOF behavior for unterminated strings and
+comments is preserved; it is not converted into invented syntax errors. LexExcept,
+LexWarn and LexPutPos remain unavailable.
+
+Malformed identifiers and character constants raise the native Compiler category
+and update error_cnt. The required __lex_error device copies bounded error data
+into host.state.lexError: category, reason, filename, line, byte offset, column,
+previous token and last token line. Numeric fields and the task address are BigInt;
+missing locations use -1. This is structured host diagnostics, not the native
+FixSet/source-link/error-window/debugger chain. createHost supplies the device;
+a custom host must provide it before instantiation. Optional onLexError observers
+must be synchronous. Their thrown errors or returned promises are recorded in
+host.state.lexDiagnosticError without bypassing HolyC exception cleanup. The
+session retains only the latest copied diagnostic, not pointers to freed controls.
+
+Token construction stages owned buffers before replacing cur_str. Allocation or
+HolyC echo-callback failure releases temporary string/define buffers; CmpCtrlDel releases
+any adopted include streams. Consumed source bytes, counters and already-delivered
+echo are not rolled back. Destroy/recreate a failed control before retrying unless
+the caller deliberately saved and restores its own input state. Compiler/control
+memory still follows the existing task allocator contract.
+
+`npm run test:lex-token` checks 212 source/flag cases and 3,268 token states
+against original-native and renamed-port output, plus three malformed-input
+locations, five session lifetimes, 11 actual allocation failures and 606 throwing
+HolyC echo callbacks, missing-device
+startup rejection, unsupported-capability nonmutation and failing diagnostic
+observers. `node tests/lex-token-oracle.mjs` repeats the source, wrapper, library,
+record-layout, capture and output-bound QEMU proof. The native malformed wrapper
+uses real LexExcept with captured output and Raw mode; host observer failure
+cleanup is a separate proof, not a claim about native debugger failure semantics.
+The native typed decimal bitmap adds 64 bytes under the existing declared-global
+layout rule, so unchanged consumer lengths do not imply unchanged binaries.
+
+Numeric-token parity remains bounded by the compiler's mixed I64/F64 arithmetic:
+`9007199254740993e-1` yields bits `430999999999999B` in original x87 Lex and
+`430999999999999A` here. Native multiplication retains the exact integer mantissa
+until F64 storage; WASM converts that integer to F64 first. The source-bound
+LexFloatPrecision probe preserves this known difference and related edge values.
+There is no one-value lexer workaround, full extended-precision claim or passing
+parity assertion for that excluded case. General output-device JavaScript traps
+also remain host traps; the 606 callback cleanup cases use actual HolyC throws in
+the KeyDev echo chain, while the separate diagnostic-observer tests cover the
+new structured host device.
+
+### Extracting string tokens
+
+LexExtStr uses the native finite-token algorithm to transfer the current string
+out of CCmpCtrl and join following string tokens. It preserves embedded zero
+bytes, the returned length including the terminator, non-string next-token state,
+lex_next=FALSE backslash/put-back behavior and nested define streams. A NULL size
+output is untouched; a non-NULL output is assigned only on success. Prompt and
+document streams reject before ownership transfer. It requires an otherwise
+valid initialized control and its owned current token buffer.
+
+Detached and newly joined strings are freed if Lex, allocation or a HolyC echo
+callback throws. The control retains any token it still owns and can be destroyed
+normally. Already-consumed bytes and delivered echo are not rolled back; recreate
+the control for a fresh retry. This deliberately fixes the original detached
+string leak on echo failure, proven with actual V5.03 heap spans. Native allocator
+failure injection and general host JavaScript-trap cleanup are not claimed.
+
+`npm run test:lex-ext` checks 611 original/copied/staged native byte/state cases,
+five allocation-stable lifetimes, 74 real allocation failures, 1,318 throwing
+echo positions across root/child tasks, unchanged-state capability rejection,
+and original-source leak negative controls. Malformed/unsupported next tokens
+retain the existing Compiler/LexCaps categories and release detached ownership.
+`node tests/lex-ext-oracle.mjs` and `node tests/lex-ext-leak-oracle.mjs` repeat
+source/library/wrapper/capture/output-bound native evidence. No globals, host imports, expression evaluator,
+compiler symbol graph or document-output placeholder is added.
+
+### Document metadata and flag parsing
+
+A reachable `doldoc` reference initializes the real native document metadata in
+the root session before user initializers. The runtime loads ST_COLORS from the
+measured kernel bootstrap list, then the three DocInit lists ST_DOC_CMDS,
+ST_DOC_FLAGS and ST_LINK_TYPES. It constructs the 512-bucket document table,
+runs the actual default expression through Lex and the native flag parser, and
+computes the default, form, invisibility, data, duplicate-check and clean-key
+masks. The complete CDolDocGlbls layout is 588 bytes. This is initialization from
+the native lists/algorithm, not a replacement table of precomputed flags.
+
+Public PrsDocFlagSingle and PrsDocFlags preserve native flag recognition,
+plus/minus handling, mirrored type bits and remaining-token behavior. The
+32-bit type argument writes only its defined width. Unknown flags remain for
+the caller to handle. Typed aliases and raw address access also request startup;
+unrelated programs do not allocate document state. The global still reserves
+storage under the current unused-global layout rule, so consumer binaries must
+be compared or qualified when the prelude changes.
+
+All standard list records and document-table entries belong to the root session.
+Children borrow that state, inherit the root define table, and may shadow their
+own defines without changing the already-computed document metadata. Failed
+construction releases partial defines, their separate sub-index arrays, the
+compiler control and document hash entries before publishing any global state.
+The document DHT bits overlap kernel HTT bits: rollback uses a document-specific
+destructor, never generic HashTableDel. The internal constructor exists to make
+that ownership transaction explicit. Native boot-only DocInit is not exposed as
+a callable refresh operation; no invented repeated-initialization contract is
+claimed. Original return-address source links remain unavailable as documented
+for DefineLstLoad.
+
+`npm run test:doc-init` verifies 1,986 layout/list/hash/mask values and 1,001 flag
+parser cases against live V5.03, a fresh copy of the original initializer/parser,
+and the staged port compiled by V5.03. Native child fixtures and five host
+lifetimes verify borrowed session state and complete disposal. All 321 real
+allocation failures preserve prior definitions and the unpublished output,
+restore the live allocation count/heap/stack, and permit immediate retry of the
+internal construction transaction. A failed runtime startup instead poisons
+that module before user effects; a fresh instance succeeds. Native allocator
+failure injection is not claimed. `node tests/doc-init-oracle.mjs` repeats the
+source/wrapper/library/layout/capture/output-bound native proof.
+
+DocNew, full document output and the window manager remain separate unfinished
+dependencies; finite output and clearing are described below. The cursor/reset lifecycle below
+uses DocFormFwd and normal layout; DocNew still needs the real EdLeftClickLink
+callback. The initializer does not fabricate editor behavior.
+
+### Document base entries and form navigation
+
+DocEntryNewBase allocates the native 88-byte shortened entry for the document's
+mem_task and applies the real per-type defaults. DocFormFwd and DocFormBwd move
+through valid document queues with native form/link/skip/indent and sentinel
+behavior. After metadata startup, navigation allocates nothing. Only the cursor
+entry and column change; these routines do not calculate layout or render.
+
+`npm run test:doc-nav` checks 13,000 navigation cases, 344 byte layouts, real
+current/foreign-task ownership, allocation failure/retry, five session lifetimes
+and complete disposal. `node tests/doc-nav-oracle.mjs` repeats the source, library,
+wrapper, capture and output-bound stock/ported V5.03 proof. Native MHeapCtrl
+confirms allocation ownership; it is not exposed as a fabricated host heap ABI.
+The shortened entry must not be accessed as though it owned every full-record
+field. Native entry-type/queue preconditions and the existing allocator-span
+difference remain. DocNew and link editing remain unavailable; the explicit
+KeyDev profile clears through native command output as described below.
+
+### Document layout helpers
+
+The explicit KeyDev profile supplies native DocSplitTag, DocWordWrapAdd/Del,
+DocRecalcXY, DocTmpAttr, DocCharDist, DocDelToNum/Entry and DocEntryLink. These
+operate on valid native document records; the helpers themselves do not supply reset,
+clear, screen rendering or editor services. DocEntryLink returns an owned string
+copy without opening anything. Pure arithmetic reachability stays device-free.
+
+Splits stage all owned allocations before publishing a changed queue or source
+string. Failed later wrap joins preserve already-completed native joins, with
+no detached allocation leak. Cloned auxiliary fields remain borrowed and shared
+bin counts retain native behavior. See [the document dependency map](../docs/DocInit.md)
+for caller invariants, shortened-record limits and explicit ownership boundaries.
+
+`npm run test:doc-layout` checks stock/copied/staged native results, five session
+lifetimes, 48 actual host allocation failures/retries and a negative control
+that catches the original split's unpublished-clone leak. Native foreign-task
+heap probes and host owner sets independently verify allocation ownership.
+`node tests/doc-layout-oracle.mjs` repeats the source-bound native proof.
+
+Primitive mixed-width arithmetic now follows original V5.03 raw-type selection:
+I32 -23 divided/reduced by U16 12 gives -1/-11 directly. The source-bound
+SmallUnsignedPromotion gate requires the direct and explicitly widened forms to
+match. The layout helper's earlier explicit divisor remains native-equivalent;
+[integer type evidence and remaining limits](../docs/IntegerTypes.md)
+are recorded separately from document ownership/layout behavior.
+
+### Normal document layout
+
+The explicit KeyDev profile now supplies `DocRecalc(doc,RECALCt_NORMAL)` for
+valid caller-owned document queues in the finite subset described in
+[the document dependency map](../docs/DocInit.md#normal-document-layout).
+It performs real settings/coordinates, wrapping, cursor commands, CL deletion,
+entry-limit trimming and window-size updates. It does not render the screen,
+find a cursor, run callbacks, highlight source text or open an editor. Unsupported
+modes and capabilities reject before document mutation; clear/trim recursion
+has additional conservative settings bounds so it cannot expose an unsupported
+mode after deleting entries.
+
+`npm run test:doc-recalc` checks 5,026 full document states against stock V5.03,
+a copied original function and the staged pass compiled by V5.03, plus native
+foreign-task ownership. Five host lifetimes, 94 rejection cases, 136 actual
+allocation failures, pending Break collisions and a cleanup-negative control
+verify ownership and locks. Successful prior wrap/deletion work survives an OOM;
+this is not whole-operation rollback. `node tests/doc-recalc-oracle.mjs` repeats
+the source/wrapper/capture/output-bound native proof;
+`node tests/doc-recalc-bounds-oracle.mjs` checks the staged rejection contract
+under V5.03. Native allocation-failure
+injection and native IRQ/CLI equivalence are not claimed. DocNew and the actual
+editor/window-manager lifecycle remain open; native clearing is described below.
+
+### Document cursor and reset lifetimes
+
+KeyDev supplies native DocTop, DocBottom, DocRst and DocDel. Top/Bottom validate
+the normal-layout subset before changing cursor/scroll state, respect inherited
+locks and release newly acquired locks on failure. Reset validates only its
+empty post-reset state: old drawing/callback entries are destroyed through their
+real ownership rules rather than executed. It preserves the native fields that
+reset does not clear, including auxiliary buffers and caller callbacks. Fresh
+reset requires fresh storage; old reset requires valid initialized queues and
+owned entry/bin/undo fields. Default DocPut selection and invalid-signature
+constructor/destructor phases retain their native behavior.
+
+Two native leaks are fixed explicitly: reset frees owned orphan-bin tags, and
+delete frees the final CDoc even if pending Break throws from unlock. Original
+V5.03 and staged-native heap-span probes distinguish those leaks and verify the
+exception chain; repeated host lifetimes test actual owner sets. Native/host
+allocator sizes are not asserted equal. `npm run test:doc-life` exercises native
+state, ownership, rejection, allocation-failure and original-source negative
+controls. The constructor, editor and window manager remain separate dependencies;
+no placeholder callback is installed. Finite output and clearing are described below.
+
+### Finite dollar-command descriptors
+
+KeyDev now supplies `PrsDollarCmd` using real document metadata and finite
+Lex/LexExtStr. It constructs native entry fields and owned tag/auxiliary/define/
+link/macro strings for `doc->mem_task`. Numeric expression arguments, data and
+hex editors, binary linking and data-scan operations reject explicitly. Creating
+a link, sprite or macro descriptor does not implement its UI or execute it.
+
+Error cleanup frees strings before discarding their ownership flags and releases
+the compiler control. Original V5.03 verifies the stock error-tag leak and the
+staged correction. `npm run test:doc-output` covers 210 full native descriptor
+states, 34 staged-native capability rejections, foreign owners, repeated sessions,
+928 allocator failures, throwing diagnostic observers and two leak controls.
+`node tests/doc-output-oracle.mjs` repeats the bound native proof. See the
+[precise parser contract](../docs/DocInit.md#finite-dollar-command-descriptors).
+The parser does not execute expressions or editor callbacks; finite output is
+described below. Default-console behavior is unchanged.
+
+### Finite document output
+
+KeyDev now provides explicit DocPutS/DocPrint into valid caller-owned document
+queues, using native delimiter maps, entry constructors, command parsing and
+insertion. Pending entries are owned until publication; unsupported commands
+reject before insertion, input delimiters stay intact and failure releases
+scratch/format buffers and only the acquired lock. Native parser error-entry
+fallback and committed output before a final pending Break remain explicit.
+
+`npm run test:doc-put` checks 10,660 native document states, actual foreign-owner
+lifetimes, pending Break and the repaired native format-buffer leak, 32 staged
+native rejections and 1,344 allocation failures. Original-source controls catch
+lost entries, modified input, retained locks and leaked format buffers.
+See the [output contract](../docs/DocInit.md#finite-document-output) and repeat its
+native proof with `node tests/doc-put-oracle.mjs`. Document rendering, partial
+commands, DocNew and editor/window-manager startup remain open;
+default-console output is unchanged.
+
+
+### Native command-based clearing
+
+KeyDev DocClear now follows actual DocBottom → DocPrint(CL/CL+H) → DocRecalc.
+It preserves held/filter entries, native clear_holds and literal plain-mode
+output. Planned layout effects reject unsupported modes before mutation, while
+exceptions release only newly acquired locks. Completed native layout/output
+work can remain after allocation failure or pending Break; this is not a
+transactional document reset.
+
+`npm run test:doc-clear` checks 3,205 native states, foreign ownership, Break,
+24 staged-native rejection cases and 656 allocation failures plus Break/OOM
+collisions. The original-source lock-leak control fails the ownership contract.
+See the [precise clear contract](../docs/DocInit.md#clear-through-native-commands)
+and repeat the original V5.03 proof with `node tests/doc-clear-oracle.mjs`.
+DocNew, real editor callbacks, rendering and session startup remain open. The
+default-console legacy no-op remains explicitly separate.
