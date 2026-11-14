@@ -1,24 +1,15 @@
-// host.js - builds the WebAssembly import object backing the __xxx intrinsics.
-//
-// It is parameterized by "devices" so the same core works in three contexts:
-//   - Node headless (console only; graphics/sound/input are stubs or buffers)
-//   - Browser worker (real OffscreenCanvas graphics, SAB sleep/input, sound ring)
-// Pass in adapters; sensible no-op defaults are used otherwise.
 import { format, readCStr, bytesToLatin1, docText } from "./console.js";
-import { MS_ADDR, MS } from "../abi.js";
 import {fileBridge} from "./files.js";
 import {lexDiagnostics} from "./lex.js";
 import {Heap,LegacyHeap,HOST_HEAP_ABI} from "./heap.js";
 export {HOST_HEAP_ABI} from "./heap.js";
-
-export const MS_FIELDS = MS; // re-export for callers
 
 export function createHost(opts = {}) {
   const state = {
     mem: null,            // WebAssembly.Memory (set after instantiate)
     out: opts.onText || ((s) => process.stdout.write(s)),
     ansi: opts.ansi !== false,
-    gfx: opts.gfx || null,        // {plot,line,rect,circle,text,fill,flip,width,height}
+    gfx: opts.gfx || null,
     snd: opts.snd || null,        // {tone(freq), note(freq,ms)}
     sleep: opts.sleep || null,    // (ms) => void  (may block via Atomics)
     yield: opts.yield || null,    // () => void
@@ -66,27 +57,20 @@ export function createHost(opts = {}) {
     __print_bytes(addr, n) {
       const a = Number(addr), len = Number(n);
       const bytes = u8().subarray(a, a + len);
-      // stop at first NUL (PutChars semantics)
       let end = 0; while (end < bytes.length && bytes[end] !== 0) end++;
       state.out(bytesToLatin1(bytes.subarray(0, end)));
     },
     __putc(ch) { state.out(String.fromCharCode(Number(ch) & 0xff)); },
 
     __gr_plot(x, y, c) { state.gfx?.plot(Number(x), Number(y), Number(c)); },
-    __gr_line(x1, y1, x2, y2, c, t) { state.gfx?.line(Number(x1), Number(y1), Number(x2), Number(y2), Number(c), Number(t)); },
-    __gr_rect(x, y, w, h, c) { state.gfx?.rect(Number(x), Number(y), Number(w), Number(h), Number(c)); },
-    __gr_circle(x, y, r, c, fill) { state.gfx?.circle(Number(x), Number(y), Number(r), Number(c), Number(fill)); },
-    __gr_text(x, y, c, addr) {
-      const s = bytesToLatin1(readCStr(mem(), Number(addr)));
-      state.gfx?.text(Number(x), Number(y), Number(c), s);
-    },
-    __gr_fill(c) { state.gfx?.fill(Number(c)); },
     __gr_flip() { state.gfx?.flip(); state.onFlip?.(); },
     __gr_width() { return BigInt(state.gfx?.width ?? 640); },
     __gr_height() { return BigInt(state.gfx?.height ?? 480); },
     __gr_update(addr,stride,x,y,width,height) {
       const gfx=state.gfx;
       if (!gfx) return;
+      if (!(gfx.indices instanceof Uint8Array))
+        throw new TypeError("HolyC graphics output requires indexed pixel storage");
       addr=Number(addr);stride=Number(stride);
       x=Number(x);y=Number(y);width=Number(width);height=Number(height);
       const left=Math.max(0,x),top=Math.max(0,y);
@@ -95,20 +79,9 @@ export function createHost(opts = {}) {
       const bytes=u8();
       for (let row=top;row<bottom;row++) {
         const pixels=bytes.subarray(addr+stride*row+left,addr+stride*row+right);
-        if (gfx.indices) gfx.indices.set(pixels,row*gfx.width+left);
-        else gfx.sprite?.(left,row,right-left,1,pixels,1);
+        gfx.indices.set(pixels,row*gfx.width+left);
       }
     },
-    //Legacy web bitmap ABI retained for previously compiled modules.
-    __gr_sprite(x, y, w, h, addr, scale) {
-      const W = Number(w), H = Number(h);
-      if (W <= 0 || H <= 0) return;
-      const a = Number(addr);
-      state.gfx?.sprite?.(Number(x), Number(y), W, H, u8().subarray(a, a + W * H), Number(scale) || 1);
-    },
-    // HEMU's host imports (snapshot/present/disk/palette/input/pacing + the optional JIT hooks) are not
-    // part of this runtime: HEMU/src/host.HC declares them and hemu/host.js (createHemuHost) supplies
-    // them on top of this env.
 
     __snd(freq) { state.snd?.tone(freq); },
     __play_note(freq, ms) {
@@ -197,7 +170,6 @@ export function createHost(opts = {}) {
     attach(instance) {
       native=instance.exports;
       state.mem = instance.exports.memory;
-      // initialize Fs pointer + pix dims and ms struct defaults
       return state;
     },
     state,

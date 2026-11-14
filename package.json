@@ -4,7 +4,8 @@
   "description": "A from-scratch HolyC -> WebAssembly compiler with a TempleOS graphics/sound runtime for the browser.",
   "type": "module",
   "scripts": {
-    "test": "node tests/run.mjs",
+    "test": "node tests/run.mjs && npm run test:execution",
+    "test:execution": "node tests/project.mjs && node tests/worker-input.mjs",
     "test:oracle": "node tests/oracle.mjs --check",
     "test:intrinsics": "node src/wasm/emitter.selftest.js && node src/atomic.selftest.mjs && node src/import.selftest.mjs && node tests/atomic-publish.mjs",
     "test:document": "node tests/document.mjs",
@@ -20,6 +21,8 @@
     "test:runtime-init": "node tests/runtime-init.mjs",
     "test:link": "node tests/link.mjs",
     "test:palette": "node tests/palette.mjs",
+    "test:project": "node tests/project.mjs",
+    "test:worker-input": "node tests/worker-input.mjs",
     "test:graphics": "node tests/graphics.mjs",
     "test:composites": "node tests/composites.mjs",
     "test:sprite": "node tests/sprite.mjs",

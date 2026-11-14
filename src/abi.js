@@ -26,17 +26,7 @@ export const DATA_BASE = 8192;                 // static data (globals, strings)
 export const TAG_INT = 0;
 export const TAG_FLT = 1;
 
-// Screen dimensions (TempleOS default)
-export const GR_WIDTH = 640;
-export const GR_HEIGHT = 480;
-
-// TempleOS 16-color palette (RGB), from Adam/Gr/GrPalette.HC gr_palette_std.
-export const PALETTE = [
-  [0x00, 0x00, 0x00], [0x00, 0x00, 0xaa], [0x00, 0xaa, 0x00], [0x00, 0xaa, 0xaa],
-  [0xaa, 0x00, 0x00], [0xaa, 0x00, 0xaa], [0xaa, 0x55, 0x00], [0xaa, 0xaa, 0xaa],
-  [0x55, 0x55, 0x55], [0x55, 0x55, 0xff], [0x55, 0xff, 0x55], [0x55, 0xff, 0xff],
-  [0xff, 0x55, 0x55], [0xff, 0x55, 0xff], [0xff, 0xff, 0x55], [0xff, 0xff, 0xff],
-];
+export {GR_WIDTH,GR_HEIGHT,PALETTE} from "./runtime/palette.js";
 
 export const COLOR_NAMES = {
   BLACK: 0, BLUE: 1, GREEN: 2, CYAN: 3, RED: 4, PURPLE: 5, BROWN: 6, LTGRAY: 7,
@@ -56,15 +46,9 @@ export const HOST_IMPORTS = {
   __putc:        { params: [I], results: [] },           // (ch)
 
   __gr_plot:     { params: [I, I, I], results: [] },     // x,y,color
-  __gr_line:     { params: [I, I, I, I, I, I], results: [] }, // x1,y1,x2,y2,color,thick
-  __gr_rect:     { params: [I, I, I, I, I], results: [] },    // x,y,w,h,color
-  __gr_circle:   { params: [I, I, I, I, I], results: [] },    // x,y,r,color,fill
-  __gr_text:     { params: [I, I, I, I], results: [] },       // x,y,color,strAddr
-  __gr_fill:     { params: [I], results: [] },           // color
   __gr_flip:     { params: [], results: [] },
   __gr_width:    { params: [], results: [I] },
   __gr_height:   { params: [], results: [I] },
-  __gr_sprite:   { params: [I, I, I, I, I, I], results: [] }, // x,y,w,h,dataAddr,scale - 8-bit indexed sprite, 0xFF=transparent
   __gr_update:   { params: [I, I, I, I, I, I], results: [] }, // bitmap,stride,x,y,width,height
 
   __snd:         { params: [F], results: [] },           // freq Hz (0 = off)

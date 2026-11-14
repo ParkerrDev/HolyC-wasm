@@ -1,12 +1,25 @@
 # HolyC-wasm
 
 A HolyC compiler that emits WebAssembly, with a browser graphics, sound and input
-runtime. TempleOS-Web uses it for its source editor and native games. HEMU uses
+runtime. TempleOS-Web uses it for its source editor and direct-WASM games. HEMU uses
 the compiler with its own host imports to build its x86 emulator. HolyC-fmt uses
 it to run the formatter written in HolyC.
 
-The compiler is a library. This checkout contains `src/` and `tests/`; the browser
-editor and emulator launchers live in TempleOS-Web.
+The compiler and its execution worker live in this checkout. TempleOS-Web owns
+the editor interface; HEMU owns the emulated machine.
+
+`src/project.js` exports `compileProject({source,filename,files})` for strict
+compilation of a complete source project. `src/runtime/worker.js` owns browser
+execution, task selection and the shared input, audio and frame protocol. The
+site starts that worker directly instead of maintaining its own runtime.
+
+Drawing algorithms execute in the compiled HolyC graphics prelude. The JavaScript
+framebuffer stores pixels, applies palette updates and presents completed images;
+it does not reimplement lines, circles, text or sprites. Graphics constants live
+in `src/runtime/palette.js`, shared with the site presenter.
+
+Run `npm run test:project` and `npm run test:worker-input` to check project
+includes and compiled mouse input through the actual worker module.
 
 ```js
 import {compileHolyC} from "./src/compiler.js";

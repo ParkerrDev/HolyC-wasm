@@ -37,7 +37,11 @@ assert.deepEqual(fb.indices,saved);
 memory.grow(1);new Uint8Array(memory.buffer).set([0x80,0],65536);
 update(65536,2,0,0,1,1);assert.equal(fb.indices[0],15);
 assert(!('__gr_update_mono' in createHost().env),'Absent device remains an unresolved import.');
-assert(!('__gr_update_mono' in createHost({gfx:{sprite(){}}}).env));
+const noPixels=createHost({gfx:{width:13,height:3}});
+assert(!('__gr_update_mono' in noPixels.env));
+assert.throws(()=>noPixels.env.__gr_update(0n,13n,0n,0n,13n,3n),
+  /indexed pixel storage/,'A configured display cannot silently discard completed pixels.');
+createHost().env.__gr_update(0n,13n,0n,0n,13n,3n);
 
 async function nativeFixture(name){
  const source=await readFile(new URL('probes/'+name+'.HC',import.meta.url),'latin1'),
