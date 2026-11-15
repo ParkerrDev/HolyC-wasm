@@ -57,6 +57,7 @@ export const HOST_IMPORTS = {
   __yield:       { params: [], results: [] },
   __scan_char:   { params: [], results: [I] },           // peek: char or 0 (nonblocking)
   __get_char:    { params: [I, I], results: [I] },        // (echo, doScan) blocking
+  __ms_set:      { params: [I,I,I,I,I], results: [] },
   __time_ms:     { params: [], results: [F] },
   __time_ms_checked: {params: [], results: [F]}, // finite time or NaN failure
   __date_utc:    { params: [], results: [I] }, // sec,min,hour,weekday,day,month,year16

@@ -15,7 +15,7 @@ export const CTRL = {
   SND_HEAD: 9,       // write index (worker)
   SND_TAIL: 10,      // read index (main thread)
   // --- stats / status ---
-  FRAME: 11,         // incremented by worker on each flip
+  FRAME: 11,         // odd during publication; even after pixels and palette agree
   DONE: 12,          // worker sets 1 when program returns
   MS_DX: 13, MS_DY: 14, // relative movement accumulated by the captured canvas
   MS_PRESSED: 15,    // pending left/right presses, including clicks between polls

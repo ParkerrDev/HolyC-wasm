@@ -30,11 +30,14 @@ export class Framebuffer {
     if (this.inBounds(x, y)) this.indices[y * this.width + x] = color & 15;
   }
 
-  present() {
+  present(sequence=null) {
     if (!this.ctx) return;
+    const frame=sequence?Atomics.load(sequence,0):0;
+    if(frame&1)return false;
     const data = new Uint32Array(this.image.data.buffer);
     const idx = this.indices, pal = this.pal32;
     for (let i = 0; i < idx.length; i++) data[i] = pal[idx[i]&15];
+    if(sequence && Atomics.load(sequence,0)!==frame)return false;
     if (this.scale === 1) {
       this.ctx.putImageData(this.image, 0, 0);
     } else {
@@ -52,5 +55,6 @@ export class Framebuffer {
         this.ctx.putImageData(this.image, 0, 0);
       }
     }
+    return true;
   }
 }

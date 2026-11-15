@@ -418,6 +418,19 @@ I64 GetTSC() { I64 res=__time_ms()*1000000.0; return res; }
 I64 ScanChar() { return __scan_char(); }
 I64 KeyGet() { return __get_char(0,0); }
 
+U0 MsSet(I64 x=I64_MAX,I64 y=I64_MAX,I64 z=I64_MAX,
+	I64 l=I64_MAX,I64 r=I64_MAX)
+{//The browser supplies unscaled screen coordinates and device state.
+  if (0<=x<GR_WIDTH) ms.pos.x=x;
+  if (0<=y<GR_HEIGHT) ms.pos.y=y;
+  if (z!=I64_MAX) ms.pos.z=z;
+  if (FALSE<=l<=TRUE) ms.lb=l;
+  if (FALSE<=r<=TRUE) ms.rb=r;
+  LBEqu(&kbd.scan_code,SCf_MS_L_DOWN,ms.lb);
+  LBEqu(&kbd.scan_code,SCf_MS_R_DOWN,ms.rb);
+  __ms_set(ms.pos.x,ms.pos.y,ms.pos.z,ms.lb,ms.rb);
+}
+
 //==================== console ====================
 Bool Silent(Bool val=ON)
 {//Turn off console output and return its previous state.

@@ -9,10 +9,11 @@ import { CTRL, KB_BASE, KB_RING, SND_BASE, SND_RING, SND_TONE, SND_NOTE, KEY_STA
 
 let ctrl = null;
 let fb = null;
+let pixels=null,palette=null;
 let lastFlip = 0;
 let wakeInput=null;
 
-function nowMs() { return performance.now(); }
+const nowMs=performance.now.bind(performance);
 
 function scanChar() {
   const head = Atomics.load(ctrl, CTRL.KB_HEAD);
@@ -59,6 +60,9 @@ function presentMaybe(force) {
   if (force || t - lastFlip > 16) {
     lastFlip = t;
     Atomics.add(ctrl, CTRL.FRAME, 1);
+    pixels.set(fb.indices);
+    palette?.set(fb.pal32);
+    Atomics.add(ctrl, CTRL.FRAME, 1);
     return true;
   }
 }
@@ -70,8 +74,9 @@ self.onmessage = async (e) => {
     const { source, controlSAB, fbSAB, paletteSAB } = msg;
     ctrl = new Int32Array(controlSAB);
     const buttons=createMouseButtons(ctrl);
-    //A synchronous HolyC loop can block this worker; the page presents shared pixels.
-    fb = new Framebuffer(null, 640, 480, 1, new Uint8Array(fbSAB),paletteSAB?new Uint32Array(paletteSAB):null);
+    pixels=new Uint8Array(fbSAB);
+    palette=paletteSAB?new Uint32Array(paletteSAB):null;
+    fb = new Framebuffer(null);
 
     let outBuf = "";
     const flush = () => { if (outBuf) { self.postMessage({ type: "text", text: outBuf }); outBuf = ""; } };
@@ -107,7 +112,13 @@ self.onmessage = async (e) => {
         sleep: (ms) => {sleep(ms);buttons.advance();host.state.onTick();},
         yield: () => {if(presentMaybe(false)){buttons.advance();host.state.onTick();}},
         scanChar,getChar,timeMs:nowMs,
+        setMouse:(x,y,z,left,right)=>{
+          for(const [index,value] of [[CTRL.MS_X,x],[CTRL.MS_Y,y],[CTRL.MS_Z,z],
+              [CTRL.MS_LB,Number(left)],[CTRL.MS_RB,Number(right)]])
+            Atomics.store(ctrl,index,value);
+        },
       });
+      host.env.__time_ms=nowMs;
 
       if(useTasks){
         const update=host.env.__gr_update;
@@ -141,6 +152,12 @@ self.onmessage = async (e) => {
           buttons.advance();drainInput();
         }
         const dv = new DataView(inst.exports.memory.buffer);
+        const wanted=!!(capture && dv.getBigInt64(Number(capture.addr),true));
+        const motion=[Atomics.exchange(ctrl,CTRL.MS_DX,0),Atomics.exchange(ctrl,CTRL.MS_DY,0)];
+        if(useTasks && wanted){
+          Atomics.store(ctrl,CTRL.MS_X,Math.max(0,Math.min(639,Atomics.load(ctrl,CTRL.MS_X)+motion[0])));
+          Atomics.store(ctrl,CTRL.MS_Y,Math.max(0,Math.min(479,Atomics.load(ctrl,CTRL.MS_Y)+motion[1])));
+        }
         dv.setInt32(MS_ADDR+MS.x, Atomics.load(ctrl, CTRL.MS_X), true);
         dv.setInt32(MS_ADDR+MS.y, Atomics.load(ctrl, CTRL.MS_Y), true);
         dv.setInt32(MS_ADDR+MS.z, Atomics.load(ctrl, CTRL.MS_Z), true);
@@ -148,10 +165,9 @@ self.onmessage = async (e) => {
         dv.setInt32(MS_ADDR+MS.lb, mouseButtons&1?1:0, true);
         dv.setInt32(MS_ADDR+MS.rb, mouseButtons&2?1:0, true);
         if(keys)for(let sc=0;sc<128;sc++)dv.setUint8(Number(keys.addr)+sc,Atomics.load(ctrl,KEY_STATE_BASE+sc));
-        for(const [variable,index] of [[dx,CTRL.MS_DX],[dy,CTRL.MS_DY]])if(variable){
-          const addr=Number(variable.addr);dv.setBigInt64(addr,dv.getBigInt64(addr,true)+BigInt(Atomics.exchange(ctrl,index,0)),true);
+        for(const [variable,index] of [[dx,0],[dy,1]])if(variable){
+          const addr=Number(variable.addr);dv.setBigInt64(addr,dv.getBigInt64(addr,true)+BigInt(motion[index]),true);
         }
-        const wanted=!!(capture && dv.getBigInt64(Number(capture.addr),true));
         if(wanted!==wasCapture){wasCapture=wanted;self.postMessage({type:'inputMode',capture:wanted});}
       };
 
@@ -169,6 +185,7 @@ self.onmessage = async (e) => {
         try{await host.dispose();}catch(error){failure??=error;}
       }
       flush();
+      presentMaybe(true);
       Atomics.store(ctrl,CTRL.DONE,1);
       if(failure)self.postMessage({type:"error",error:String(failure.stack||failure),nativeGame:!!msg.nativeGame});
       else self.postMessage({type:"done"});

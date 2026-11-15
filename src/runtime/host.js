@@ -93,6 +93,7 @@ export function createHost(opts = {}) {
     __yield() { if (state.onTick) state.onTick(); if (state.yield) state.yield(); },
     __scan_char() { if (state.onTick) state.onTick(); return BigInt(state.scanChar() | 0); },
     __get_char(echo, scan) { if (state.onTick) state.onTick(); return BigInt(state.getChar(Number(echo), Number(scan)) | 0); },
+    __ms_set(x,y,z,left,right) {opts.setMouse?.(Number(x),Number(y),Number(z),Boolean(left),Boolean(right));},
     __time_ms() { return state.timeMs(); },
     __time_ms_checked() {
       try {
