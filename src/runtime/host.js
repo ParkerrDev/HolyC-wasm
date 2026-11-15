@@ -95,6 +95,7 @@ export function createHost(opts = {}) {
     __get_char(echo, scan) { if (state.onTick) state.onTick(); return BigInt(state.getChar(Number(echo), Number(scan)) | 0); },
     __ms_set(x,y,z,left,right) {opts.setMouse?.(Number(x),Number(y),Number(z),Boolean(left),Boolean(right));},
     __time_ms() { return state.timeMs(); },
+    __tsc() {return -1n;},
     __time_ms_checked() {
       try {
         const value=state.timeMs();

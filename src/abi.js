@@ -59,6 +59,7 @@ export const HOST_IMPORTS = {
   __get_char:    { params: [I, I], results: [I] },        // (echo, doScan) blocking
   __ms_set:      { params: [I,I,I,I,I], results: [] },
   __time_ms:     { params: [], results: [F] },
+  __tsc:        { params: [], results: [I] },
   __time_ms_checked: {params: [], results: [F]}, // finite time or NaN failure
   __date_utc:    { params: [], results: [I] }, // sec,min,hour,weekday,day,month,year16
 

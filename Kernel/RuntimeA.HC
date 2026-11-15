@@ -412,7 +412,13 @@ public F64 FullSaw(F64 t,F64 period)
 F64 tS() { return __time_ms()/1000.0; }
 U0 Sleep(I64 ms) { __sleep(ms); }
 U0 Yield() { __yield(); }
-I64 GetTSC() { I64 res=__time_ms()*1000000.0; return res; }
+I64 GetTSC()
+{
+  I64 res=__tsc;
+  if (res<0)
+    res=__time_ms()*1000000.0;
+  return res;
+}
 
 //==================== input ====================
 I64 ScanChar() { return __scan_char(); }

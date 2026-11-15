@@ -81,6 +81,7 @@ npm run test:composites   # Text/mesh allocation failures, callbacks and recover
 npm run test:exception    # Cross-call unwinding and repeated stack cleanup.
 npm run test:oracle       # Boot V5.03 in QEMU and recheck the native results.
 npm run test:float-scale  # Reproduce the native Pow10I64 table in QEMU.
+npm run test:clock-browser # Sampled TSC progress, fallback and worker lifetime.
 ```
 
 The fixtures in `tests/v503/` cover postfix casts, goto, operator precedence,
@@ -281,6 +282,25 @@ the same 617 entries. This matches literal compilation, not all x87 arithmetic.
 Update the compiler and runtime together: floating `%` uses the `__fmod` host
 import. `Seed(nonzero)` and the Rand family reproduce native task-local random
 sequences. Timer-mixed randomness uses the host clock, not a physical CPU's TSC.
+
+The browser worker supplies GetTSC through a separate sampled monotonic clock.
+Its worker writes nanoseconds to an atomic 64-bit word on a requested 1 ms timer;
+ordinary browser timer nesting usually limits updates to about 4 ms, and
+background throttling or scheduling can delay them further. Reads never advance
+the counter themselves. It continues updating while HolyC executes a busy loop,
+without a fresh browser clock call for every dithered pixel. Rand's recurrence
+and seed modes are unchanged; timer-mixed output is naturally nondeterministic.
+tS, Sleep and scheduling deadlines still use fresh time.
+
+The sampled worker starts only for programs that need GetTSC and terminates on
+completion, error or Stop. If shared memory or nested workers are unavailable,
+or startup fails/takes longer than one second, GetTSC uses its original fresh
+host-clock calculation. Generic hosts use that calculation by default, retaining
+the dynamic injected `host.state.timeMs` contract and native product conversion.
+Update compiler and host together for the `__tsc` import; its negative sentinel
+selects this fallback. `tests/clock.mjs` verifies injected time and 64-bit values;
+the browser test verifies independent progress and actual worker cleanup. Set
+`TEMPLEOS_WEB` to a site checkout with Playwright when running the browser test.
 
 Function pointers are opaque nonzero indexes into the exported `__functions`
 WASM table; zero is null and calling it traps. They are callable references,

@@ -5,6 +5,7 @@ import {MS_ADDR,MS} from "../abi.js";
 import { createHost } from "./host.js";
 import {createTaskHost} from "./tasks.js";
 import { Framebuffer } from "./graphics.js";
+import {ClockStart} from "./clock.js";
 import { CTRL, KB_BASE, KB_RING, SND_BASE, SND_RING, SND_TONE, SND_NOTE, KEY_STATE_BASE, keyPacketRead } from "./protocol.js";
 
 let ctrl = null;
@@ -81,7 +82,7 @@ self.onmessage = async (e) => {
     let outBuf = "";
     const flush = () => { if (outBuf) { self.postMessage({ type: "text", text: outBuf }); outBuf = ""; } };
 
-    let host,useTasks=false,nativeActive=false,failure=null,taskError=null,drawPending=false;
+    let host,clock,useTasks=false,nativeActive=false,failure=null,taskError=null,drawPending=false;
     try {
       const { bytes, warnings, globals, requiredCapabilities } = msg.nativeGame
         ? compileProject({source,filename:msg.filename,files:msg.files})
@@ -119,6 +120,10 @@ self.onmessage = async (e) => {
         },
       });
       host.env.__time_ms=nowMs;
+      if(WebAssembly.Module.imports(mod).some(item=>item.name==="__tsc")){
+        clock=await ClockStart();
+        if(clock)host.env.__tsc=()=>Atomics.load(clock.words,0);
+      }
 
       if(useTasks){
         const update=host.env.__gr_update;
@@ -184,6 +189,7 @@ self.onmessage = async (e) => {
       if(useTasks && host){
         try{await host.dispose();}catch(error){failure??=error;}
       }
+      clock?.worker.terminate();
       flush();
       presentMaybe(true);
       Atomics.store(ctrl,CTRL.DONE,1);
