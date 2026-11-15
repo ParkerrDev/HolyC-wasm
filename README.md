@@ -41,7 +41,7 @@ Use `lenient:false` so unsupported symbols and calls produce errors. The older l
 
 <br>
 
-The runtime supplies graphics, sound, keyboard input, memory and supported TempleOS APIs. [HEMU](https://github.com/ParkerrDev/HEMU) uses the compiler with its own machine host; [HolyC-fmt](https://github.com/ParkerrDev/HolyC-fmt) uses it to run its HolyC formatter.
+The runtime supplies graphics, sound, keyboard input, memory and supported TempleOS APIs. [Apps/HEMU](Apps/HEMU/README.md) supplies the WebAssembly host for [HEMU](https://github.com/ParkerrDev/HEMU)'s HolyC machine; [HolyC-fmt](https://github.com/ParkerrDev/HolyC-fmt) uses it to run its HolyC formatter.
 
 This is a compiler and compatibility runtime, not the TempleOS kernel. Native language behavior is checked against V5.03, but unsupported assembly, hardware and OS behavior remain. A successful compile alone does not establish compatibility.
 
