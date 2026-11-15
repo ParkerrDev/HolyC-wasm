@@ -79,16 +79,16 @@ function CaptureState()
   return msg;
 }
 function PauseSet(value) {
-  if (instRef?.exports.WinSurfaceActive?.()) {
-    paused=true;
-    postMessage({cmd:"paused",value:true});
-    if (!value) postMessage({cmd:"error",msg:"The window renderer stopped mid-frame. Restart TempleOS before resuming.",retained:true,paused:true});
-    return;
-  }
   if(machineBus?.Stopped()) {
     paused=true;
     postMessage({cmd:"paused",value:true});
     if(!value)postMessage({cmd:"error",msg:"Shared RAM coordination stopped. Restart TempleOS before resuming.",retained:true,paused:true});
+    return;
+  }
+  if (instRef?.exports.WinSurfaceActive?.()) {
+    paused=true;
+    postMessage({cmd:"paused",value:true});
+    if (!value) postMessage({cmd:"error",msg:"The window renderer stopped mid-frame. Restart TempleOS before resuming.",retained:true,paused:true});
     return;
   }
   if (value && machineBarrier && !machineBarrier.Lock())
