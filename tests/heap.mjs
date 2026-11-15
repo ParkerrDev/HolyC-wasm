@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {Worker,isMainThread,parentPort,workerData} from "node:worker_threads";
+import {readFileSync} from "node:fs";
 import {compileHolyC} from "../src/compiler.js";
 import {createHost,HOST_HEAP_ABI} from "../src/runtime/host.js";
 import {HEAP_BASE} from "../src/abi.js";
@@ -36,7 +37,12 @@ if (!isMainThread) {
   parentPort.postMessage({done:true});
   parentPort.close();
 } else {
+  const unattached=createHost();
+  unattached.env.__free(0n);
+  assert.equal(unattached.env.__msize(0n),0n);
   const memory=new WebAssembly.Memory({initial:257,maximum:512}),host=attach(memory);
+  const caller=new Uint8Array(memory.buffer,0,HEAP_BASE);
+  caller.fill(0xA5);
   const malloc=n=>host.env.__malloc(BigInt(n)),free=p=>host.env.__free(p);
   const a=malloc(100),b=malloc(200),c=malloc(100);
   free(b);
@@ -72,6 +78,8 @@ if (!isMainThread) {
     free(block.ptr);
   }
   assert.equal(host.state.heapPtr,empty,"all freed allocations release the high water mark");
+  assert.ok(new Uint8Array(memory.buffer,0,HEAP_BASE).every(byte=>byte===0xA5),
+    "companion must not write caller globals or shadow stack");
   const zero=malloc(0),other=malloc(0);
   assert.notEqual(zero,other);
   free(0n);free(zero);free(other);
@@ -109,6 +117,16 @@ if (!isMainThread) {
   assert.equal(oldHost.env.__msize(0n),0n);
   assert.throws(()=>oldHost.env.__msize(BigInt(HEAP_BASE+128)),/legacy bump-heap/);
   assert.throws(()=>createHost({heapAbi:2}),/Unsupported HolyC heap ABI/);
+
+  const fixture=JSON.parse(readFileSync(new URL("heap-abi1.json",import.meta.url)));
+  const priorMemory=new WebAssembly.Memory({initial:257,maximum:512});
+  new Uint8Array(priorMemory.buffer,HEAP_BASE).set(Buffer.from(fixture.bytes,"base64"));
+  const prior=attach(priorMemory),[p1,p2,p3]=fixture.allocations.map(BigInt);
+  prior.state.heapPtr=fixture.cursor;
+  assert.equal(prior.env.__malloc(160n),p2,"reuse free block saved by the previous JS allocator");
+  filled(priorMemory,p1,80,17);filled(priorMemory,p3,80,51);
+  for (const ptr of [p1,p2,p3]) prior.env.__free(ptr);
+  assert.equal(prior.state.heapPtr,empty);
 
   const limited=attach(new WebAssembly.Memory({initial:257,maximum:257}));
   const held=limited.env.__malloc(32n),before=limited.state.heapPtr;
@@ -177,5 +195,5 @@ I64 Oom()
     clearTimeout(timeout);
     await Promise.all(workers.map(worker=>worker.terminate()));
   }
-  console.log("Heap: reuse/coalescing, 4,000 allocation operations, 1,000 cleared reuses, OOM, full RAM restore and four contending workers pass.");
+  console.log("Heap: caller memory isolation, prior ABI1 fixture, reuse/coalescing, 4,000 allocation operations, 1,000 cleared reuses, OOM, full RAM restore and four contending workers pass.");
 }

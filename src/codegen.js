@@ -112,10 +112,16 @@ class Codegen {
   // ============================================================ run
   run() {
     // host imports first
-    // SMP: with opts.sharedMemory, IMPORT a shared memory (env.mem) so N instances share guest RAM;
-    // still exported as "memory" (index 0) so existing consumers of inst.exports.memory keep working.
-    if (this.opts.sharedMemory) this.m.importMemory("env", "mem", MEM_INITIAL_PAGES, MEM_MAX_PAGES, true);
-    else this.m.setMemory(MEM_INITIAL_PAGES, MEM_MAX_PAGES);
+    const memory=this.opts.memory??{},initial=memory.initial??MEM_INITIAL_PAGES,
+      maximum=memory.maximum===null?undefined:memory.maximum??MEM_MAX_PAGES,
+      shared=memory.shared??!!this.opts.sharedMemory;
+    if (!Number.isInteger(initial) || initial<0 || initial>65536 ||
+        shared && maximum===undefined || maximum!==undefined &&
+        (!Number.isInteger(maximum) || maximum<initial || maximum>65536))
+      throw new CodegenError("Invalid WebAssembly memory page limits");
+    if (memory.imported || shared)
+      this.m.importMemory("env","mem",initial,maximum,shared);
+    else this.m.setMemory(initial,maximum);
     this.imports = {};
     for (const [name, sig] of Object.entries(HOST_IMPORTS)) {
       const idx = this.m.importFunc("env", name, sig.params, sig.results);
@@ -1569,6 +1575,8 @@ class FnCtx {
       this.f.i64_const(G.addr); this.f.op("i32_wrap_i64"); this.emitLoad(t); return t;
     }
     if (node.name in this.cg.constEnv) { this.f.i64_const(this.cg.constEnv[node.name]); return T.I64; }
+    if (node.name==="__memsize")
+      return this.genCall({kind:"Call",callee:node,args:[]});
     const fn = this.functionAt(node);
     if (fn) { return this.emitCall(fn, [], node); } // no-paren call
     if (node.name==="MyCore") {this.f.global_get(this.cg.coreGlobal);return T.I64;}
@@ -2249,6 +2257,19 @@ class FnCtx {
       return type.retType;
     }
     if (callee.kind === "Ident") {
+      if (callee.name==="__memsize" || callee.name==="__memgrow") {
+        const count=callee.name==="__memgrow"?1:0;
+        if (node.args.length!==count || node.args.some(arg=>!arg))
+          this.err(node,callee.name+" requires "+count+" arguments");
+        if (count) {
+          this.genExprCoerce(node.args[0],T.I64);
+          const pages=this.newWLocal(VT.i64);
+          this.f.local_tee(pages).i64_const(65536).op("i64_gt_u")
+            .if_(VT.i64).i64_const(-1).else_().local_get(pages)
+            .op("i32_wrap_i64").memory_grow().op("i64_extend_i32_s").end();
+        } else this.f.memory_size().op("i64_extend_i32_u");
+        return T.I64;
+      }
       if (callee.name==="__memfill" || callee.name==="__memcopy") {
         if (node.args.length!==3 || node.args.some(arg=>!arg))
           this.err(node,"memory intrinsic needs three arguments");

@@ -53,9 +53,15 @@ and native power-of-ten table remain owned by `src/runtime/font.js` and
 that check automatically. Consumers import the committed module, so
 `compileHolyC` stays synchronous in Node and browsers without source fetches.
 
-This moves existing HolyC out of JavaScript string literals; it does not convert
-JavaScript algorithms into HolyC. These files preserve the earlier source text,
-including its existing formatting and byte-valued characters. They target this
+`Misc/HeapMk.mjs` also compiles `Kernel/Heap.HC` into the committed
+`src/runtime/heap-code.js` byte transport. The host synchronously attaches this
+small WASM companion to the program's memory on its first allocation. The
+companion has no static storage or shadow frames in that memory. Both generated
+files are regenerated and checked by the same commands.
+
+`RuntimeMk` moves existing HolyC out of JavaScript string literals; it does not
+convert JavaScript algorithms into HolyC. Its files preserve the earlier source
+text, including its existing formatting and byte-valued characters. They target this
 compiler's host ABI and are not a standalone native TempleOS runtime.
 
 ## Checks
@@ -316,7 +322,7 @@ Native AdamLog and machine return-address logging are not reproduced. Ordinary
 WASM traps and unrelated JavaScript exceptions are not HolyC exceptions.
 
 `Free` returns allocations to a coalescing heap; `CAlloc` clears reused storage.
-The allocator keeps its headers, free list and shared-memory lock in linear
+The HolyC allocator keeps its headers, free list and shared-memory lock in linear
 memory, so a complete RAM snapshot restores allocation state. `MAlloc` throws
 `'OutMem'` on failure. `MemSet` and `MemCpy` return the pointer after the written
 range, as native V5.03 does; overlapping `MemCpy` copies forward byte by byte.
@@ -550,8 +556,20 @@ extensions, not stock TempleOS APIs. `test:intrinsics` checks all widths and
 5,000 publication handshakes between two actual shared-memory WASM workers.
 
 `npm run test:heap` checks allocation lifetime, splitting/coalescing, cleared
-reuse, failed growth, full-memory restoration, legacy restoration and four
+reuse, failed growth, caller-memory isolation, a saved heap from the previous
+JavaScript allocator, full-memory restoration, legacy restoration and four
 workers allocating/freeing the same growing shared memory.
+
+For companion modules, `compileHolyC` accepts
+`memory:{imported:true,shared:false,initial:0,maximum:null}`. It imports `env.mem`;
+`initial` and `maximum` are page limits, and `null` omits the maximum for an
+unshared import. Shared memory requires a numeric maximum. Existing
+`sharedMemory:true` retains its original 512-to-8192-page limits. A module still
+needs enough memory for any static data and shadow frames its source uses.
+Reserved intrinsics `__memsize` and `__memgrow(pages)` emit WASM memory operations
+directly. They return page counts; failed growth returns -1. Negative or oversized
+growth requests fail without truncating to 32 bits. These are compiler extensions,
+not stock TempleOS functions.
 
 ## Device contexts and drawing
 

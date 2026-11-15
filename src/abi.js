@@ -4,7 +4,6 @@
 //
 // Convention: every integer/pointer is passed as wasm i64, every float as f64.
 // HolyC's own value model is identical, so call sites need no conversion.
-import { VT } from "./wasm/emitter.js";
 
 // --- Linear memory layout (byte addresses) ---
 export const PAGE = 65536;
@@ -34,7 +33,7 @@ export const COLOR_NAMES = {
   YELLOW: 14, WHITE: 15,
 };
 
-const I = VT.i64, F = VT.f64;
+const I=0x7E,F=0x7C;
 
 // Host imports (module "env"). name -> {params, results} in wasm value types.
 export const HOST_IMPORTS = {
