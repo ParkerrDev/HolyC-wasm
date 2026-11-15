@@ -39,7 +39,7 @@ function StringPut(value) {
   for(let i=0;i<value.length;i++)out[i]=value.charCodeAt(i);
   out[value.length]=0;return ptr;
 }
-function Disk(base,virtualSize,bits=0,l1=0,chunks=null) {
+function Disk(base,virtualSize,bits=0,l1=0,chunks=null,overlay=new Map()) {
   const size=2**bits,offsets=new Map();
   function Offset(pos) {
     const cluster=Math.floor(pos/size);
@@ -58,7 +58,8 @@ function Disk(base,virtualSize,bits=0,l1=0,chunks=null) {
       else dst.fill(0,at+i*512,at+(i+1)*512);
     }
   }
-  const overlay=new Map(),disk={base,virtualSize,overlay,
+  const disk={base,virtualSize,overlay,
+    snapshot:()=>Disk(base,virtualSize,bits,l1,chunks,new Map(overlay)),
     readInto:Read,
     writeInto(lba,count,src,at) {
       if(!Number.isSafeInteger(lba)||lba<0||!Number.isSafeInteger(count)||count<0||

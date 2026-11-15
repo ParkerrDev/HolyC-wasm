@@ -2,7 +2,7 @@ import {makeDisk} from "./QCow2.js";
 
 export async function DiskStoreOpen(Notice,readOnly=false,wait=false)
 {//One writer per browser profile; disk sectors commit together after each guest turn.
-  let db,write=false,dirty=new Map(),queued=false,active=0,pending=Promise.resolve(),failed=null;
+  let db,write=false,dirty=new Map(),queued=false,active=0,pending=Promise.resolve(),failed=null,revision=null;
   function Status(state,msg) {Notice({cmd:"diskSave",state,msg});}
   try {
     if (!globalThis.indexedDB || !globalThis.navigator?.locks)
@@ -46,13 +46,13 @@ export async function DiskStoreOpen(Notice,readOnly=false,wait=false)
   {
     queued=false;
     if (!write || !dirty.size) return pending;
-    let batch=dirty;dirty=new Map();active++;
+    let batch=dirty,stamp=revision=crypto.randomUUID();dirty=new Map();active++;
     Status("saving","Saving C:…");
     pending=pending.then(function () {
       if (failed) throw failed;
       return Run("readwrite",function (store) {
         for (let [lba,bytes] of batch) store.put(bytes,lba);
-        store.put(crypto.randomUUID(),"revision");
+        store.put(stamp,"revision");
       });
     }).then(function () {
       failed=null;
@@ -66,17 +66,18 @@ export async function DiskStoreOpen(Notice,readOnly=false,wait=false)
     return pending;
   }
   return {
-    async Load(revision=null) {
+    async Load(expected=null) {
       let record=await Run("readonly",function (store) {
         let range=IDBKeyRange.bound(0,Number.MAX_SAFE_INTEGER),
           base=store.get("base"),keys=store.getAllKeys(range),values=store.getAll(range),
           current=store.get("revision");
         return function () {return {base:base.result,keys:keys.result,values:values.result,revision:current.result};};
       });
-      if (revision && record.revision!==revision) {
+      if (expected && record.revision!==expected) {
         let error=Error("Saved C: changed while the session was starting.");
         error.code="SESSION_STALE";throw error;
       }
+      revision=record.revision;
       if (!record.base) return null;
       let disk=await makeDisk(new Uint8Array(await record.base.arrayBuffer()));
       record.keys.forEach(function (key,i) {
@@ -104,10 +105,10 @@ export async function DiskStoreOpen(Notice,readOnly=false,wait=false)
             bytes=new Uint8Array(Math.min(1048576,disk.virtualSize-off));
             disk.readInto(off/512,bytes.length/512,bytes,0);parts.push(bytes);
           }
-          let base=new Blob(parts);
+          let base=new Blob(parts),stamp=revision=crypto.randomUUID();
           await Run("readwrite",function (store) {
             store.clear();store.put(base,"base");
-            store.put(crypto.randomUUID(),"revision");
+            store.put(stamp,"revision");
             for (let [lba,bytes] of disk.overlay) store.put(bytes,lba);
           });
         }
@@ -122,8 +123,10 @@ export async function DiskStoreOpen(Notice,readOnly=false,wait=false)
       } catch (e) {ErrorShow(e);}
     },
     async Flush() {
-      await Flush();
+      const flushed=Flush(),stamp=revision;
+      await flushed;
       if (failed) throw failed;
+      return stamp;
     },
     async SessionRead() {
       let record=await Run("readonly",function (store) {
@@ -137,18 +140,21 @@ export async function DiskStoreOpen(Notice,readOnly=false,wait=false)
       if (!record) return null;
       return {bytes:await record.bytes.arrayBuffer(),savedAt:record.savedAt,revision:record.revision};
     },
-    async SessionSave(bytes) {
+    async SessionSave(bytes,expected) {
       await Flush();
       if (!write || failed)
         throw failed || Error("This tab does not own browser storage.");
       let savedAt=Date.now(),blob=new Blob([bytes]);
-      await Run("readwrite",function (store) {
-        let revision=store.get("revision");
-        revision.onsuccess=function () {
-          store.put({revision:revision.result,bytes:blob,savedAt},"session");
+      return Run("readwrite",function (store) {
+        let current=store.get("revision"),saved=false;
+        current.onsuccess=function () {
+          if (expected && current.result===expected) {
+            store.put({revision:expected,bytes:blob,savedAt},"session");
+            saved=true;
+          }
         };
+        return ()=>saved?savedAt:null;
       });
-      return savedAt;
     },
     Close() {
       db.close();

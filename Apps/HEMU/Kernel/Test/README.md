@@ -470,8 +470,10 @@ of its linear memory, and the whole current disk. This includes all CPU cores,
 x87/SSE registers, device queues, clocks, palette, guest RAM, scratch mailboxes,
 and disk writes. Host allocator/input/settings state and a running game's
 mailbox are recorded separately. Compiled JIT functions are rebuilt on restore.
-Saving stops every core; pending guest commands must finish first. Pause now
-stops application cores as well as the display core.
+Capture stops every core only while copying RAM and retaining disk sector
+versions; pending guest commands must finish first. Compression and storage run
+after the CPUs resume, with bounded encoding work between worker message turns.
+Pause stops application cores as well as the display core.
 
 Coordinated four-core saves use mandatory version 2 and `requiredBusProtocol:1`;
 older decoders reject them. Version 1 remains readable, including embedded
@@ -569,9 +571,12 @@ no partial save. Its `Adam/BootCancel.browser.mjs` checks stale asynchronous
 boots. These shell checks remain in the site; HEMU owns the shared worker
 lifecycle in `Kernel/Machine.js`.
 
-Both disk-only and full-machine exports hold the shared core barrier until
-compression finishes and defer incoming mutations. Disk-only export is a
-point-in-time block image; full-machine saves also retain the CPU state needed
+Both disk-only and full-machine exports release the shared core barrier before
+compression. Captured nonzero RAM chunks and disk sector versions remain
+immutable while the live machine accepts input and writes files. Exports are
+serialized with disk replacement, and a browser session is committed only if its disk revision still
+matches the capture. Disk-only export is a point-in-time block image; full-machine
+saves also retain the CPU state needed
 to resume an interrupted filesystem operation. The legacy SMP demo's BSP now
 adapts to the same production worker; APs no longer import a second BSP or the
 site's game catalog.

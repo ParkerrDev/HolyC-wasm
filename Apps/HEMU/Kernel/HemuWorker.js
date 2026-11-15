@@ -2,7 +2,7 @@ import {HemuPath} from "./Paths.js";
 import {DiskStoreOpen} from "./DiskStore.js";
 import {GuestPatchCheck} from "./GuestPatch.js";
 import {FrameTop,FrameFps} from "./FrameText.js";
-import {SnapshotOpen,SnapshotSave} from "./Snapshot.js";
+import {SnapshotOpen,SnapshotSave,GzipChunks} from "./Snapshot.js";
 import {StockIdentify,StockModuleCheck,StockDiskAside,StockInflate} from "./Stock.js";
 import {RamParts} from "./Ram.js";
 import {KeyQueue} from "./KeyQueue.js";
@@ -60,11 +60,11 @@ function SettingsApply(rateChanged=true)
 }
 let curBudget = 1500000, dtMs = 16, dtNs = 16000000;         // guest instr/frame + real wall-clock ms/frame
 let outstanding = 0, snap = null, snapWrote = null, loaded = false, disk = null, gBase = 0, instRef = null;
-let paused=false,suspended=false,saving=false,machineBarrier=null,engineBytes=null,hostRef=null,showStoppedFrame=null;
+let paused=false,suspended=false,machineBarrier=null,engineBytes=null,hostRef=null,showStoppedFrame=null;
 let diskStore=null;
 let machineBus=null,diskPending=false,diskGeneration=0,stockCapture=null,stockManifest=null;
 const RamAccess=fn=>machineBus?machineBus.Access(fn):fn();
-const deferred=[];
+let exporting=Promise.resolve();
 let guestPatches=[];
 let captureMsg;
 function CaptureState()
@@ -283,7 +283,6 @@ const guestInput = createGuestInput({guest:()=>gx,
   onState:state=>postMessage({cmd:"inputMode",...state})});
 onmessage = async (e) => {
   const m = e.data;
-  if (saving && m.cmd!=="ack") {deferred.push(m);return;}
   if (m.cmd === "init") boot(m).catch(err => {
     if(machineBus)BusStop(new Int32Array(smpCfg.ctrl));
     postMessage({cmd:"error",msg:String(err?.message||err),code:err?.code,...(loaded?{retained:true,paused:true}:{})});
@@ -305,9 +304,9 @@ onmessage = async (e) => {
   else if (m.cmd === "guest") { try { guestCmd(m); } catch (err) { postMessage({ cmd: "guestResult", id: m.id, op: m.op, state: "error", ok: false, msg: String(err?.message || err) }); } }
   else if (m.cmd === "ack") outstanding--;   // main finished a frame - release a flow-control slot
   else if (m.cmd === "pause") {try {PauseSet(m.value);} catch(err) {postMessage({cmd:"error",msg:err.message});}}
-  else if (m.cmd === "exportSnapshot") exportImage("snapshot",m);
-  else if (m.cmd === "exportDisk") exportImage("disk",m);
-  else if (m.cmd === "saveSession") exportImage("session",m);
+  else if (["exportSnapshot","exportDisk","saveSession"].includes(m.cmd))
+    exporting=exporting.then(()=>exportImage(m.cmd==="exportSnapshot"?"snapshot":
+      m.cmd==="exportDisk"?"disk":"session",m));
   else if (m.cmd === "suspend") {
     try {
       if (m.value && machineBarrier && !machineBarrier.Lock())
@@ -321,21 +320,7 @@ onmessage = async (e) => {
     try {PauseSet(true);await diskStore?.Flush();fileResult(m.id,{ok:true});}
     catch(err) {fileResult(m.id,{ok:false,msg:err.message});}
   }
-  else if (m.cmd === "importDisk") {
-    const wasPaused=paused;
-    try {
-      const next=await makeDisk(new Uint8Array(m.bytes));
-      PauseSet(true);
-      GuestCacheInvalidate();
-      diskGeneration++;
-      await diskStore?.Attach(next);
-      disk=next;diskPending=false;
-      postMessage({cmd:"diskInfo",ok:true,diskReady:true,diskPending,
-        msg:"Disk imported ("+(m.bytes.byteLength/1048576).toFixed(0)+" MB)"});
-    } catch(err) {
-      postMessage({cmd:"diskInfo",ok:false,diskReady:!!disk,diskPending,msg:String(err.message||err)});
-    } finally {PauseSet(wasPaused);}
-  }
+  else if (m.cmd === "importDisk") exporting=exporting.then(()=>DiskImport(m));
   else if (m.cmd === "readFile") {
     try {
       if (!disk) throw Error("The TempleOS disk is not available.");
@@ -356,32 +341,54 @@ onmessage = async (e) => {
   }
 };
 
+async function DiskImport(m) {
+  const wasPaused=paused;
+  try {
+    const next=await makeDisk(new Uint8Array(m.bytes));
+    PauseSet(true);
+    GuestCacheInvalidate();
+    diskGeneration++;
+    await diskStore?.Attach(next);
+    disk=next;diskPending=false;
+    postMessage({cmd:"diskInfo",ok:true,diskReady:true,diskPending,
+      msg:"Disk imported ("+(m.bytes.byteLength/1048576).toFixed(0)+" MB)"});
+  } catch(err) {
+    postMessage({cmd:"diskInfo",ok:false,diskReady:!!disk,diskPending,msg:String(err.message||err)});
+  } finally {PauseSet(wasPaused);}
+}
+
 async function exportImage(kind,request={}) {
-  let locked=false,frozen=false;
   try {
     const why=CaptureState();
     if (why) throw new Error(why);
+    if (kind==="session" && !diskStore)
+      throw Error("Browser storage is unavailable. Export a snapshot instead.");
     if (instRef.exports.WinSurfaceActive?.())
       throw new Error("The window renderer stopped mid-frame. Restart before saving.");
     if (machineBarrier && !machineBarrier.Lock()) throw new Error("The application cores did not stop; save again.");
-    locked=true;saving=true;
-    if (kind==="session") postMessage({cmd:"sessionSave",state:"saving",msg:"Saving session…"});
-
-    const launch=gx.snapshot();
-    const meta={cores:smpCfg?.ncore||1,base:gBase,heapPtr:hostRef.state.heapPtr,heapAbi:hostRef.state.heapAbi??0,
-      sp:Number(instRef.exports.__sp.value),ipiAddr:smpCfg?.ipiAddr||0,
-      requiredBusProtocol:machineBus?.Ready()?BUS_VERSION:undefined,
-      paused,rate:refreshRate,actualRate,repeat:repeatKeys,budget:curBudget,
-      ...(actual_fast===null?{}:{fast:actual_fast}),
-      keyboard:keyq.Save(),pointer:guestInput.save(),launch,guestPatches:guestPatches};
-    if(machineBus){machineBus.Freeze();frozen=true;}
-    const buf=kind!=="disk"?await SnapshotSave({meta,wasm:engineBytes,memory:instRef.exports.memory,disk}):await DiskImage();
+    let frozen=false,encoded,revision;
+    try {
+      if (kind==="session") postMessage({cmd:"sessionSave",state:"saving",msg:"Saving session…"});
+      const launch=gx.snapshot(),meta={cores:smpCfg?.ncore||1,base:gBase,
+        heapPtr:hostRef.state.heapPtr,heapAbi:hostRef.state.heapAbi??0,
+        sp:Number(instRef.exports.__sp.value),ipiAddr:smpCfg?.ipiAddr||0,
+        requiredBusProtocol:machineBus?.Ready()?BUS_VERSION:undefined,
+        paused,rate:refreshRate,actualRate,repeat:repeatKeys,budget:curBudget,
+        ...(actual_fast===null?{}:{fast:actual_fast}),
+        keyboard:keyq.Save(),pointer:guestInput.save(),launch,guestPatches};
+      if(machineBus){machineBus.Freeze();frozen=true;}
+      encoded=kind!=="disk"?SnapshotSave({meta,wasm:engineBytes,memory:instRef.exports.memory,disk}):DiskImage(disk.snapshot());
+      if (kind==="session") revision=diskStore.Flush();
+    } finally {
+      if (frozen) machineBus.Thaw();
+      if (!paused && !suspended) machineBarrier?.Unlock();
+    }
+    const [buf,diskRevision]=await Promise.all([encoded,revision]);
     if(machineBus?.Stopped())throw new Error("Shared RAM coordination stopped during capture");
     if (kind==="session") {
-      if (!diskStore) throw Error("Browser storage is unavailable. Export a snapshot instead.");
-      const savedAt=await diskStore.SessionSave(buf);
-      if (request.suspend) suspended=true;
-      postMessage({cmd:"sessionSave",state:"saved",savedAt,msg:"Session saved in this browser."});
+      const savedAt=await diskStore.SessionSave(buf,diskRevision);
+      postMessage({cmd:"sessionSave",state:savedAt?"saved":"pending",savedAt,
+        msg:savedAt?"Session saved in this browser.":"Newer changes are waiting to be saved."});
       fileResult(request.id,{ok:true},{savedAt});
     } else postMessage({cmd:"exportResult",id:request.id,kind,ok:true,buf},[buf]);
   } catch(err) {
@@ -390,21 +397,15 @@ async function exportImage(kind,request={}) {
       fileResult(request.id,{ok:false,msg:err.message});
     } else postMessage({cmd:"exportResult",id:request.id,kind,ok:false,msg:err.message});
   }
-  finally {
-    if(frozen)machineBus.Thaw();
-    if (locked && !paused && !suspended) machineBarrier?.Unlock();
-    saving=false;
-    for (const m of deferred.splice(0)) onmessage({data:m});
-  }
 }
-async function DiskImage() {
-  let off=0;
-  const stream=new ReadableStream({pull(c) {
-    if (off===disk.virtualSize) {c.close();return;}
-    const bytes=new Uint8Array(Math.min(131072,disk.virtualSize-off));
-    disk.readInto(off/512,bytes.length/512,bytes,0);off+=bytes.length;c.enqueue(bytes);
-  }});
-  return new Response(stream.pipeThrough(new CompressionStream("gzip"))).arrayBuffer();
+function DiskImage(disk) {
+  function* Chunks() {
+    for (let off=0;off<disk.virtualSize;off+=131072) {
+      const bytes=new Uint8Array(Math.min(131072,disk.virtualSize-off));
+      disk.readInto(off/512,bytes.length/512,bytes,0);yield bytes;
+    }
+  }
+  return GzipChunks(Chunks());
 }
 
 // `smp` (optional) = { mem: shared WebAssembly.Memory, ctrl: SharedArrayBuffer, ipiAddr, ncore } - when
@@ -589,7 +590,7 @@ async function boot({ gz, wasmUrl, wasmBytes, manifest, fixedB, diskBytes, smp, 
     dtNs=Math.min(100000000,Math.floor(dtAcc));
     dtAcc-=dtNs;
     dtMs=dtNs/1000000;
-    if (paused || suspended || saving) {
+    if (paused || suspended) {
       await sleep(80);
       lastT=performance.now();
       dtAcc=0;

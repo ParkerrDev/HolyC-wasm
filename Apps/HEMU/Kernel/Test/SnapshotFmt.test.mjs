@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import {gzipSync} from "node:zlib";
 import {readFileSync} from "node:fs";
 import {createHash} from "node:crypto";
-import {SnapshotInspect,SnapshotOpen} from "../Snapshot.js";
+import {SnapshotInspect,SnapshotOpen,SnapshotChunks} from "../Snapshot.js";
+import {makeRaw} from "../QCow2.js";
 import {SnapshotInspect as OldInspect} from "./Fixtures/SnapshotV1.mjs";
 
 //Unmodified Kernel/Snapshot.js from Web b0d51bf, before mandatory protocol versions.
@@ -61,3 +62,28 @@ try {
 await assert.rejects(()=>SnapshotInspect(Pack({...meta,version:1,requiredBusProtocol:1})),/ownership requirement/);
 await assert.rejects(()=>SnapshotInspect(Pack({...v2,requiredBusProtocol:2},coordinated)),/ownership requirement/);
 console.log("Snapshot format: legacy detection, engine hash/module, bounded metadata, unsupported versions, corruption and truncation rejected.");
+
+const memory={buffer:new ArrayBuffer(meta.memoryBytes)},live=new Uint8Array(memory.buffer),
+  disk=await makeRaw(new Uint8Array(2048));
+live[17]=42;live[live.length-1]=99;
+disk.writeInto(1,1,new Uint8Array(512).fill(7),0);
+const captured=SnapshotChunks({meta,wasm,memory,disk});
+live.fill(0);live[200000]=11;
+disk.writeInto(1,1,new Uint8Array(512).fill(8),0);
+disk.writeInto(2,1,new Uint8Array(512).fill(9),0);
+const {chunks}=await captured;
+chunks.next();chunks.next();
+let offset=0,nonzero=[];
+for (let next=chunks.next();!next.done;next=chunks.next()) {
+  const bytes=next.value;
+  if (offset<meta.memoryBytes) {
+    for (let i=0;i<bytes.length;i++) if (bytes[i]) nonzero.push([offset+i,bytes[i]]);
+  } else {
+    assert(bytes.subarray(512,1024).every(v=>v===7),"captured sector retains the old bytes");
+    assert(bytes.subarray(1024,1536).every(v=>v===0),"later sectors never enter the captured disk");
+  }
+  offset+=bytes.length;
+}
+assert.deepEqual(nonzero,[[17,42],[meta.memoryBytes-1,99]],"all RAM, including previously zero chunks, is frozen before the first await");
+assert.equal(offset,meta.memoryBytes+2048);
+console.log("Snapshot capture is immutable while live RAM and disk continue changing.");

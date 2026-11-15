@@ -161,7 +161,11 @@ exports are independent backups.
 ## Saved machines and build identity
 
 Full `.hemu` saves embed their exact engine, RAM, disk, CPU/device state and
-host settings. They resume their saved windows and code. Historical correction
+host settings. They resume their saved windows and code. Capture briefly stops
+the CPUs to copy nonzero RAM chunks and retain the disk sector versions. The
+CPUs resume before gzip and IndexedDB work; encoding yields to worker input
+and frame scheduling. A session commits only against its captured disk revision,
+so newer files cannot be paired with older RAM. Historical correction
 metadata is validated when those saves load; this is separate from stock
 startup. See [the saved-machine format](Kernel/Test/README.md#full-machine-snapshots).
 

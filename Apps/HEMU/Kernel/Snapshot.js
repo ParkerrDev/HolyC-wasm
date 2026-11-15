@@ -114,8 +114,14 @@ export async function SnapshotInspect(gz,options)
 }
 
 export async function SnapshotChunks({meta,wasm,memory,disk})
-{//Keep all guest owners stopped until these validated chunks are consumed.
-  const header=HeaderCheck({...meta,version:meta.requiredBusProtocol?2:1,memoryBytes:memory.buffer.byteLength,
+{//Copy with all guest cores stopped; they can resume as soon as this returns.
+  const size=memory.buffer.byteLength,ram=[],zero=new Uint8Array(CHUNK);
+  for (let off=0;off<size;off+=CHUNK) {
+    const bytes=new Uint8Array(memory.buffer,off,Math.min(CHUNK,size-off));
+    ram.push(Zero(bytes)?zero.subarray(0,bytes.length):bytes.slice());
+  }
+  disk=disk.snapshot();
+  const header=HeaderCheck({...meta,version:meta.requiredBusProtocol?2:1,memoryBytes:size,
     diskBytes:disk.virtualSize,wasmBytes:wasm.byteLength,engineHash:await Hash(wasm)});
   if(header.requiredBusProtocol && BusModuleVersion(new WebAssembly.Module(wasm))!==header.requiredBusProtocol)
     Fail("engine does not implement its required RAM protocol");
@@ -125,8 +131,7 @@ export async function SnapshotChunks({meta,wasm,memory,disk})
   lead.set(MAGIC);new DataView(lead.buffer).setUint32(8,json.length,true);lead.set(json,12);
   function* Chunks() {
     yield lead;yield wasm;
-    for(let off=0;off<header.memoryBytes;off+=CHUNK)
-      yield new Uint8Array(memory.buffer).slice(off,Math.min(off+CHUNK,header.memoryBytes));
+    for(let i=0;i<ram.length;i++) {yield ram[i];ram[i]=null;}
     for(let off=0;off<header.diskBytes;off+=CHUNK) {
       const bytes=new Uint8Array(Math.min(CHUNK,header.diskBytes-off));
       disk.readInto(off/512,bytes.length/512,bytes,0);yield bytes;
@@ -135,11 +140,21 @@ export async function SnapshotChunks({meta,wasm,memory,disk})
   return {meta:header,chunks:Chunks()};
 }
 
-export async function SnapshotSave(machine)
-{//Call with every guest core stopped until this promise settles.
-  const {chunks}=await SnapshotChunks(machine),source=new ReadableStream({pull(c) {
+export function GzipChunks(chunks)
+{//CompressionStream pulls can starve worker messages and the emulated CPUs.
+  let until=performance.now()+8;
+  const source=new ReadableStream({async pull(c) {
+    if (performance.now()>=until) {
+      await new Promise(resolve=>setTimeout(resolve,0));
+      until=performance.now()+8;
+    }
     const next=chunks.next();
     if(next.done)c.close();else c.enqueue(next.value);
   }});
   return new Response(source.pipeThrough(new CompressionStream("gzip"))).arrayBuffer();
+}
+
+export function SnapshotSave(machine)
+{
+  return SnapshotChunks(machine).then(({chunks})=>GzipChunks(chunks));
 }

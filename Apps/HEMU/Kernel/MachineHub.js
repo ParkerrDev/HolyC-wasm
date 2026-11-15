@@ -113,11 +113,14 @@ function Background()
   let hidden=![...clients].some(c=>c.visible),input=cache.get("inputMode");
   if (!hidden && !cache.get("paused")?.value && (input?.game || input?.capture)) return;
   dirty=false;
-  saving=machine.Request({cmd:"saveSession",suspend:hidden}).then(function (result) {
-    if (!result.ok) dirty=true;
-
+  let retry=false;
+  if (hidden) machine.post({cmd:"suspend",value:true});
+  saving=machine.Request({cmd:"saveSession"}).then(function (result) {
+    if (!result.ok || !result.savedAt) dirty=true;
+    retry=result.ok;
   }).catch(function () {dirty=true;}).finally(function () {
     saving=null;
+    if (dirty && retry) SaveSoon();
     if ([...clients].some(c=>c.visible)) machine.post({cmd:"suspend",value:false});
   });
 }
