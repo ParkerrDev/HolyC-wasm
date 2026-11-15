@@ -1,7 +1,7 @@
 const TASK_FIELDS=["task_num","display_flags","win_left","win_right",
   "win_top","win_bottom","win_inhibit","task_title"];
 const WIN_FIELDS=["task","task_num","detached","owned","show","seq",
-  "dc","text","gui","image","gui_focus","gui_press"];
+  "dc","text","gui","image","gui_focus","gui_press","gui_hover"];
 
 function Quoted(st)
 {
@@ -37,7 +37,7 @@ export function GuestWindows({gx,exec,post,paused,access=fn=>fn(),source})
     ct=Fields("CTask",TASK_FIELDS);
     cw=Fields("CWebWin",WIN_FIELDS);
     dc=Fields("CDC",["body","width_internal"]);
-    stride=cw.gui_press+8;
+    stride=cw.gui_hover+8;
   }
   function Read(slot,key)
   {
@@ -81,7 +81,7 @@ export function GuestWindows({gx,exec,post,paused,access=fn=>fn(),source})
     if (enabled)
       return;
     const current=revision;
-    if (gx.varFind("web_wins") && gx.memberFind("CWebWin","gui_press")<0)
+    if (gx.varFind("web_wins") && gx.memberFind("CWebWin","gui_hover")<0)
       throw Error("Restart TempleOS to update this saved window bridge.");
     if (!gx.varFind("web_wins")) {
       const src=await source();
@@ -203,6 +203,15 @@ export function GuestWindows({gx,exec,post,paused,access=fn=>fn(),source})
 	await Run("WebWinAttach("+slot+","+x+","+y+");");
       } else if (m.op==="focus")
 	await Run("WebWinFocus("+slot+");");
+      else if (m.op==="size") {
+        Owner(w);
+        cols=Math.max(12,Math.min(78,Math.round(Number(m.cols)||78)));
+        rows=Math.max(4,Math.min(58,Math.round(Number(m.rows)||58)));
+        x=Math.max(1,Math.min(79-cols,Math.round(Number(m.x)||0)/8+1));
+        y=Math.max(1,Math.min(59-rows,Math.round(Number(m.y)||0)/8+1));
+        await Run("WinHorz("+x+","+(x+cols-1)+","+w.task+");WinVert("+
+          y+","+(y+rows-1)+","+w.task+");WinFocus("+w.task+");");
+      }
       else if (m.op==="update") {
 	Owner(w);
 	doc=String(m.doc||"");
@@ -306,10 +315,13 @@ export function GuestWindows({gx,exec,post,paused,access=fn=>fn(),source})
       }
       head=gx.rd64(vars.head);tail=gx.rd64(vars.tail);
       while (tail<head && head-tail<=64) {
-	act=vars.actions+tail%64*24;
+        act=vars.actions+tail%64*64;
 	slot=gx.rd64(act);num=gx.rd64(act+8);
 	if (hosts.get(slot)?.num===num)
-	  events.push({slot,id:gx.rd64(act+16)});
+          events.push({slot,id:gx.rd64(act+16),kind:gx.rd64(act+24),
+            x:Number(BigInt.asIntN(64,gx.rd64b(act+32))),
+            y:Number(BigInt.asIntN(64,gx.rd64b(act+40))),
+            arg1:gx.rd64(act+48),arg2:gx.rd64(act+56)});
 	tail++;
       }
       gx.wr64(vars.tail,tail);

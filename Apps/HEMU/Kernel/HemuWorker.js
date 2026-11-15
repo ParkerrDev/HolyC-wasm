@@ -187,7 +187,7 @@ async function WindowRequest(m)
       if (current!==windowRevision)
         throw Error("Window passthrough was turned off.");
       windows??=GuestWindows({gx,access:RamAccess,paused:()=>paused,
-        post:postMessage,exec:src=>gxRequest("exec",{src,target:"adam"},"windows"),
+        post:postMessage,exec:src=>gxRequest("exec",{src,target:"adam",background:true,force:true},"windows"),
         source:async()=>{
           const r=await fetch(HemuPath("Kernel/GuestWin.HC"));
           if (!r.ok) throw Error("Could not load the TempleOS window bridge.");
