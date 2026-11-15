@@ -1,7 +1,8 @@
 const TASK_FIELDS=["task_num","display_flags","win_left","win_right",
   "win_top","win_bottom","win_inhibit","task_title"];
 const WIN_FIELDS=["task","task_num","detached","owned","show","seq",
-  "dc","text","gui","image","gui_focus","gui_press","gui_hover"];
+  "dc","text","gui","image","gui_focus","gui_press","gui_hover","gui_edit",
+  "gui_capture","gui_ms_show","gui_ms_x","gui_ms_y","gui_center_x","gui_center_y"];
 
 function Quoted(st)
 {
@@ -13,7 +14,7 @@ function Quoted(st)
 export function GuestWindows({gx,exec,post,paused,access=fn=>fn(),source})
 {//Window buffers belong to native tasks; JS only transports their pixels.
   let enabled=false,base=0,stride=0,vars={},ct={},cw={},dc={},hosts=new Map(),
-    seqs=new Map(),queue=Promise.resolve(),last=0,revision=0;
+    seqs=new Map(),captures=new Map(),queue=Promise.resolve(),last=0,revision=0;
   function Fields(cls,names)
   {
     let res={},name,offset;
@@ -37,7 +38,7 @@ export function GuestWindows({gx,exec,post,paused,access=fn=>fn(),source})
     ct=Fields("CTask",TASK_FIELDS);
     cw=Fields("CWebWin",WIN_FIELDS);
     dc=Fields("CDC",["body","width_internal"]);
-    stride=cw.gui_hover+8;
+    stride=cw.gui_center_y+8;
   }
   function Read(slot,key)
   {
@@ -81,7 +82,7 @@ export function GuestWindows({gx,exec,post,paused,access=fn=>fn(),source})
     if (enabled)
       return;
     const current=revision;
-    if (gx.varFind("web_wins") && gx.memberFind("CWebWin","gui_hover")<0)
+    if (gx.varFind("web_wins") && gx.memberFind("CWebWin","gui_center_y")<0)
       throw Error("Restart TempleOS to update this saved window bridge.");
     if (!gx.varFind("web_wins")) {
       const src=await source();
@@ -99,6 +100,17 @@ export function GuestWindows({gx,exec,post,paused,access=fn=>fn(),source})
     await Run("WebWinInit;");
     enabled=true;
     seqs.clear();hosts.clear();
+  }
+  function CaptureLost(next=new Map())
+  {
+    const events=[];
+    for (const [slot,old] of captures) {
+      const current=next.get(slot);
+      if (!current || current.num!==old.num || current.id!==old.id)
+        events.push({slot,num:old.num,id:old.id,kind:13,x:0,y:0,arg1:0,arg2:0});
+    }
+    captures=next;
+    return events;
   }
   function Disable()
   {
@@ -120,7 +132,7 @@ export function GuestWindows({gx,exec,post,paused,access=fn=>fn(),source})
       }
     });
     enabled=false;
-    post({cmd:"windows",enabled:false,windows:[],actions:[]});
+    post({cmd:"windows",enabled:false,windows:[],actions:CaptureLost()});
   }
   async function GuiWrite(w,value)
   {
@@ -203,6 +215,15 @@ export function GuestWindows({gx,exec,post,paused,access=fn=>fn(),source})
 	await Run("WebWinAttach("+slot+","+x+","+y+");");
       } else if (m.op==="focus")
 	await Run("WebWinFocus("+slot+");");
+      else if (m.op==="capture") {
+        Owner(w);
+        if (!Number.isInteger(m.control) || m.control<=0 || m.control>0x7FFFFFFF)
+          throw Error("The game canvas has no native identity.");
+        const captured=await Run("web_win_result=WebGuiCapture("+slot+","+m.control+","+Number(!!m.on)+");");
+        if (!captured) throw Error("The native game canvas is unavailable for mouse capture.");
+        Tick(true);
+        return {ok:true,...w,capture:Read(slot,"gui_capture")};
+      }
       else if (m.op==="size") {
         Owner(w);
         cols=Math.max(12,Math.min(78,Math.round(Number(m.cols)||78)));
@@ -261,13 +282,13 @@ export function GuestWindows({gx,exec,post,paused,access=fn=>fn(),source})
       return;
     if (!gx.rd64(vars.enabled)) {
       enabled=false;
-      post({cmd:"windows",enabled:false,windows:[],actions:[],
+      post({cmd:"windows",enabled:false,windows:[],actions:CaptureLost(),
         msg:"This fullscreen program needs the TempleOS desktop. Windows have been returned."});
       return;
     }
     last=performance.now();
     return access(function () {
-      let windows=[],events=[],transfer=[],slots=new Map(),slot,task,num,
+      let windows=[],events=[],transfer=[],slots=new Map(),nextCaptures=new Map(),slot,task,num,
           flags,win,buf,surface,body,width,row,seq,tail,head,act,tasks=gx.taskRing(),
 	  mgr=gx.rd64(vars.mgr),start=tasks.indexOf(mgr);
       if (start>=0)
@@ -293,7 +314,8 @@ export function GuestWindows({gx,exec,post,paused,access=fn=>fn(),source})
 	  y:(Number(BigInt.asIntN(64,gx.rd64b(task+ct.win_top)))-1)*8,
 	  w:Number(BigInt.asIntN(64,gx.rd64b(task+ct.win_right)-gx.rd64b(task+ct.win_left))+3n)*8,
 	  h:Number(BigInt.asIntN(64,gx.rd64b(task+ct.win_bottom)-gx.rd64b(task+ct.win_top))+3n)*8,
-	  detached:slot>=0 && !!Read(slot,"detached"),host:hosts.get(slot)?.host||null};
+	  detached:slot>=0 && !!Read(slot,"detached"),host:hosts.get(slot)?.host||null,
+          capture:slot>=0?Read(slot,"gui_capture"):0};
 	if (win.w<=0 || win.h<=0 || win.w>640 || win.h>480)
 	  continue;
 	if (slot>=0) {
@@ -313,18 +335,27 @@ export function GuestWindows({gx,exec,post,paused,access=fn=>fn(),source})
 	}
 	windows.push(win);
       }
+      for (const win of windows) if (win.capture)
+        nextCaptures.set(win.slot,{id:win.capture,num:win.num});
       head=gx.rd64(vars.head);tail=gx.rd64(vars.tail);
       while (tail<head && head-tail<=64) {
         act=vars.actions+tail%64*64;
 	slot=gx.rd64(act);num=gx.rd64(act+8);
-	if (hosts.get(slot)?.num===num)
-          events.push({slot,id:gx.rd64(act+16),kind:gx.rd64(act+24),
+        if (hosts.get(slot)?.num===num) {
+          const kind=gx.rd64(act+24),event={slot,id:gx.rd64(act+16),kind,
             x:Number(BigInt.asIntN(64,gx.rd64b(act+32))),
             y:Number(BigInt.asIntN(64,gx.rd64b(act+40))),
-            arg1:gx.rd64(act+48),arg2:gx.rd64(act+56)});
+            arg1:gx.rd64(act+48),arg2:gx.rd64(act+56)};
+          if (kind===5) {
+            if (event.arg2>65536) throw Error("The native field is too large.");
+            event.value=gx.rdStr(event.arg1,event.arg2+1);
+          }
+          events.push(event);
+        }
 	tail++;
       }
       gx.wr64(vars.tail,tail);
+      events.push(...CaptureLost(nextCaptures));
       post({cmd:"windows",enabled:true,windows,actions:events},transfer);
     });
   }

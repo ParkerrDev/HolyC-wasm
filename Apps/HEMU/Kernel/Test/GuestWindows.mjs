@@ -59,7 +59,7 @@ assert.equal(gx.rd64b(gx.varFind("web_win_input")),0xFFFFFFFFFFFFFFFFn,
 bridge.Input(w.slot,w.task,w.num);
 assert.equal(gx.rd64(gx.varFind("web_win_input")),w.slot);
 await h.Exec(`DocLock(DocPut(${w.task}));`);
-const seqPtr=gx.varFind("web_wins")+w.slot*(gx.memberFind("CWebWin","gui_hover")+8)+
+const seqPtr=gx.varFind("web_wins")+w.slot*(gx.memberFind("CWebWin","gui_center_y")+8)+
   gx.memberFind("CWebWin","seq"),seq=gx.rd64(seqPtr);
 await h.Run(15);
 assert.equal(gx.rd64(seqPtr),seq,"a busy native document skips rendering without blocking the CPU");

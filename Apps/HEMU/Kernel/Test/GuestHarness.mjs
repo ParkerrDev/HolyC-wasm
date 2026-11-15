@@ -21,7 +21,9 @@ export async function GuestHarness(opt={})
   if (opt.sharedMemory)
     host.env.mem=new WebAssembly.Memory({initial:8192,maximum:8192,shared:true});
   Object.assign(host.env,{
-    __host_ns:()=>BigInt(ns),__host_key:keys.Read,__host_budget:()=>opt.budgetProbe?.()??12000000n,
+    __host_ns:()=>BigInt(ns),__host_key:keys.Read,
+    __host_msx:()=>opt.input?.x()??0n,__host_msy:()=>opt.input?.y()??0n,
+    __host_msb:()=>opt.input?.buttons()??0n,__host_wheel:()=>opt.input?.wheel()??0n,__host_budget:()=>opt.budgetProbe?.()??12000000n,
     ...jit.jitImports(()=>inst.exports)
   });
   ({instance:inst}=await WebAssembly.instantiate(compiled.bytes,{env:host.env}));
@@ -31,6 +33,7 @@ export async function GuestHarness(opt={})
   async function Run(n=1)
   {
     while (n-->0) {
+      opt.input?.beforeFrame();
       ex.__main();
       gx?.tick();
       await new Promise(setImmediate);

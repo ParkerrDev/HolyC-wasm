@@ -482,6 +482,7 @@ export function createGuestExec(opts) {
     const inhibit = valid && CT.win_inhibit ? rd32(task + CT.win_inhibit) : 0;
     const drawing = valid && CT.draw_it ? rd64(task + CT.draw_it) : 0;
     return {down:INPUT.down, x:rd64(INPUT.pos), y:rd64(INPUT.pos+8),
+      updates:DISPLAY.updates?rd64(DISPLAY.updates):null,
       capture:!!(valid && ((!rd8(INPUT.show)) || (drawing && (inhibit & 0x28) === 0x28))),
       task, game:!!activeLaunch};
   }
