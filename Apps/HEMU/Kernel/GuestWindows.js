@@ -82,7 +82,8 @@ export function GuestWindows({gx,exec,post,paused,access=fn=>fn(),source})
     if (enabled)
       return;
     const current=revision;
-    if (gx.varFind("web_wins") && gx.memberFind("CWebWin","gui_doc")<0)
+    if (gx.varFind("web_wins") && (gx.memberFind("CWebWin","gui_doc")<0 ||
+        !gx.varFind("web_win_no_close")))
       throw Error("Restart TempleOS to update this saved window bridge.");
     if (!gx.varFind("web_wins")) {
       const src=await source();
@@ -185,6 +186,7 @@ export function GuestWindows({gx,exec,post,paused,access=fn=>fn(),source})
       w=Record(slot);
       hosts.set(slot,{...w,host:m.host});
       try {
+        if (m.closable===false) await Run("WebWinCloseEnable("+slot+",FALSE);");
         if (m.gui) await GuiWrite(w,m.gui);
         else await Run("WebWinDoc("+slot+","+Quoted(doc)+");");
       }
@@ -240,6 +242,9 @@ export function GuestWindows({gx,exec,post,paused,access=fn=>fn(),source})
 	  throw Error("The browser document is too large.");
 	if (m.gui) await GuiWrite(w,m.gui);
         else await Run("WebWinDoc("+slot+","+Quoted(doc)+");");
+      } else if (m.op==="closable") {
+	Owner(w);
+	await Run("WebWinCloseEnable("+slot+","+Number(!!m.on)+");");
       } else if (m.op==="close") {
 	Owner(w);
 	await Run("WebWinClose("+slot+","+w.num+");");

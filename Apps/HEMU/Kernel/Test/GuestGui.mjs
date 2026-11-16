@@ -61,13 +61,26 @@ messages.length=0;
 await h.Exec(`MsSet(${w.task}(CTask *)->pix_left+20,${w.task}(CTask *)->pix_top+70,ms.pos.z+1);`);
 await h.Run(15);bridge.Tick(true);
 assert(messages.flatMap(m=>m.actions).some(a=>a.id==0x100000+4*16+2),"native mouse wheel selects the scroll container under the pointer");
+await h.Exec(`CDoc *close_doc=DocBorder(${w.task});
+  DocFind(close_doc,,"[X]");web_win_result=close_doc->cur_entry;`);
+const closeFlags=gx.rd64(gx.varFind("web_win_result"))+gx.memberFind("CDocEntry","de_flags")+4,
+  skip=1<<(54-32);
+await bridge.Request({op:"closable",...w,on:false});
+assert(gx.rd32(closeFlags)&skip,"protected windows hide their native close control");
+await h.Exec(`TaskMsg(${w.task},0,MSG_KEY_DOWN,CH_ESC,0,0);
+  TaskMsg(${w.task},0,MSG_KEY_DOWN,CH_SHIFT_ESC,0,0);`);
+await h.Run(15);
+assert(gx.taskInfo(w.task).valid,"Escape and the native close action leave a protected task alive");
+await bridge.Request({op:"closable",...w,on:true});
+assert.equal(gx.rd32(closeFlags)&skip,0,"normal close control returns when protection ends");
 await assert.rejects(bridge.Request({op:"detach",task:w.task,num:w.num}),/needs the TempleOS desktop/,
   "GUI owners return to their DOM rather than entering arbitrary draw-callback capture");
-const full=await bridge.Request({op:"host",host:"editor",title:"Large editor",cols:78,rows:58,x:0,y:0,gui:Scene(1)});
+const full=await bridge.Request({op:"host",host:"editor",title:"Large editor",cols:78,rows:58,x:0,y:0,gui:Scene(1),closable:false});
 await h.Run(20);bridge.Tick(true);
 assert(messages.at(-1).enabled,"a full-size native window must not be mistaken for a replaced desktop renderer");
 await bridge.Request({op:"close",...full});await h.Run(15);
-await bridge.Request({op:"close",...w});await h.Run(15);
+assert.equal(gx.taskInfo(full.task).valid,false,"lifecycle cleanup can still remove a protected window");
+await h.Exec(`TaskMsg(${w.task},0,MSG_KEY_DOWN,CH_SHIFT_ESC,0,0);`);await h.Run(15);
 assert.equal(gx.taskInfo(w.task).valid,false);
 await bridge.Request({op:"disable"});await h.Run(15);
 console.log("PASS native GUI: native rectangle/image pixels, live scene update, real mouse and keyboard handlers, scroll actions, capture safety and cleanup");
