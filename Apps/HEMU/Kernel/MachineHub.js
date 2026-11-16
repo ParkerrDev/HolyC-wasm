@@ -159,6 +159,13 @@ function Detach(client)
 async function Handle(client,m)
 {
   let value=m.value;
+  if (m.op=="storageClear") {
+    clearTimeout(saveTimer);dirty=false;
+    Broadcast({cmd:"storageCleared"});
+    clients.clear();host=owner=starter=null;
+    for (let request of calls.values()) request.Reject(Error("Browser data was deleted."));
+    calls.clear();close();return;
+  }
   if (m.op=="connect") {
     client.visible=true;
     State(client);

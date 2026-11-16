@@ -1,7 +1,7 @@
 const TASK_FIELDS=["task_num","display_flags","win_left","win_right",
   "win_top","win_bottom","win_inhibit","task_title"];
 const WIN_FIELDS=["task","task_num","detached","owned","show","seq",
-  "dc","text","gui","image","gui_focus","gui_press","gui_hover","gui_edit",
+  "dc","text","gui","image","gui_doc","gui_focus","gui_press","gui_hover","gui_edit",
   "gui_capture","gui_ms_show","gui_ms_x","gui_ms_y","gui_center_x","gui_center_y"];
 
 function Quoted(st)
@@ -82,7 +82,7 @@ export function GuestWindows({gx,exec,post,paused,access=fn=>fn(),source})
     if (enabled)
       return;
     const current=revision;
-    if (gx.varFind("web_wins") && gx.memberFind("CWebWin","gui_center_y")<0)
+    if (gx.varFind("web_wins") && gx.memberFind("CWebWin","gui_doc")<0)
       throw Error("Restart TempleOS to update this saved window bridge.");
     if (!gx.varFind("web_wins")) {
       const src=await source();

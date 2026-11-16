@@ -5,13 +5,37 @@ import {GuestHarness} from "./GuestHarness.mjs";
 import {GuestWindows} from "../GuestWindows.js";
 
 const h=await GuestHarness(),messages=[],gx=h.gx;
+function Source()
+{
+  const source=readFileSync(HemuPath("Kernel/GuestWin.HC"),"latin1");
+  //DocTermNew publishes put_doc before its border, menu and scroll controls exist.
+  return source.replace("  DocTermNew;",`  {
+    CDoc *pdoc=DocNew;
+    pdoc->right_click_link=&TermRightClickLink;
+    pdoc->max_entries=4096;
+    Fs->border_src=BDS_CUR_DRV;
+    pdoc->desc='Term';
+    Fs->put_doc=Fs->display_doc=pdoc;
+    Yield;
+    Fs->border_doc=DocBorderNew(pdoc);
+    Fs->cur_menu=MenuFile("::/Doc/EdPullDown.DD");
+    WinScrollsInit(Fs);
+    Raw(OFF);
+  }`).replace("  task->draw_it=&WebGuiDraw;",`  if (!DocPut(task) || !task->border_doc || !task->cur_menu ||
+      task->next_ctrl==&task->next_ctrl ||
+      task->win_inhibit&WIG_DBL_CLICK!=WIG_DBL_CLICK ||
+      !Bt(&task->display_flags,DISPLAYf_SHOW) ||
+      Bt(&task->display_flags,DISPLAYf_NO_BORDER))
+    throw('WinInit');
+  task->draw_it=&WebGuiDraw;`);
+}
 let paused=false;
 const bridge=GuestWindows({gx,exec:src=>h.Exec(src),post:m=>messages.push(m),
-  paused:()=>paused,source:()=>readFileSync(HemuPath("Kernel/GuestWin.HC"),"latin1")});
+  paused:()=>paused,source:Source});
 assert.equal((await bridge.Request({op:"enable"})).ok,true);
 const w=await bridge.Request({op:"host",host:"test",title:"Native test",cols:30,rows:10,
   x:80,y:80,doc:'Native text\n$BT-X,"Action",LE=7$'});
-assert.equal(w.ok,true);
+assert.equal(w.ok,true,"HostNew waits for terminal and input initialization before publishing the task");
 await h.Run(10);
 assert(gx.rd64(w.task+gx.memberFind("CTask","put_doc"))>0,"native host document exists");
 await h.Exec(`

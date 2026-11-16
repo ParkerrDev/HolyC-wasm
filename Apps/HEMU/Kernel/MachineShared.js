@@ -2,8 +2,19 @@ import {Machine} from "./Machine.js";
 
 export function MachineShared({message,error,earlyWorker=null})
 {//Pages share one guest, disk and request queue through a browser-owned worker.
-  if (!globalThis.SharedWorker)
-    return Machine({message,error,earlyWorker});
+  const cleared={msg:"Browser data was deleted. Refresh this page.",
+    code:"STORAGE_CLEARED",retained:false,started:false,cores:1};
+  let Retire;
+  function StorageClear(e)
+  {
+    if (e.storageArea===localStorage && e.key===null && e.newValue===null) Retire();
+  }
+  addEventListener("storage",StorageClear);
+  if (!globalThis.SharedWorker) {
+    const machine=Machine({message,error,earlyWorker});
+    Retire=function () {machine.Stop(cleared.msg);error(cleared);};
+    return machine;
+  }
   let worker=new SharedWorker(new URL("./MachineHub.js",import.meta.url),
       {type:"module",name:"templeos",extendedLifetime:true}),
     port=worker.port,local=null,pending=new Map(),next=1,kind=null,owner=false,
@@ -11,11 +22,16 @@ export function MachineShared({message,error,earlyWorker=null})
     busFailed=false,closed=false,Release=null;
   function Failed(msg)
   {
+    if (closed) return;
     for (let request of pending.values()) request.Reject(Error(msg));
     pending.clear();error({msg,retained:false,started:!!kind,cores:1});
   }
   port.onmessage=function ({data:m}) {
-    if (m.reply) {
+    if (closed) return;
+    if (m.cmd=="storageCleared") {
+      Detach();kind=null;owner=false;
+      capture={ready:false,msg:cleared.msg};error(cleared);
+    } else if (m.reply) {
       let request=pending.get(m.reply);
       if (!request) return;
       pending.delete(m.reply);
@@ -66,6 +82,16 @@ export function MachineShared({message,error,earlyWorker=null})
   {
     if (!closed) port.postMessage({op:"post",value},transfer);
   }
+  Retire=function () {port.postMessage({op:"storageClear"});};
+  function Detach()
+  {
+    if (closed) return;
+    removeEventListener("storage",StorageClear);
+    port.postMessage({op:"detach"});closed=true;port.close();
+    local?.Stop();Release?.();
+    for (let request of pending.values()) request.Reject(Error("TempleOS view closed."));
+    pending.clear();
+  }
   return {
     Connect() {return Call("connect");},
     Warm(cores) {port.postMessage({op:"warm",value:cores});},
@@ -74,13 +100,7 @@ export function MachineShared({message,error,earlyWorker=null})
     Stop() {port.postMessage({op:"stop"});},
     Claim() {port.postMessage({op:"claim"});},
     Visible(value) {port.postMessage({op:"visible",value});},
-    Detach() {
-      if (closed) return;
-      port.postMessage({op:"detach"});closed=true;port.close();
-      local?.Stop();Release?.();
-      for (let request of pending.values()) request.Reject(Error("TempleOS view closed."));
-      pending.clear();
-    },
+    Detach,
     post:Post,
     Request(value,transfer=[]) {return Call("request",value,transfer);},
     get capture() {return capture;},
