@@ -31,7 +31,7 @@ try {
   await page.locator('#gmSearch').fill(name);
   const card=page.locator('.gm-card').filter({has:page.getByRole('heading',{name,exact:true})});
   await card.getByRole('button',{name:'Run in Browser',exact:true}).click();
-  try {await page.waitForFunction(()=>/HolyC-WASM: (compiled|running)/.test(document.querySelector('#gameWinStatus').textContent),null,{timeout:30000});}
+  try {await page.waitForFunction(()=>/HolyC-WASM: (compiled|running)/.test(document.querySelector('#gameWinStatus')?.textContent),null,{timeout:30000});}
   catch(error) {throw new Error(name+' launch: '+await page.locator('#gameWinStatus').innerText()+'; '+await page.locator('#console').innerText(),{cause:error});}
   const screen=page.locator('#screen');
   const frame=canvas=>{
@@ -43,17 +43,18 @@ try {
     }
     return {hash,colors:colors.size};
   };
-  let before;
-  const deadline=Date.now()+30000;
-  do {
-    before=await screen.evaluate(frame);
-    if(before.colors>=3)break;
-    await page.waitForTimeout(100);
-  } while(Date.now()<deadline);
-  assert(before.colors>=3,name+' draws visible colors');
+  async function drawnFrame(previous) {
+    const deadline=Date.now()+30000;
+    do {
+      const current=await screen.evaluate(frame);
+      if(current.colors>=3 && current.hash!==previous)return current;
+      await page.waitForTimeout(100);
+    } while(Date.now()<deadline);
+    assert.fail(name+' did not draw a new visible frame');
+  }
+  const before=await drawnFrame();
   await page.locator('#screen').focus();await page.keyboard.down(key);await page.waitForTimeout(350);await page.keyboard.up(key);await page.waitForTimeout(250);
-  const {hash:after}=await screen.evaluate(frame);
-  assert.notEqual(after,before.hash,name+' renders advancing frames');
+  const {hash:after}=await drawnFrame(before.hash);
   assert(await page.evaluate(()=>window.__holycEditor.isRunning()));
   await page.screenshot({path:dir+'/'+name+'.png'});
   console.log(name,JSON.stringify(before),'after',after,await page.locator('#gameWinStatus').innerText());

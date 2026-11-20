@@ -87,6 +87,7 @@ CTask *TaskHostNew(CTask *parent,U8 *name,I64 stk_size)
     QueInit(&task->next_ctrl);
     QueInit(&task->next_ode);
     task->text_attr=WHITE<<4+BLUE;
+    task->border_attr=DrvTextAttrGet(':');
     task->win_inhibit=WIG_TASK_DFT;
     task->title_src=TTS_TASK_NAME;
     task->win_left=1;
