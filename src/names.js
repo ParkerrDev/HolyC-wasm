@@ -16,12 +16,17 @@ export function Walk(nodes,visit) {
   }
 }
 
-// Each identifier, and each member as ".name".
+// Identifiers, members as ".name", and implicit calls emitted by flag instructions.
 export function Names(nodes) {
   const names=new Set();
   Walk(nodes,node=>{
     if (node.kind==="Ident" && typeof node.name==="string") names.add(node.name);
-    else if (node.kind==="Member" && typeof node.name==="string") names.add("."+node.name);
+    else if (node.kind==="FlagOps") {
+      for (const op of node.ops) {
+        if (op==="PUSHFD" || op==="CLI" || op==="STI") names.add("GetRFlags");
+        if (op==="POPFD" || op==="CLI" || op==="STI") names.add("SetRFlags");
+      }
+    } else if (node.kind==="Member" && typeof node.name==="string") names.add("."+node.name);
   });
   return names;
 }
