@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {compileHolyC} from '../src/compiler.js';
-import {createHost} from '../src/runtime/host.js';
+import {createTaskHost} from '../src/runtime/tasks.js';
 import {hash} from './local-storage/cases.mjs';
 const native=process.argv.includes('--native');
 if(process.argv.slice(2).some(arg=>arg!=='--native'))throw new Error('Use optional --native to repeat original evidence.');
@@ -23,8 +23,8 @@ if(native){
 }
 for(const test of tests){
  const result=compileHolyC(test.source.toString('latin1'),{lenient:false});assert.deepEqual(result.warnings,[]);
- let output='';const host=createHost({onText:s=>output+=s}),instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});
- host.attach(instance);instance.exports.__main();
+ let output='';const host=createTaskHost({onText:s=>output+=s}),instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});
+ host.attach(instance);await host.run();
  const expected=values(test.proof.out),actual=values(output);assert.equal(actual.length,expected.length);
  const differences=expected.flatMap((line,i)=>line===actual[i]?[]:[{native:line,wasm:actual[i]}]);
  console.log(test.name,differences.length?'regression':'matched',differences);

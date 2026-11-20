@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {CMP_TYPES_SRC,LEX_TOKEN_SRC,LEX_TOKEN_DIAG_SRC,LEX_TOKEN_DATA_SRC} from "../../src/runtime-source.js";
+import {CMP_TYPES_SRC,LEX_TOKEN_SRC,LEX_TOKEN_DIAG_SRC} from "../../src/runtime-source.js";
 export const cases=['LexToken','LexMalformed'];
 export const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 export const read=name=>readFileSync(new URL(name,import.meta.url),'latin1');
-const symbols=/\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b(Lex|char_bmp_dec_numeric)\b/g;
+const symbols=/\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b(Lex)\b/g;
 const rename=source=>source.replace(symbols,(text,name)=>name?name+'Host':text);
 export function fixture(name) {
   const source=read(name+'.HC'),wrapper=name==='LexMalformed'?'Raw(OFF);\n':'';
@@ -13,13 +13,13 @@ export function fixture(name) {
   const nativeBindings='extern I64 LexInStr(CCmpCtrl *cc,U8 *buf,I64 size,Bool *done);\n'+
     'extern U0 LexIncludeStr(CCmpCtrl *cc,U8 *filename,U8 *src,Bool actual);\n';
   const nativeDiagnostic=read('NativeFail.HC');
-  const inputs=[wasmSource,nativeBindings+nativeDiagnostic+rename(LEX_TOKEN_DATA_SRC+LEX_TOKEN_SRC+wasmSource)]
+  const inputs=[wasmSource,nativeBindings+nativeDiagnostic+rename(LEX_TOKEN_SRC+wasmSource)]
     .map(text=>Buffer.from(text,'latin1'));
   const identity={sourceSha256:hash(Buffer.from(source,'latin1')),wrapper,nativeBindings,nativeDiagnostic,
     typesSha256:hash(Buffer.from(CMP_TYPES_SRC,'latin1')),
-    librarySha256:hash(Buffer.from(LEX_TOKEN_DATA_SRC+LEX_TOKEN_DIAG_SRC+LEX_TOKEN_SRC,'latin1')),
+    librarySha256:hash(Buffer.from(LEX_TOKEN_DIAG_SRC+LEX_TOKEN_SRC,'latin1')),
     inputSha256:inputs.map(hash),captureSha256:hash(readFileSync(new URL('../oracle/QemuCapture.HC',import.meta.url)))};
-  return {name,source,wasmSource,inputs,identity,profile:name==='LexMalformed'?'keydev':'console'};
+  return {name,source,wasmSource,inputs,identity};
 }
 export function recorded(name) {
   const test=fixture(name),output=readFileSync(new URL(name+'.out',import.meta.url));

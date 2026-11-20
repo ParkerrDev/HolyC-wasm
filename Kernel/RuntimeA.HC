@@ -1,27 +1,126 @@
 
 CTask fs_storage;
 CTask *Fs;
-CTask *sys_winmgr_task;
+CTask *adam_task;
+CCPU boot_cpu; //V5.03 keeps it in $LK,"CSysFixedArea",A="MN:CSysFixedArea"$.
+CCPU *cpu_structs=&boot_cpu; //$LK,"Gs",A="MN:Gs"$ points to cur $LK,"CCPU",A="MN:CCPU"$.
+I64 mp_cnt=1; //Count of cores
+U8 *mem_mapped_space=8192*0x10000; //Top of WASM memory, abi.js MEM_MAX_PAGES.
+CSema sys_semas[SEMA_SEMAS_NUM];
+CTask *sys_winmgr_task,*sys_task_being_scrn_updated;
 CTask *sys_focus_task;
+CJob sys_macro_head; //V5.03 Kernel/KGlbls.HC.
+CTask *sys_macro_task;
+CDoc *sys_clip_doc;
+CDoc *(*fp_doc_put)(CTask *task=NULL);
+U0 MacroHostInit()
+{//V5.03 Kernel/KMain.HC:10 at boot; a runtime initializer here (src/prelude.js).
+  QueInit(&sys_macro_head);
+}
+U8 *rev_bits_table, //Table with U8 bits revd
+   *set_bits_table; //Table with count of set bits in a U8
+U0 BitsTablesHostInit()
+{//V5.03 Kernel/KEnd.HC:28 at boot; a runtime initializer here (src/prelude.js).
+  I64 i,j;
+  rev_bits_table=CAlloc(256);
+  set_bits_table=CAlloc(256);
+  for (i=0;i<256;i++)
+    for (j=0;j<8;j++) {
+      if (Bt(&i,7-j))	LBts(rev_bits_table+i,j);
+      if (Bt(&i,j))	set_bits_table[i]++;
+    }
+}
+CGridGlbls ms_grid; //See $LK,"::/Demo/Graphics/Grid.HC"$.
+CMsStateGlbls ms,ms_last;
 CKbdStateGlbls kbd;
+CMsHardStateGlbls ms_hard,ms_hard_last;
+CAutoCompleteDictGlbls acd;
+CAutoCompleteGlbls ac;
+U32 sys_run_level; //V5.03 keeps it in $LK,"CKernel",A="MN:CKernel"$.
+CProgress sys_progresses[PROGRESS_BARS_NUM]; //All progress bars.
+//V5.03 KStart32.HC labels each field of sys_progresses, and KernelB.HH names
+//the labels. src/prelude.js RUNTIME_ADDRESSES puts each name at its label.
+I64 progress1; //Current progress 1.
+U8 progress1_desc[PROGRESS_DESC_LEN]; //Progress 1 desc.
+I64 progress1_max; //Progress 1 max.
+F64 progress1_t0; //Progress 1 start time.
+F64 progress1_tf; //Progress 1 end time.
+I64 progress2; //Current progress 2.
+U8 progress2_desc[PROGRESS_DESC_LEN]; //Progress 2 desc.
+I64 progress2_max; //Progress 2 max.
+F64 progress2_t0; //Progress 2 start time.
+F64 progress2_tf; //Progress 2 end time.
+I64 progress3; //Current progress 3.
+U8 progress3_desc[PROGRESS_DESC_LEN]; //Progress 3 desc.
+I64 progress3_max; //Progress 3 max.
+F64 progress3_t0; //Progress 3 start time.
+F64 progress3_tf; //Progress 3 end time.
+I64 progress4; //Current progress 4.
+U8 progress4_desc[PROGRESS_DESC_LEN]; //Progress 4 desc.
+I64 progress4_max; //Progress 4 max.
+F64 progress4_t0; //Progress 4 start time.
+F64 progress4_tf; //Progress 4 end time.
 
 //==================== gr global ====================
-#define GR_PEN_BRUSHES_NUM 64
 #define COLOR_INVALID 16
-class CGr {
-  CDC *dc,*dc2;
-  U8 *win_uncovered_bitmap;
-  I64 highest_uncovered;
-  U64 to_8_bits[256],to_8_colors[256];
-  U16 *win_z_buf;
-  CDC *pen_brushes[GR_PEN_BRUSHES_NUM],
-      *collision_pen_brushes[GR_PEN_BRUSHES_NUM],
-      *even_pen_brushes[GR_PEN_BRUSHES_NUM],
-      *odd_pen_brushes[GR_PEN_BRUSHES_NUM];
-  I8 circle_lo[GR_PEN_BRUSHES_NUM][GR_PEN_BRUSHES_NUM],
-     circle_hi[GR_PEN_BRUSHES_NUM][GR_PEN_BRUSHES_NUM];
-};
-CGr gr;
+//V5.03 Adam/Gr/GrGlbls.HC.
+public class CGrGlbls
+{
+  I64	*to_8_bits,*to_8_colors;
+  CDC	*scrn_image,	//Read only.
+	*dc,		//Persistent
+	*dc1,
+	*dc2,		//Updated every refresh
+	*dc_cache,
+	*zoomed_dc;
+  U32	*text_base;	//See $LK,"TextBase Layer",A="HI:TextBase Layer"$. (Similar to 0xB8000 but 32 bits)
+  U16	*win_z_buf;
+
+  #define SPHT_ELEM_CODE	1
+  CHashTable *sprite_hash;
+
+  U16	*win_uncovered_bitmap;
+  I64	highest_uncovered;
+  U16	*vga_text_cache;
+  I64	pan_text_x,pan_text_y;	//[-7,7]
+  U0	(*fp_final_scrn_update)(CDC *dc);//Mouse cursor is handled here.
+  U0	(*fp_wall_paper)(CTask *task);
+  U0	(*fp_draw_ms)(CDC *dc,I64 x,I64 y);
+  U0	(*fp_draw_grab_ms)(CDC *dc,I64 x,I64 y,Bool closed);
+  U8	*empty_sprite; //Gets assigned $LK,"gr.empty_sprite",A="FF:::/Adam/AMouse.HC,empty_sprite"$
+
+  #define GR_PEN_BRUSHES_NUM 64
+  CDC	*pen_brushes[GR_PEN_BRUSHES_NUM],
+	*collision_pen_brushes[GR_PEN_BRUSHES_NUM],
+	*even_pen_brushes[GR_PEN_BRUSHES_NUM],
+	*odd_pen_brushes[GR_PEN_BRUSHES_NUM];
+  I8	circle_lo[GR_PEN_BRUSHES_NUM][GR_PEN_BRUSHES_NUM],
+	circle_hi[GR_PEN_BRUSHES_NUM][GR_PEN_BRUSHES_NUM];
+
+  #define GR_SCRN_ZOOM_MAX	8
+  U8	*scrn_zoom_tables[GR_SCRN_ZOOM_MAX+1];
+  I64	scrn_zoom,sx,sy;
+
+  //When zoomed, this keeps the mouse centered.
+  Bool	continuous_scroll,
+	hide_row,hide_col;
+} gr;
+
+//V5.03 Kernel/KernelA.HH and KGlbls.HC. Raw.HC and the TextBase Layer use it.
+#define RWF_IN_DOLLAR 1
+#define RWF_LAST_DOLLAR 2
+#define RWF_SHOW_DOLLAR 4
+#define RWF_SCROLL 8
+
+public class CTextGlbls
+{
+  I64 raw_col,raw_flags;
+  U8 *raw_scrn_image;
+  I64 rows,cols;
+  U64 *font,*aux_font;
+  U8 *vga_alias,*vga_text_alias;
+  U8 border_chars[16];
+} text;
 U64 *__gr_font;
 U8 __sys_font_std[2048]={/*SYS_FONT_STD*/};
 I64 sys_font_std;
@@ -99,6 +198,11 @@ F64 Log10(F64 x)
   return __log10(x);
 }
 
+F64 Log2(F64 x)
+{
+  return __log(x)/loge_2;
+}
+
 F64 Sqrt(F64 x)
 {
   return __sqrt(x);
@@ -125,9 +229,18 @@ F64 Sign(F64 x)
   if (x>0.0) return 1.0; if (x<0.0) return -1.0; return 0.0;
 }
 
-I64 ClampI64(I64 x,I64 lo,I64 hi)
-{
-  if (x<lo) return lo; if (x>hi) return hi; return x;
+I64 ClampI64(I64 num,I64 lo,I64 hi)
+{//Clamp to I64 [] range. V5.03 KUtils.HC _CLAMP_I64: hi wins over lo.
+  if (num<lo) num=lo;
+  if (num>hi) num=hi;
+  return num;
+}
+
+U64 ClampU64(U64 num,U64 lo,U64 hi)
+{//Clamp to U64 [] range. V5.03 KUtils.HC _CLAMP_U64.
+  if (num<lo) num=lo;
+  if (num>hi) num=hi;
+  return num;
 }
 
 F64 Clamp(F64 x,F64 lo,F64 hi)
@@ -388,30 +501,66 @@ public I64 Seed(I64 seed=0,CTask *task=NULL)
   return task->rand_seed^=GetTSC;
 }
 
-public F64 Saw(F64 t,F64 period)
-{//Sawtooth in [0,1], as in Adam/Snd/SndMath.HC.
-  if (period) {
-    if (t>=0.0)
-      return t%period/period;
-    return 1.0+t%period/period;
-  }
-  return 0.0;
-}
-
-public F64 FullSaw(F64 t,F64 period)
-{//Signed sawtooth.
-  if (period) {
-    if (t>=0.0)
-      return 2.0*(t%period/period)-1.0;
-    return 2.0*(t%period/period)+1.0;
-  }
-  return 0.0;
-}
-
 //==================== time / scheduling ====================
+CCntsGlbls	cnts={1,0,2676302000,2676302,2676302000,0,0,0,FALSE};
+
+U0 CntsUpdate()
+{//V5.03's timer IRQ counts jiffies and calls profiler_timer_irq on each.
+//Here a task runs until it gives up the CPU, so the jiffies that went by
+//are counted, and their IRQs called, when it is back.
+  I64 i,jiffies=__time_ms*JIFFY_FREQ/1000;
+  CCPU *c=cpu_structs;
+  if (LBts(&sys_semas[SEMA_SYS_TIMER],0))
+    return;
+  if (c->profiler_timer_irq) {
+    i=ClampI64(jiffies-cnts.jiffies,0,JIFFY_FREQ);
+    while (i--) {
+      cnts.jiffies++;
+      cnts.timer+=SYS_TIMER0_PERIOD+1;
+      (*c->profiler_timer_irq)(Fs);
+    }
+  }
+  cnts.jiffies=jiffies;
+  cnts.timer=jiffies*(SYS_TIMER0_PERIOD+1);
+  LBtr(&sys_semas[SEMA_SYS_TIMER],0);
+}
+
 F64 tS() { return __time_ms()/1000.0; }
-U0 Sleep(I64 ms) { __sleep(ms); }
-U0 Yield() { __yield(); }
+
+U0 Yield()
+{//Give the CPU to the next task.
+  __yield;
+  CntsUpdate;
+}
+
+U0 SleepUntil(I64 wake_jiffy)
+{//Not for power-saving.  It is to make a program pause without hogging the CPU.
+//A profiler_timer_irq needs the CPU back each jiffy.
+  Bool old_idle=LBts(&Fs->task_flags,TASKf_IDLE);
+  CntsUpdate;
+  if (wake_jiffy<=cnts.jiffies)
+    __yield;
+  else if (!cpu_structs->profiler_timer_irq)
+    __sleep((wake_jiffy-cnts.jiffies)*1000/JIFFY_FREQ);
+  else
+    while (wake_jiffy>cnts.jiffies) {
+      __sleep(1000/JIFFY_FREQ);
+      CntsUpdate;
+    }
+  CntsUpdate;
+  LBEqu(&Fs->task_flags,TASKf_IDLE,old_idle);
+}
+
+U0 Sleep(I64 mS)
+{//Not for power-saving.  It is to make a program pause without hogging the CPU.
+  if (!mS)
+    Yield;
+  else {
+    CntsUpdate;
+    SleepUntil(cnts.jiffies+mS*JIFFY_FREQ/1000);
+  }
+}
+
 I64 GetTSC()
 {
   I64 res=__tsc;
@@ -420,22 +569,12 @@ I64 GetTSC()
   return res;
 }
 
-//==================== input ====================
-I64 ScanChar() { return __scan_char(); }
-I64 KeyGet() { return __get_char(0,0); }
-
-U0 MsSet(I64 x=I64_MAX,I64 y=I64_MAX,I64 z=I64_MAX,
-	I64 l=I64_MAX,I64 r=I64_MAX)
-{//The browser supplies unscaled screen coordinates and device state.
-  if (0<=x<GR_WIDTH) ms.pos.x=x;
-  if (0<=y<GR_HEIGHT) ms.pos.y=y;
-  if (z!=I64_MAX) ms.pos.z=z;
-  if (FALSE<=l<=TRUE) ms.lb=l;
-  if (FALSE<=r<=TRUE) ms.rb=r;
-  LBEqu(&kbd.scan_code,SCf_MS_L_DOWN,ms.lb);
-  LBEqu(&kbd.scan_code,SCf_MS_R_DOWN,ms.rb);
-  __ms_set(ms.pos.x,ms.pos.y,ms.pos.z,ms.lb,ms.rb);
-}
+//V5.03 Adam/Win.HC's old_ms. It is here, before the prelude's first
+//statement, so its GetTSC runs only in a program that uses old_ms.
+CMsStateGlbls old_ms={{-1000,-1000,0},{-1000,-1000,0},{-1000,-1000,0},
+  {0,0,0},{1.0,1.0,1.0},0.0,GetTSC,0.350,0,0,
+  FALSE,FALSE,TRUE,FALSE,FALSE,FALSE,FALSE,FALSE
+};
 
 //==================== console ====================
 Bool Silent(Bool val=ON)

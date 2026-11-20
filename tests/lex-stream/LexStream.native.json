@@ -15,17 +15,17 @@
     "accelerator": "kvm",
     "version": "QEMU emulator version 11.1.2"
   },
-  "evidence": "tests/.oracle/qemu-j71dinu6",
+  "evidence": "tests/.oracle/qemu-nt7y893r",
   "sourceSha256": "71490784485515698bf8a9cc80a538dcd5d1b5adfdfe5e244d3defe12a597121",
   "nativeBindings": "extern CLexFile *LexFilePush(CCmpCtrl *cc);\nextern CLexFile *LexFilePop(CCmpCtrl *cc);\nextern U0 LexIncludeStr(CCmpCtrl *cc,U8 *filename,U8 *src,Bool actual);\n",
   "wrapper": "",
   "wasmSourceSha256": "71490784485515698bf8a9cc80a538dcd5d1b5adfdfe5e244d3defe12a597121",
-  "typesSha256": "1b2ded4f857a5454d9c20462b963e0a386a41a11dc82b79272d8bfc312ff176c",
-  "librarySha256": "18928fd263d385bcee26bf8ff86e888d63961e1a1283edc63bd1ec97ace8e137",
-  "globalsSha256": "e9feea3e087efc390589da73217534db3f8ecc0e573769f550987c40198ab61f",
+  "typesSha256": "e2609bed0cf684582c5e94d0856cebf5aecebe5d28a4669cd9e96515e5e68c08",
+  "librarySha256": "af594ce882c83fc24c452818896b495c389ff002ce0deddb4c088fd9f23ebe06",
+  "globalsSha256": "9c9ec00ee24d685e3d1835415ace855421e03412d00cbb93ac5ca03da7007528",
   "inputSha256": [
     "871c63087a8590cd466d3b11f3e04de045558c409ae3d357bc76dda21f2432d8",
-    "26e0d4870f3a8cdba8f484857e10368a389d31319806dc641277d4436c5e8814"
+    "40eb556b087e0aaff6a4d194f1f6cab838e50f0f0503f309918d8f3645ae3219"
   ],
   "captureSha256": "baa39e21c404a0da05762f7630e2c10b3c52e7e16d305546b306254c35056317",
   "results": [

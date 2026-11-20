@@ -14,7 +14,7 @@ function native(name) {
 }
 function load(source,options={},hostOptions={}) {
   const compiled=compileHolyC(source,{lenient:false,...options});assert.deepEqual(compiled.warnings,[]);
-  const host=createTaskHost(hostOptions),instance=new WebAssembly.Instance(new WebAssembly.Module(compiled.bytes),{env:host.env});
+  const host=createTaskHost({jit:compiled.jit,...hostOptions}),instance=new WebAssembly.Instance(new WebAssembly.Module(compiled.bytes),{env:host.env});
   host.attach(instance);
   const get=name=>new DataView(instance.exports.memory.buffer).getBigInt64(compiled.globals.get(name).addr,true);
   return {host,fn:instance.exports,get};
@@ -28,7 +28,7 @@ for(const name of ['v503/Break','probes/BreakRequest']) {
   const {host,fn}=load(source,{}, {ansi:false,onText:value=>text+=value});
   for(let i=0;i<10;i++) {
     text='';await host.run();assert.equal(text,fixture.output,name);
-    assert.equal(fn.__sp.value,16777216n);assert.equal(host.state.heapPtr,16777248);
+    assert.equal(fn.__sp.value,16777216n);assert.equal(host.state.heapPtr,host.state.boot.heapPtr);
     assert.deepEqual(host.state.tasks.map(t=>[t.status,t.allocations]),[['dead',0]]);
   }
   await host.dispose();
@@ -61,7 +61,7 @@ for(let i=1;i<=100;i++) {
   await wait(()=>repeated.get('caught')===BigInt(i));
 }
 await running;assert.equal(repeated.fn.__sp.value,16777216n);
-assert.equal(repeated.host.state.heapPtr,16777248);await repeated.host.dispose();
+assert.equal(repeated.host.state.heapPtr,repeated.host.state.boot.heapPtr);await repeated.host.dispose();
 
 // Device requests cannot target dead/unknown tasks or inhibited focus.
 const inhibited=load(`
@@ -97,14 +97,15 @@ assert.equal(suspended.get('caught'),0x6B61657242n);await suspended.host.dispose
 const keys=load(`I64 Run() {I64 res=0;try {GetKey;} catch {res=Fs->except_ch;Fs->catch_except=TRUE;} return res;}`,
   {exports:['Run']});
 const typing=keys.host.run('Run');
-await wait(()=>keys.host.state.tasks[0].status==='waiting');
+//The boot (AutoComplete's DrvUnlock) Yields too: wait for the entry's own wait.
+await wait(()=>keys.host.state.boot.heapPtr!==null && keys.host.state.tasks[0].status==='waiting');
 keys.host.keyBytes([0x1D]);keys.host.keyBytes([0x38]);keys.host.keyBytes([0x2E]);
 assert.equal(await typing,0x6B61657242n);await keys.host.dispose();
 
 // Uncaught interruptions remain observable errors, with normal task cleanup.
 const uncaught=load('U0 Run() {MAlloc(31);Sleep(100000);}',{exports:['Run','TaskHostBreak']});
 const failed=uncaught.host.run('Run');
-await wait(()=>uncaught.host.state.tasks[0].status==='waiting');
+await wait(()=>uncaught.host.state.boot.heapPtr!==null && uncaught.host.state.tasks[0].status==='waiting');
 assert(uncaught.host.breakTask());
 const isBreak=error=>error instanceof WebAssembly.Exception && error.is(uncaught.fn.__exception_tag) &&
   error.getArg(uncaught.fn.__exception_tag,0)===0x6B61657242n;

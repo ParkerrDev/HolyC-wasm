@@ -3,7 +3,7 @@ import {readFileSync,writeFileSync} from "node:fs";
 import {createHash} from "node:crypto";
 import {pathToFileURL} from "node:url";
 import {compileHolyC} from "../../../../src/compiler.js";
-import {createHost} from "../../../../src/runtime/host.js";
+import {createTaskHost} from "../../../../src/runtime/tasks.js";
 import {hemuFile} from "../Compile.js";
 
 const probe=readFileSync(new URL("./DevNative.HC",import.meta.url)),
@@ -30,8 +30,10 @@ const compiled=compileHolyC(probe.toString("latin1"),{filename:"DevNative.HC",le
   includeResolver:name=>sources[name]});
 assert.deepEqual(compiled.warnings,[]);
 let output="";
-const host=createHost({onText:text=>output+=text}),
+//Every program is a task (G5): its output reads kbd.scan_code, as V5.03's PutS.
+const host=createTaskHost({jit:compiled.jit,ansi:false,onText:text=>output+=text}),
   {instance}=await WebAssembly.instantiate(compiled.bytes,{env:host.env});
-host.attach(instance);instance.exports.__rt_init();instance.exports.__main();
+host.attach(instance);
+try {await host.run();} finally {await host.dispose();}
 assert.equal(output,expected.out);
 console.log(`${output.trim().split("\n").length} device outputs match original V5.03: PIC vectors/EOI, CMOS, PS/2 commands, speaker, DAC, ATA widths/counts/commands and reset.`);

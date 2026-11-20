@@ -14,14 +14,16 @@ for(const name of cases) {
  }
  const result=compileHolyC(test.source,{lenient:false,traceLocals:true});
  assert.deepEqual(result.warnings,[]);
- let out='';const host=(name==='Tasks'?createTaskHost:createHost)({onText:s=>out+=s});
+ //A program that prints is a task program.
+ const tasks=result.requiredCapabilities.includes('task-continuations');
+ let out='';const host=(tasks?createTaskHost:createHost)({onText:s=>out+=s,jit:result.jit});
  const instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});host.attach(instance);
  if(name==='Failure') {
-  assert.throws(()=>instance.exports.__main(),WebAssembly.Exception);
+  await assert.rejects(host.run(),WebAssembly.Exception);
   assert.equal(out,test.proof.out);
-  assert.throws(()=>instance.exports.__main(),poison);
- } else if(name==='Tasks') {
-  await host.run();assert.equal(host.state.heapPtr,16777248);
+  await assert.rejects(host.run(),poison);await assert.rejects(host.dispose(),poison);
+ } else if(tasks) {
+  await host.run();assert.equal(host.state.heapPtr,host.state.boot.heapPtr);
   assert.deepEqual(host.state.tasks.map(task=>[task.status,task.allocations]),[['dead',0]]);
   await host.dispose();
  } else instance.exports.__main();

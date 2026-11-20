@@ -13,9 +13,8 @@ export const STACK_TOP = 256 * PAGE;           // shadow stack grows DOWN from 1
 export const HEAP_BASE = STACK_TOP;            // heap grows UP from 16 MiB (16 MiB free initially)
 
 export const JUNK_ADDR = 32;                   // scratch for unknown field/symbol writes (16 B)
-export const MS_ADDR = 64;                     // CMouse mirror (host writes it)
-// CMouse field offsets relative to MS_ADDR (must match prelude class CMouse).
-export const MS = { x: 0, y: 4, z: 8, lb: 12, rb: 16, SIZE: 20 };
+export const MS_ADDR = 64;                     // ms, V5.03 CMsStateGlbls (168 B); the host
+                                               // reaches it through MsHardSet, never by address
 export const ARG_BUF = 1024;                   // legacy embedded-module printf arguments
 export const ARG_SLOT = 16;                    // [tag @0 (i64)][value @8 (i64/f64)]
 export const ARG_MAX = 64;                     // max marshalled args per call
@@ -39,6 +38,7 @@ const I=0x7E,F=0x7C;
 export const HOST_IMPORTS = {
   __printf:      { params: [I, I], results: [] },        // (fmtAddr, nargs)
   __rt_init_failed: {params: [], results: []},
+  __rt_booted: {params: [], results: []},            // the prelude's boot is done
   __lex_error: {params: [I,I,I,I,I,I,I,I,I], results: []},
   __puts:        { params: [I], results: [] },
   __print_bytes: { params: [I, I], results: [] },        // (addr, n)
@@ -55,8 +55,6 @@ export const HOST_IMPORTS = {
 
   __sleep:       { params: [I], results: [] },           // ms (blocks)
   __yield:       { params: [], results: [] },
-  __scan_char:   { params: [], results: [I] },           // peek: char or 0 (nonblocking)
-  __get_char:    { params: [I, I], results: [I] },        // (echo, doScan) blocking
   __ms_set:      { params: [I,I,I,I,I], results: [] },
   __time_ms:     { params: [], results: [F] },
   __tsc:        { params: [], results: [I] },
@@ -70,6 +68,7 @@ export const HOST_IMPORTS = {
   __task_break: {params: [I,I], results: []},
   __task_wait: {params: [I], results: []},
   __task_exit: {params: [], results: []},
+  __task_user: {params: [I], results: []}, // (task) the user task, whose end ends the run; NULL on it: run the program's entry
   __task_stack_fail: {params: [], results: []},
   __kbd_ctrl_alt: {params: [I,I,I], results: []},
   __kbd_leds: {params: [I], results: []},
@@ -80,6 +79,17 @@ export const HOST_IMPORTS = {
   __free:        { params: [I], results: [] },
   __msize2:      { params: [I], results: [I] },
   __msize:       { params: [I], results: [I] },
+
+  // an expression compiled while the program runs (src/jit.js, Compiler/PrsExp.HC)
+  __jit_tok:  { params: [I, I, F, I, I], results: [] },  // token,cur_i64,cur_f64,cur_str,cur_str_len
+  __jit_expr: { params: [I], results: [I] },             // (_type) -> handle, 0 if it does not compile
+  __jit_call: { params: [I], results: [I] },             // handle -> the value's 64 bits
+  __jit_del:  { params: [I], results: [] },             // handle, or 0 for the tokens not yet compiled
+  __jit_stmt: { params: [I], results: [I] },             // (_type) -> the code's table entry, INVALID_PTR if it only declares, 0 if it does not compile
+  __jit_rest: { params: [I], results: [] },             // (part) compile and run the program's next part
+  __jit_exe:  { params: [I, I, I], results: [I] },       // (text,filename,I64 *res) -> 0 if it does not compile
+  __jit_define: { params: [I, I], results: [] },        // (name,text) a define made at run time
+  __call_ext: { params: [I, I, I], results: [I] },      // (name,argc,argv) CallExtStr: what it returns, 0 if no such function
 
   // transcendental math (wasm lacks these as opcodes)
   __sin:  { params: [F], results: [F] }, __cos:  { params: [F], results: [F] },

@@ -1,0 +1,31 @@
+//V5.03 Kernel/SerialDev/Message.HC: ScanChar, ScanKey, GetKey, GetChar, GetS
+//and FlushMsgs on the task's own messages.
+I64 ch,sc;
+U8 buf[8];
+"%d\n",ScanChar;
+PostMsg(Fs,MSG_KEY_DOWN,'x',Char2ScanCode('x'));
+PostMsg(Fs,MSG_KEY_UP,'x',Char2ScanCode('x')|SCF_KEY_UP);
+"%d\n",ScanChar;
+PostMsg(Fs,MSG_KEY_DOWN,0,SC_SHIFT);
+"%d\n",ScanChar;
+PostMsg(Fs,MSG_KEY_DOWN,'y',Char2ScanCode('y'));
+"%d ",ScanKey(&ch,&sc);
+"%d %X\n",ch,sc;
+"%d ",ScanKey(&ch,&sc);
+"%d %X\n",ch,sc;
+PostMsg(Fs,MSG_KEY_DOWN,0,SC_CURSOR_UP);
+PostMsg(Fs,MSG_KEY_DOWN,'z',Char2ScanCode('z'));
+"%d ",GetKey(&sc);
+"%X\n",sc;
+"%d\n",GetChar(&sc,FALSE);
+"%X\n",sc;
+PostMsg(Fs,MSG_KEY_DOWN,'o',Char2ScanCode('o'));
+PostMsg(Fs,MSG_KEY_DOWN,'k',Char2ScanCode('k'));
+PostMsg(Fs,MSG_KEY_DOWN,CH_BACKSPACE,Char2ScanCode(CH_BACKSPACE));
+PostMsg(Fs,MSG_KEY_DOWN,'!',Char2ScanCode('!'));
+PostMsg(Fs,MSG_KEY_DOWN,'\n',Char2ScanCode('\n'));
+"%d ",GetS(buf,8,FALSE);
+"%s\n",buf;
+PostMsg(Fs,MSG_KEY_DOWN,'q',Char2ScanCode('q'));
+PostMsg(Fs,MSG_KEY_UP,'q',Char2ScanCode('q')|SCF_KEY_UP);
+"%d\n",FlushMsgs;

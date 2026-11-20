@@ -5,8 +5,13 @@ import {CMP_TYPES_SRC,LEX_REPORT_SRC} from "../../src/runtime-source.js";
 export const cases=['LexReport','LexPlain'];
 export const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 export const read=name=>readFileSync(new URL(name,import.meta.url),'latin1');
-const symbols=/\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b(LexPutToken|LexPutLine|char_bmp_displayable)\b/g;
-const rename=source=>source.replace(symbols,(text,name)=>name?name+'Host':text);
+const symbols=/\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b(LexPutToken|LexPutLine)\b/g;
+//char_bmp_displayable is V5.03 Kernel/StrA.HC's, as the library's is, so
+//both inputs use V5.03's own.
+//The native input keeps V5.03's own LexExcept (Compiler/CExcept.HC): the
+//library's throws through the browser's LexHostFail, which V5.03 has not.
+const except=/\nU0 LexExcept\(CCmpCtrl \*cc,U8 \*str=NULL\)\n\{[\s\S]*?\n\}\n/;
+const rename=source=>source.replace(except,'\n').replace(symbols,(text,name)=>name?name+'Host':text);
 export function fixture(name) {
   const source=read(name+'.HC'),wrapper=name==='LexReport'?'Raw(OFF);\n':'';
   const wasmSource=wrapper+source;
@@ -15,7 +20,7 @@ export function fixture(name) {
     typesSha256:hash(Buffer.from(CMP_TYPES_SRC,'latin1')),
     librarySha256:hash(Buffer.from(LEX_REPORT_SRC,'latin1')),inputSha256:inputs.map(hash),
     captureSha256:hash(readFileSync(new URL('../oracle/QemuCapture.HC',import.meta.url)))};
-  return {name,source,wasmSource,inputs,identity,profile:name==='LexReport'?'keydev':'console'};
+  return {name,source,wasmSource,inputs,identity};
 }
 export function recorded(name) {
   const test=fixture(name),output=readFileSync(new URL(name+'.out',import.meta.url));

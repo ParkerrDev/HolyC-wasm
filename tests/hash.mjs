@@ -3,9 +3,11 @@ import {compileHolyC} from '../src/compiler.js';
 import {createHost} from '../src/runtime/host.js';
 import {createTaskHost} from '../src/runtime/tasks.js';
 import {cases,recorded} from './hash/cases.mjs';
-const pure=compileHolyC('"%X",HashStr("Native");',{lenient:false});
+//HashStr needs no task; a program that prints is a task program. The boot's
+//DefineLstLoad fills Adam's hash table, so every program has task hash tables.
+const pure=compileHolyC('I64 Hash() {return HashStr("Native");}',{lenient:false,exports:['Hash']});
 assert.deepEqual(pure.requiredCapabilities,[]);
-assert(!WebAssembly.Module.exports(new WebAssembly.Module(pure.bytes)).some(x=>x.name==='HashHostTaskInit'));
+assert.deepEqual(compileHolyC('"%X",HashStr("Native");',{lenient:false}).requiredCapabilities,['task-continuations']);
 for(const name of cases) {
   const test=recorded(name),result=compileHolyC(test.wasmSource,{lenient:false});
   assert.deepEqual(result.warnings,[]);

@@ -223,6 +223,14 @@ public U0 DCDel(CDC *dc)
   Free(dc);
 }
 
+public I64 DCSize(CDC *dc)
+{//Mem size of header, image body and depth buffer.
+  if (dc)
+    return MSize2(dc)+MSize2(dc->body)+MSize2(dc->depth_buf);
+  else
+    return 0;
+}
+
 public I32 *DCDepthBufRst(CDC *dc)
 {//Reset device context depth buf to far away.
   if (dc->depth_buf)
@@ -237,6 +245,20 @@ public I32 *DCDepthBufAlloc(CDC *dc)
     Free(dc->depth_buf);
   dc->depth_buf=res;
   return DCDepthBufRst(dc);
+}
+
+public CDC *DCCopy(CDC *dc,CTask *task=NULL)
+{//Alloc copy of dc, including image body, rot mat and depth buf.
+  CDC *res;
+  if (!dc) return NULL;
+  if (dc->dc_signature!=DCS_SIGNATURE_VAL)
+    throw('Graphics');
+  res=MAllocIdent(dc,task);
+  DCMat4x4Set(res,Mat4x4New(dc->r,task));
+  res->mem_task=task;
+  res->body=MAllocIdent(dc->body,task);
+  res->depth_buf=MAllocIdent(dc->depth_buf,task);
+  return res;
 }
 
 public U0 DCMono(CDC *dc,
@@ -266,6 +288,152 @@ public I64 DCColorChg(CDC *dc,I64 src_color,I64 dst_color=TRANSPARENT)
     } else
       dst++;
   return res;
+}
+
+public U8 *DCSave(CDC *dc,I64 *_size=NULL,I64 dcsf_flags=DCSF_COMPRESSED)
+{//Stores device context to mem, perhaps, with compression.
+  U8 *res,*ptr,*body;
+  CArcCompress *arc;
+  I64 body_size=dc->width_internal*dc->height,total_size,flags;
+  CBGR48 palette[COLORS_NUM];
+
+  if (dcsf_flags&DCSF_COMPRESSED) {
+    arc=CompressBuf(dc->body,body_size);
+    body_size=arc->compressed_size;
+    body=arc;
+  } else {
+    arc=NULL;
+    body=dc->body;
+  }
+
+  total_size=offset(CDC.end)-offset(CDC.start)+body_size;
+  if (dcsf_flags&DCSF_COMPRESSED)
+    flags=DCF_COMPRESSED;
+  else
+    flags=0;
+
+  if (dcsf_flags&DCSF_PALETTE_GET)
+    GrPaletteGet(palette);
+  else
+    MemCpy(palette,&dc->palette,COLORS_NUM*sizeof(CBGR48));
+  if (MemCmp(palette,gr_palette_std,COLORS_NUM*sizeof(CBGR48))) {
+    flags|=DCF_PALETTE;
+    total_size+=COLORS_NUM*sizeof(CBGR48);
+  }
+
+  ptr=res=MAlloc(total_size);
+
+#assert !offset(CDC.start)
+  MemCpy(ptr,&dc->start,offset(CDC.end)-offset(CDC.start));
+  ptr(CDC *)->flags=flags;
+  ptr+=offset(CDC.end)-offset(CDC.start);
+
+#assert offset(CDC.end)==offset(CDC.palette)
+  if (flags&DCF_PALETTE) {
+    MemCpy(ptr,palette,COLORS_NUM*sizeof(CBGR48));
+    ptr+=COLORS_NUM*sizeof(CBGR48);
+  }
+
+  MemCpy(ptr,body,body_size);
+  ptr+=body_size;
+
+  Free(arc);
+  if (_size) *_size=total_size;
+  return res;
+}
+
+public CDC *DCLoad(U8 *src,I64 *_size=NULL,CTask *task=NULL)
+{//Loads device context from mem.
+  CDC *res;
+  U8 *ptr=src;
+  CArcCompress *arc;
+  I64 body_size;
+  if (!task) task=Fs;
+  res=CAlloc(sizeof(CDC),task);
+  res->win_task=task;
+  res->mem_task=task;
+  MemCpy(&res->start,ptr,offset(CDC.end)-offset(CDC.start));
+  ptr+=offset(CDC.end)-offset(CDC.start);
+
+  if (res->flags&DCF_PALETTE) {
+    MemCpy(&res->palette,ptr,COLORS_NUM*sizeof(CBGR48));
+    ptr+=COLORS_NUM*sizeof(CBGR48);
+  } else
+    MemCpy(&res->palette,gr_palette_std,COLORS_NUM*sizeof(CBGR48));
+
+  body_size=res->width_internal*res->height;
+  if (res->flags&DCF_COMPRESSED) {
+    res->flags&=~DCF_COMPRESSED;
+    arc=ptr;
+    res->body=ExpandBuf(arc,task);
+    ptr+=arc->compressed_size;
+  } else {
+    res->body=MAlloc(body_size,task);
+    MemCpy(res->body,ptr,body_size);
+    ptr+=body_size;
+  }
+  res->thick=1;
+  res->r=Mat4x4IdentNew(task);
+  res->r_norm.u32[1]=1;
+  res->dc_signature=DCS_SIGNATURE_VAL;
+  if (_size) *_size=ptr-src;
+  return res;
+}
+
+#define GR_FILE_MAX	(offset(CDC.end)-offset(CDC.start)+\
+	COLORS_NUM*sizeof(CBGR48)+sizeof(CArcCtrl)+GR_WIDTH*GR_HEIGHT)
+
+public I64 GRWrite(U8 *filename,CDC *dc,I64 dcsf_flags=DCSF_COMPRESSED)
+{//TempleOS GR File.
+  I64	size;
+  U8	*st=ExtDft(filename,"GR.Z"),
+	*src=DCSave(dc,&size,dcsf_flags);
+  FileWrite(st,src,size);
+  Free(st);
+  Free(src);
+  return size;
+}
+
+public CDC *GRRead(U8 *filename,CTask *task=NULL)
+{//TempleOS GR File.
+  CDC	*dc=NULL;
+  U8	*st=ExtDft(filename,"GR.Z"),
+	*src=FileRead(st);
+  if (src)
+    dc=DCLoad(src,,task);
+  Free(src);
+  Free(st);
+  return dc;
+}
+
+#help_index "Graphics/Sprite;Graphics/GR Files;DolDoc/Output;StdOut/DolDoc"
+public U0 DocGR(CDoc *doc=NULL,U8 *filename)
+{//Put a GR file into a document as asprite.
+  CDC *dc=GRRead(filename);
+  CSprite *elems=DC2Sprite(dc);
+  DocSprite(doc,elems);
+  Free(elems);
+  DCDel(dc);
+}
+
+#help_index "Graphics/Device Contexts;Graphics/Scrn"
+public CDC *DCScrnCapture(Bool include_zoom=TRUE,CTask *task=NULL)
+{//Capture scrn to a device context.
+  CDC *dc;
+  U8 *dst;
+  Refresh(0,FALSE);
+  if (include_zoom)
+    dc=DCCopy(gr.scrn_image,task);
+  else
+    dc=DCCopy(gr.dc1,task);
+  dc->flags&=~DCF_SCRN_BITMAP;
+  dst=MAlloc(dc->width_internal*dc->height,task);
+//Pick background color that never occurs. COLOR_INVALID
+  GrBitMap4ToBitMap8(dst,dc->body,
+	(dc->width_internal*dc->height)>>1,COLOR_INVALID);
+  Free(dc->body);
+  dc->body=dst;
+  return dc;
 }
 
 public Bool GrPlot0(CDC *dc=gr.dc,I64 x,I64 y)
@@ -849,6 +1017,41 @@ here1a:
     return 1;
   } else
     return 0;
+}
+
+U8 *GrBitMap4ToBitMap8(U8 *dst,U8 *src,I64 src_size,I64 bkcolor)
+{
+  I64 c,k,i=src_size*2,i1=i>>3;
+  for (k=0;k<i;k++) {
+    c=0;
+    if (Bt(src     ,k)) c|=1;
+    if (Bt(src+i1  ,k)) c|=2;
+    if (Bt(src+i1*2,k)) c|=4;
+    if (Bt(src+i1*3,k)) c|=8;
+    if (c==bkcolor) c=TRANSPARENT;
+    *dst++=c;
+  }
+  return dst;
+}
+
+public CDC *DCExt(CDC *dc=gr.dc,I64 x1,I64 y1,I64 x2,I64 y2,
+	CTask *task=NULL)
+{//Extract new device context rect from device context.
+  CDC *res;
+  CTask *win_task;
+  if (x1>x2) SwapI64(&x1,&x2);
+  if (y1>y2) SwapI64(&y1,&y2);
+  if (dc->flags & DCF_SCRN_BITMAP) {
+    win_task=dc->win_task;
+    x1+=win_task->pix_left+win_task->scroll_x;
+    y1+=win_task->pix_top +win_task->scroll_y;
+    x2+=win_task->pix_left+win_task->scroll_x;
+    y2+=win_task->pix_top +win_task->scroll_y;
+  }
+  res=DCNew(x2-x1+1,y2-y1+1,task);
+  DCFill(res);
+  GrBlot(res,-x1,-y1,dc);
+  return res;
 }
 
 public I64 __GrRect(CDC *dc=gr.dc,I64 x,I64 y,I64 w,I64 h)

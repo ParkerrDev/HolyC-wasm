@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {
-  CMP_TYPES_SRC,CMP_SRC,LEX_TYPES_SRC,LEX_BITMAP_SRC,LEX_GLOBALS_SRC,LEX_SRC
+  CMP_TYPES_SRC,CMP_SRC,LEX_TYPES_SRC,LEX_GLOBALS_SRC,LEX_SRC
 } from "../../src/runtime-source.js";
 export const cases=['LexStream','LexEcho','LexTask'];
 export const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -16,14 +16,14 @@ export function fixture(name) {
     'extern U0 LexIncludeStr(CCmpCtrl *cc,U8 *filename,U8 *src,Bool actual);\n';
   const wrapper=name==='LexEcho'?'Raw(OFF);\n':'';
   const wasmSource=wrapper+source;
-  const inputs=[nativeBindings+wasmSource,rename(CMP_SRC+LEX_BITMAP_SRC+LEX_SRC+wasmSource)].map(text=>Buffer.from(text,'latin1'));
+  const inputs=[nativeBindings+wasmSource,rename(CMP_SRC+LEX_SRC+wasmSource)].map(text=>Buffer.from(text,'latin1'));
   const identity={sourceSha256:hash(Buffer.from(source,'latin1')),
     nativeBindings,wrapper,wasmSourceSha256:hash(Buffer.from(wasmSource,'latin1')),typesSha256:hash(Buffer.from(CMP_TYPES_SRC+LEX_TYPES_SRC,'latin1')),
-    librarySha256:hash(Buffer.from(CMP_SRC+LEX_BITMAP_SRC+LEX_SRC,'latin1')),
+    librarySha256:hash(Buffer.from(CMP_SRC+LEX_SRC,'latin1')),
     globalsSha256:hash(Buffer.from(LEX_GLOBALS_SRC,'latin1')),
     inputSha256:inputs.map(hash),
     captureSha256:hash(readFileSync(new URL('../oracle/QemuCapture.HC',import.meta.url)))};
-  return {name,source,wasmSource,inputs,identity,profile:name==='LexEcho'?'keydev':'console'};
+  return {name,source,wasmSource,inputs,identity};
 }
 export function recorded(name) {
   const test=fixture(name),output=readFileSync(new URL(name+'.out',import.meta.url));

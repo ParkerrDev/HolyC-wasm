@@ -128,40 +128,6 @@ U0 Msg(I64 msg_code,I64 arg1,I64 arg2,I64 flags=0)
   PostMsg(Fs,msg_code,arg1,arg2,flags);
 }
 
-I64 ScanMsg(I64 *_arg1=NULL,I64 *_arg2=NULL,I64 mask=~1,CTask *task=NULL)
-{//Remove first matching message, discarding other message types.
-  I64 res,sc;
-  CJob *tmpc,*tmpc1;
-  if (!task) task=Fs;
-  tmpc1=&task->srv_ctrl.next_waiting;
-  while ((tmpc=tmpc1->next)!=tmpc1) {
-    if (tmpc->job_code!=JOBT_MSG)
-      throw('JobHost',TRUE);
-    QueRem(tmpc);
-    res=tmpc->msg_code;
-    sc=tmpc->aux2;
-    if (_arg1) *_arg1=tmpc->aux1;
-    if (_arg2) *_arg2=sc;
-    JobDel(tmpc);
-    if ((res!=MSG_KEY_DOWN || !(sc&SCF_KEY_DESC) ||
-	  !Bt(&task->win_inhibit,WIf_SELF_KEY_DESC)) && Bt(&mask,res))
-      return res;
-  }
-  if (_arg1) *_arg1=0;
-  if (_arg2) *_arg2=0;
-  if (task->parent_task && task->parent_task->popup_task==task)
-    return ScanMsg(_arg1,_arg2,mask,task->parent_task);
-  return MSG_NULL;
-}
-
-I64 FlushMsgs(CTask *task=NULL)
-{//Throw away all messages. Return count.
-  I64 res=0,arg1,arg2;
-  while (ScanMsg(&arg1,&arg2,~1,task))
-    res++;
-  return res;
-}
-
 Bool Suspend(CTask *task=NULL,Bool state=TRUE)
 {//Tell scheduler to skip task; return prior state.
   if (!task) task=Fs;

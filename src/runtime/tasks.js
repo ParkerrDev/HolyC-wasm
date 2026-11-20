@@ -1,15 +1,21 @@
 import {createHost} from './host.js';
+import {ByteString} from '../encoding.js';
 
-const SUSPENDED=4n,KILLED=2n,ADD_TO_QUEUE=256n;
+//V5.03 Kernel/Sched.HC passes over a task that is suspended or awaiting a message.
+const SUSPENDED=4n,AWAITING_MSG=512n,KILLED=2n,ADD_TO_QUEUE=256n;
 class TaskExit extends Error {}
 export function taskSupport(wasm=WebAssembly) {
   return typeof wasm.Suspending==='function' && typeof wasm.promising==='function';
 }
 
+//What a program run as a user task's cmd line (createTaskHost opts.user) is
+//compiled to export: TaskHostUser, which makes the root V5.03's Adam, with the
+//Window Mgr and a user task (TaskHostUserCmdLine) whose cmd line is the program.
+export const USER_EXPORTS=['TaskHostUser'];
+
 export function createTaskHost(opts={}) {
   const wasm=opts.webAssembly??WebAssembly,host=createHost(opts);
-  const tasks=new Map(),owners=new Map();
-  const malloc=host.env.__malloc,free=host.env.__free;
+  const tasks=new Map(),heap=host.heap;
   let instance=null,current=null,root=null,timer=null,disposed=false,round=0;
   const now=()=>performance.now();
   function required() {
@@ -18,20 +24,34 @@ export function createTaskHost(opts={}) {
     if(host.state.heapAbi!==1) throw new Error('HolyC task ownership requires heap ABI 1');
   }
   function fn() {return instance.exports;}
-  function own(ptr,task) {
-    if(!ptr) return;
-    owners.get(ptr)?.alloc.delete(ptr);
-    if(task) {task.alloc.add(ptr);owners.set(ptr,task);}
-    else owners.delete(ptr);
+  //A task's allocations are a list in RAM (heap.js owners), as V5.03's
+  //CMemUsed.hc names the task heap a block came from; Free takes it off.
+  function ownerNew() {
+    const owner=heap.ownerNew();
+    if(!owner) throw new RangeError('Out of memory for a HolyC task');
+    return owner;
   }
-  host.env.__malloc=size=>{const ptr=malloc(size);own(ptr,current);return ptr;};
-  host.env.__malloc_kernel=size=>{const ptr=malloc(size);own(ptr,root);return ptr;};
+  function disown(task) {
+    if(!task.owner) return;
+    //Through the free import, so what wraps it sees each one go.
+    heap.dying=true;
+    try {for(let ptr;(ptr=heap.ownerFirst(task.owner));) host.env.__free(ptr);}
+    finally {heap.dying=false;}
+    heap.free(task.owner);task.owner=0n;
+  }
+  const count=task=>task.owner?heap.ownerCount(task.owner):0;
+  //What the prelude's boot in __rt_init allocates (V5.03's Adam makes it) lives
+  //as long as the instance, not as long as a session's root task.
+  const kernel={owner:0n};let booting=false,booted=false;
+  const owner=task=>(booting && task===root?kernel:task)?.owner??0n;
+  host.env.__rt_booted=()=>{booting=false;booted=true;kernel.heapPtr=host.state.heapPtr;};
+  host.env.__malloc=size=>heap.malloc(size,owner(current));
+  host.env.__malloc_kernel=size=>heap.malloc(size,owner(root));
   host.env.__malloc_for=(size,owner)=>{
     const task=tasks.get(owner);
     if(!task || task.status==='dead' || task.killed) return -1n;
-    const ptr=malloc(size);own(ptr,task);return ptr;
+    return heap.malloc(size,task.owner);
   };
-  host.env.__free=ptr=>{free(ptr);own(ptr,null);};
   function schedule(delay=0) {
     if(timer!==null || disposed) return;
     timer=setTimeout(()=>{timer=null;pump();},delay);
@@ -82,8 +102,10 @@ export function createTaskHost(opts={}) {
     enter(task);
     let error=task.error;
     if(task!==root) {
+      //The user task's end is the run's: Adam (the root) stops serving.
+      if(task===root.user) mark(root);
       try {fn().TaskHostDone(task.ptr);} catch(e) {error??=e;}
-      for(const ptr of [...task.alloc]) host.env.__free(ptr);
+      disown(task);
       tasks.delete(task.ptr);task.parent.children.delete(task);
     }
     task.status='dead';current=null;
@@ -111,7 +133,7 @@ export function createTaskHost(opts={}) {
     const clock=now();
     for(let i=0;i<list.length;i++) {
       const task=list[(round+i)%list.length];
-      if(!task.killed && (fn().TaskHostFlags(task.ptr)&SUSPENDED || !task.breakWake && (task.at>clock || task.condition && !task.condition()))) continue;
+      if(!task.killed && (fn().TaskHostFlags(task.ptr)&(SUSPENDED|AWAITING_MSG) || !task.breakWake && (task.at>clock || task.condition && !task.condition()))) continue;
       round=(round+i+1)%list.length;
       enter(task);task.status='running';
       let interrupted=null;
@@ -124,12 +146,14 @@ export function createTaskHost(opts={}) {
       if(task.start) {
         const start=task.start;task.start=null;
         if(task.killed || interrupted) {finish(task,interrupted??new TaskExit());schedule();return;}
-        wasm.promising(start)(...task.args).then(value=>{
-          if(task.next) {
-            task.start=task.next;task.next=null;task.args=task.nextArgs;
+        entry(start,task.args).then(value=>{
+          if(task===root) booting=false;
+          if(!task.tail) task.result=value;
+          if(task.steps?.length) {
+            [task.start,task.args,task.tail]=task.steps.shift();
             task.sp=fn().__sp.value;task.status='new';current=null;schedule();
-          } else {task.result=value;finish(task);}
-        },error=>finish(task,error));
+          } else finish(task);
+        },error=>{if(task===root) booting=false;finish(task,error);});
       } else {
         const resolve=task.resume,reject=task.reject;
         task.resume=task.reject=null;task.condition=null;
@@ -141,9 +165,26 @@ export function createTaskHost(opts={}) {
     schedule(Math.min(10,Number.isFinite(due)?due:10));
   }
   function record(ptr,parent,start,args,sp,limit) {
-    const task={ptr,parent,start,args,sp,top:sp,limit,exception:0n,status:'new',alloc:new Set(),children:new Set(),at:0,killed:false};
+    const task={ptr,parent,start,args,sp,top:sp,limit,exception:0n,status:'new',owner:0n,children:new Set(),at:0,killed:false};
     task.done=new Promise((resolve,reject)=>{task.resolveDone=resolve;task.rejectDone=reject;});
     tasks.set(ptr,task);parent?.children.add(task);return task;
+  }
+  //Spawn hands its data's 64 bits to the entry, as V5.03 does in a register;
+  //an entry whose argument is F64 takes those bits as the double.
+  function entry(start,args) {
+    //V5.03 Spawn pushes its one arg; an entry with more params reads what lies
+    //above it on the stack, here 0.
+    args=[...args,...Array(Math.max(0,start.length-args.length)).fill(0n)];
+    const run=wasm.promising(start);
+    try {return run(...args);}
+    catch(error) {
+      if(!(error instanceof TypeError) || !args.some(arg=>typeof arg==='bigint')) throw error;
+      const bits=new DataView(new ArrayBuffer(8));
+      return run(...args.map(arg=>{
+        if(typeof arg!=='bigint') return arg;
+        bits.setBigUint64(0,BigInt.asUintN(64,arg),true);return bits.getFloat64(0,true);
+      }));
+    }
   }
   function spawn(address,data,name,cpu,parent,stackSize,flags) {
     if(!current) throw new Error('Spawn outside a running HolyC task');
@@ -157,10 +198,12 @@ export function createTaskHost(opts={}) {
     stackSize=stackSize||1048576n;
     if(stackSize<4096n || stackSize>67108864n) throw new Error('HolyC task stack must be between 4 KiB and 64 MiB');
     stackSize=(stackSize+15n)&~15n;
-    const ptr=fn().TaskHostNew(parent,name,stackSize);
+    const list=ownerNew();let ptr;
+    try {ptr=fn().TaskHostNew(parent,name,stackSize);}
+    catch(error) {heap.free(list);throw error;}
     const top=fn().TaskHostStkTop(ptr);
     const task=record(ptr,owner,start,[data],top,top-stackSize);
-    own(ptr,task);own(fn().TaskHostStk(ptr),task);
+    task.owner=list;heap.own(ptr,list);heap.own(fn().TaskHostStk(ptr),list);
     const saved=fn().__sp.value;
     try {
       fn().DirHostTaskInit?.(ptr);
@@ -169,7 +212,7 @@ export function createTaskHost(opts={}) {
     catch(error) {
       fn().__sp.value=saved;
       fn().TaskHostDone(ptr);
-      for(const allocation of [...task.alloc]) host.env.__free(allocation);
+      disown(task);
       tasks.delete(ptr);owner.children.delete(task);
       throw error;
     }
@@ -185,8 +228,6 @@ export function createTaskHost(opts={}) {
     current.value=1n;
     return pending(current,0,()=>task.status==='dead' || !(fn().TaskHostFlags(task.ptr)&KILLED));
   }
-  const legacyInput=()=>{throw new Error('Legacy character adapters cannot run in a HolyC task session; use native GetKey/GetChar and set-1 packets');};
-  host.env.__scan_char=host.env.__get_char=legacyInput;
   host.env.__task_require=required;
   host.env.__task_spawn=spawn;
   host.env.__task_break=(ptr,wake)=>{
@@ -207,6 +248,62 @@ export function createTaskHost(opts={}) {
       return pending(current,0,()=>Boolean(fn().TaskHostReady(task)));
     });
     host.env.__task_kill=new wasm.Suspending(kill);
+    //A later program part or ExePutS text runs on the calling task, so it
+    //can sleep and wait as that task (jit.js).
+    host.env.__jit_rest=new wasm.Suspending(async part=>{
+      const instance=host.jit.symbols().part(Number(part));
+      await wasm.promising(instance.exports.__main)();
+    });
+    host.env.__jit_exe=new wasm.Suspending(async(text,filename,res)=>{
+      const table=host.jit.symbols(),bytes=new Uint8Array(fn().memory.buffer);
+      const cstr=addr=>{
+        const at=Number(addr),end=bytes.indexOf(0,at);
+        return ByteString(bytes.subarray(at,end<0?at:end));
+      };
+      const instance=table.text(cstr(text),filename?cstr(filename):'<exe>');
+      if(!instance) return 0n;
+      const value=await wasm.promising(instance.exports.__main)();
+      if(res) new DataView(fn().memory.buffer).setBigInt64(Number(res),value,true);
+      return 1n;
+    });
+    //So does a statement LexStmt2Bin compiles that only declares (host.js).
+    host.env.__jit_stmt=new wasm.Suspending(async type=>{
+      const tokens=host.jit.tokens;
+      host.jit.tokens=[];
+      let code;
+      try {code=host.jit.symbols().statement(tokens);}
+      catch(error) {
+        host.state.out(error.message+'\n');
+        return 0n;
+      }
+      if(type) new DataView(fn().memory.buffer).setBigInt64(Number(type),BigInt(code.type),true);
+      if(code.address!==null) return BigInt(code.address);
+      await wasm.promising(code.main)();
+      return 0x7FFFFFFFFFFFFFFFn; //INVALID_PTR
+    });
+    //A user run's two halves: Adam names its user task, and that task runs
+    //the program's entry (Kernel/RuntimeC.HC TaskHostUser).
+    host.env.__task_user=new wasm.Suspending(async ptr=>{
+      if(ptr) {root.user=tasks.get(ptr);return;}
+      const run=root.entry;
+      if(current!==root.user || !run) throw new Error('Only the user task runs the program');
+      root.entry=null;
+      try {root.result=await entry(...run);}
+      catch(error) {
+        if(error instanceof TaskExit) throw error;
+        root.error??=error;
+      }
+    });
+    //CallExtStr's function runs on the calling task too.
+    host.env.__call_ext=new wasm.Suspending(async(name,argc,argv)=>{
+      if(!opts.jit) return 0n;
+      const bytes=new Uint8Array(fn().memory.buffer),at=Number(name),end=bytes.indexOf(0,at);
+      const call=host.jit.symbols().external(ByteString(bytes.subarray(at,end<0?at:end)));
+      if(!call) return 0n;
+      if(call.start) await wasm.promising(call.start)();
+      const args=call.args(argc,argv);
+      return call.result(args,await wasm.promising(call.fn)(...args));
+    });
     host.env.__play_note=new wasm.Suspending(async(freq,ms)=>{
       if(host.state.snd?.note && !host.state.snd?.tone)
         throw new Error('Cooperative sound requires a nonblocking tone adapter');
@@ -219,7 +316,7 @@ export function createTaskHost(opts={}) {
   const attach=host.attach;
   host.attach=inst=>{
     required();
-    if(root || owners.size) throw new Error('Cannot replace an active HolyC task instance');
+    if(root || kernel.owner) throw new Error('Cannot replace an active HolyC task instance');
     if(typeof SharedArrayBuffer!=='undefined' && inst.exports.memory.buffer instanceof SharedArrayBuffer)
       throw new Error('Cooperative HolyC tasks require a single, unshared instance');
     for(const name of ['TaskHostRoot','TaskHostEnter','TaskHostNew'])
@@ -231,14 +328,27 @@ export function createTaskHost(opts={}) {
     required();
     if(!instance) throw new Error('Attach the HolyC instance before running tasks');
     if(typeof fn()[entry]!=='function') throw new Error('Unknown HolyC task entry: '+entry);
+    if(opts.user && USER_EXPORTS.some(name=>typeof fn()[name]!=='function'))
+      throw new Error('A user task run needs the program compiled with exports '+USER_EXPORTS.join(', '));
     if(root && root.status!=='dead') throw new Error('HolyC task session is already running');
     const previous=root;
     root=record(fn().TaskHostRoot(),null,fn()[entry],args,fn().__sp.value,fn().__stack_limit.value);
-    if(entry!=='__main') {
-      root.start=fn().__rt_init;root.next=fn()[entry];root.nextArgs=args;root.args=[];
-    }
-    if(previous) for(const ptr of [...previous.alloc]) own(ptr,root);
-    pump();return root.done;
+    //__main boots itself. Another entry, or a program run as a user task's cmd
+    //line (opts.user), boots first. A user run's root is Adam (TaskHostUser),
+    //and the entry runs on its user task (__task_user); the run keeps its
+    //result and its error.
+    const steps=[];
+    if(entry!=='__main' || opts.user) steps.push([fn().__rt_init,[]]);
+    if(opts.user) {
+      steps.push([fn().TaskHostUser,[],true]);
+      root.entry=[fn()[entry],args];
+    } else steps.push([fn()[entry],args]);
+    [root.start,root.args]=steps.shift();root.steps=steps;
+    kernel.owner||=ownerNew();
+    if(previous) {root.owner=previous.owner;previous.owner=0n;}
+    else root.owner=ownerNew();
+    //__rt_init runs once an instance, on the first root, before its entry.
+    booting=!booted;pump();return root.done;
   };
   host.postMessage=(code,arg1=0n,arg2=0n,target=root?.ptr)=>{
     if(!root || root.status==='dead') return false;
@@ -261,6 +371,8 @@ export function createTaskHost(opts={}) {
     return device(()=>{for(const byte of bytes)fn().KbdHostByte(BigInt(byte));});
   };
   host.resetInput=()=>device(()=>fn().KbdHostReset());
+  const mouse=host.mouse;
+  host.mouse=(...args)=>instance && typeof fn().MsHardSet==='function' && device(()=>mouse(...args));
   host.breakTask=(target=0n)=>{
     target=BigInt(target);
     if(target && (!tasks.has(target) || tasks.get(target).status==='dead')) return false;
@@ -278,10 +390,12 @@ export function createTaskHost(opts={}) {
   host.dispose=async()=>{
     try {await host.stop();}
     finally {
-      for(const ptr of [...owners.keys()]) host.env.__free(ptr);
+      for(const task of [...tasks.values(),kernel]) disown(task);
       disposed=true;if(timer!==null) clearTimeout(timer);timer=null;
     }
   };
-  Object.defineProperty(host.state,'tasks',{get:()=>[...tasks.values()].map(task=>({ptr:task.ptr,status:task.status,allocations:task.alloc.size}))});
+  //The heap and allocations the instance keeps from its boot on.
+  Object.defineProperty(host.state,'boot',{get:()=>({heapPtr:kernel.heapPtr??null,allocations:count(kernel)})});
+  Object.defineProperty(host.state,'tasks',{get:()=>[...tasks.values()].map(task=>({ptr:task.ptr,status:task.status,allocations:count(task)}))});
   return host;
 }

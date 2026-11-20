@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {compileHolyC} from "../src/compiler.js";
-import {createHost} from "../src/runtime/host.js";
+import {createTaskHost} from "../src/runtime/tasks.js";
 
 const builder=readFileSync(new URL("v503/Sprite.HC",import.meta.url),"latin1").replace(/Sprite;\s*$/,"");
 const source=builder+`
@@ -98,10 +98,10 @@ I64 CurveCancel(I64 order,I64 fail)
 U0 Done() {DCDel(dc);}`;
 const result=compileHolyC(source,{lenient:false,exports:["Init","Prepare","Draw","Create","Release","Done","CurveCancel","Corrupt"]});
 let calls=0,failAt=0;
-const host=createHost(),malloc=host.env.__malloc;
+const host=createTaskHost(),malloc=host.env.__malloc;
 host.env.__malloc=size=>++calls===failAt?0n:malloc(size);
 const {instance}=await WebAssembly.instantiate(result.bytes,{env:host.env});
-const fn=instance.exports;host.attach(instance);fn.__rt_init();
+const fn=instance.exports;host.attach(instance);await host.run();
 fn.Init();fn.Done();const empty=host.state.heapPtr;
 fn.Init();const heap=host.state.heapPtr,stack=fn.__sp.value;
 let total=0;

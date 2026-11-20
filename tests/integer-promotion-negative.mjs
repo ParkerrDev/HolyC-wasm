@@ -3,7 +3,7 @@ import {cpSync,mkdtempSync,readFileSync,writeFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {createHost} from '../src/runtime/host.js';
+import {createTaskHost} from '../src/runtime/tasks.js';
 import {recorded} from './integer-promotion/cases.mjs';
 const mutations=[
  {name:'unsigned propagation',file:'types.js',from:'if (a.bits>b.bits) return a;',to:'return a.signed && b.signed?T.I64:T.U64;',test:'Memory'},
@@ -19,7 +19,7 @@ for(const mutation of mutations){
   writeFileSync(path,original.replace(mutation.from,mutation.to));
   const {compileHolyC}=await import(pathToFileURL(join(dir,'src/compiler.js'))),test=recorded(mutation.test);
   const result=compileHolyC(test.source.toString('latin1'),{lenient:false});assert.deepEqual(result.warnings,[]);
-  let output='';const host=createHost({onText:s=>output+=s}),instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});host.attach(instance);instance.exports.__main();
+  let output='';const host=createTaskHost({onText:s=>output+=s}),instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});host.attach(instance);await host.run();
   const expected=test.output.split('\n'),actual=output.split('\n');assert.equal(actual.length,expected.length);
   const differences=expected.filter((line,i)=>line!==actual[i]).length;assert(differences>0,mutation.name+' must fail native proof');
   console.log('Negative control:',mutation.name,'fails',differences,'native decisions');

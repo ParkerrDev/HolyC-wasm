@@ -22,6 +22,6 @@ sampled++;
 assert.equal(device.exports.Tick(),sampled);
 sampled=-1n;
 assert.equal(device.exports.Tick(),device.exports.OldTick(),"A failed provider returns to fresh time");
-const hello=new WebAssembly.Module(compileHolyC('"Hello";',{lenient:false}).bytes);
+const hello=new WebAssembly.Module(compileHolyC('I64 answer=6*7;',{lenient:false}).bytes);
 assert(!WebAssembly.Module.imports(hello).some(item=>item.name==="__tsc"));
 console.log("TSC: dynamic exact timeMs fallback, 64-bit sampled values, failure fallback and unused-clock elimination pass.");

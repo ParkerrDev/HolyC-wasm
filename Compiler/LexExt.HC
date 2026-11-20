@@ -3,14 +3,8 @@ U8 *LexExtStr(CCmpCtrl *cc,I64 *_size=NULL,Bool lex_next=TRUE)
 {//Join string tokens; _size includes the terminator.
   I64 len,len1,len2;
   U8 *st,*st1=NULL,*st2=NULL;
-  CLexFile *tmpf;
   if (!cc) throw('LexState');
-  if (cc->token==TK_STR) {
-    if (cc->flags&CCF_PMT) throw('LexMode');
-    if (!cc->lex_include_stk) throw('LexState');
-    for (tmpf=cc->lex_include_stk;tmpf;tmpf=tmpf->next)
-      if (tmpf->flags&LFSF_DOC) throw('LexMode');
-  }
+  if (cc->token==TK_STR && !cc->lex_include_stk) throw('LexState');
   len=cc->cur_str_len;
   st=cc->cur_str;
   cc->cur_str=NULL;

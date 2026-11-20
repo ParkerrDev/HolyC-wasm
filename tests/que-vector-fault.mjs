@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import {compileHolyC} from '../src/compiler.js';
-import {createHost} from '../src/runtime/host.js';
+import {createTaskHost} from '../src/runtime/tasks.js';
 import {read} from './que-vector/cases.mjs';
 const exports=['QvNewTrial','QvFaultSetup','QvGrowTrial','QvFaultDone','RemFaultSetup','RemReadTrial','RemFaultDone'];
 const result=compileHolyC(read('QueVectorFault.HC'),{lenient:false,exports});
-assert.deepEqual(result.warnings,[]);assert.deepEqual(result.requiredCapabilities,[]);
-const host=createHost({ansi:false,onText:()=>{}}),live=new Set();let calls=0,failAt=0,total=0;
+assert.deepEqual(result.warnings,[]);assert.deepEqual(result.requiredCapabilities,['task-continuations']);
+const host=createTaskHost({jit:result.jit,ansi:false,onText:()=>{}}),live=new Set();let calls=0,failAt=0,total=0;
 for(const name of ['__malloc','__malloc_for','__malloc_kernel']) {
   const alloc=host.env[name];host.env[name]=(...args)=>{
     if(++calls===failAt)return 0n;
@@ -18,7 +18,7 @@ const state=()=>[live.size,host.state.heapPtr,instance.exports.__sp.value];
 const run=(name,...args)=>instance.exports[name](...args);
 const outMem=0x6D654D74754Fn;
 try {
-  instance.exports.__main();
+  await host.run();
   calls=0;assert.equal(run('QvNewTrial'),0n);const newSites=calls,baseline=state();
   assert.equal(newSites,1);
   for(let site=1;site<=newSites;site++) {
@@ -43,6 +43,6 @@ try {
     assert.equal(run('RemReadTrial'),0n,'Retry reads the remaining source from its actual consumed position.');
     assert.deepEqual(state(),before);run('RemFaultDone');assert.deepEqual(state(),baseline);total++;
   }
-} finally {failAt=0;for(const ptr of [...live])host.env.__free(ptr);}
+} finally {failAt=0;await host.dispose();}
 assert.equal(live.size,0);
 console.log(total,'allocation failures preserve valid vector prefixes, free marker-scan temporaries, retain caller source and output-length ownership, and permit immediate retries without heap/stack leaks.');

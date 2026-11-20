@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {compileHolyC} from '../src/compiler.js';
-import {createHost} from '../src/runtime/host.js';
+import {createTaskHost} from '../src/runtime/tasks.js';
 import {cases,recorded} from './local-storage/cases.mjs';
 let values=0,registers=0;
 for(const name of Object.keys(cases)){
@@ -11,8 +11,8 @@ for(const name of Object.keys(cases)){
   assert.deepEqual(plain.bytes,result.bytes,'allocation trace must not change generated code');
   assert(!Object.hasOwn(plain,'localRegisters'));
  }
- let output='';const host=createHost({onText:text=>output+=text}),instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});
- host.attach(instance);instance.exports.__main();
+ let output='';const host=createTaskHost({onText:text=>output+=text}),instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});
+ host.attach(instance);await host.run();
  assert.deepEqual(output.trimEnd().split('\n'),test.values,name+' values');
  for(const fun of test.names){
   const expected=test.registers.filter(row=>row.fun===fun).map(({name,reg})=>({name,reg}));

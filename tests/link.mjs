@@ -24,10 +24,17 @@ U0 Dead() { MissingHost; "unreachable-string-sentinel"; GrCircle(gr.dc,1,2,3); }
 I64 Read() { I64 gr=42; return gr; }
 `,{exports:['Read']});
   assert.equal(result.instance.exports.Read(),42n);
-  assert.deepEqual(imports(result.module),['__rt_init_failed','__gr_width','__gr_height']);
+  //A program with no live calls reaches no file of Adam, so none of their
+  //statements run: the root task's setup is all the host it needs.
+  const boot=['__rt_init_failed','__gr_width','__gr_height'];
+  assert.deepEqual(imports(result.module),boot);
+  assert.deepEqual(imports(new WebAssembly.Module(compileHolyC('I64 Read() {return 42;}',
+    {lenient:false,exports:['Read']}).bytes)),boot);
   assert(!Buffer.from(result.bytes).includes(Buffer.from('unreachable-string-sentinel')));
-  assert(!Buffer.from(result.bytes).includes(Buffer.from(FONT)),
-    'unused font data is not linked');
+  //Dead code links nothing: the module is the one built without it.
+  const live=compileHolyC('import I64 MissingHost();\nI64 Read() { I64 gr=42; return gr; }',
+    {lenient:false,exports:['Read']});
+  assert.deepEqual(Buffer.from(result.bytes),Buffer.from(live.bytes),'dead code is not linked');
   assert.throws(()=>compileHolyC('U0 Dead() { Absent; }',{lenient:false}),/undefined symbol/);
   assert.throws(()=>compileHolyC('U0 Dead() { asm { NOP } }',{lenient:false}),/assembly/);
   const callback=compileHolyC('import I64 MissingHost(); I64 (*cb)()=&MissingHost;',
@@ -68,7 +75,9 @@ I64 Thick() { return gr.dc->thick; }
 `,{exports:['Width','Thick']});
   const memory=new DataView(result.instance.exports.memory.buffer);
   assert.equal(memory.getBigInt64(result.globals.get('width').addr,true),640n);
-  const screen=memory.getBigUint64(result.globals.get('gr').addr,true);
+  //gr.dc is CGrGlbls' fourth field, after to_8_bits, to_8_colors and scrn_image,
+  //as in V5.03's Adam/Gr/GrGlbls.HC.
+  const screen=memory.getBigUint64(result.globals.get('gr').addr+24,true);
   assert.equal(result.instance.exports.Width(screen),1280n);
   assert.equal(result.instance.exports.Thick(),1n,'DCRst dependency retained');
 }
@@ -122,12 +131,20 @@ U0 Change() { option=9; }
 {
   const plain=await run('I64 Width() { return gr.dc->width; }',{exports:['Width']});
   assert.equal(plain.instance.exports.Width(),640n);
-  if (!process.env.NOFOLD)
-    assert(!imports(plain.module).includes('__malloc'),
-      'folded screen-dimension reads omit the unreachable brush allocator');
+  //A folded read adds no host function and no allocation to the boot.
+  const bootHeap=source=>{
+    const result=compileHolyC(source,{lenient:false}),host=createHost();
+    const instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});
+    host.attach(instance);instance.exports.__rt_init();return host.state.heapPtr;
+  };
+  if (!process.env.NOFOLD) {
+    assert.deepEqual(imports(plain.module),['__rt_init_failed','__gr_width','__gr_height']);
+    assert.equal(bootHeap('I64 Width() { return gr.dc->width; }'),bootHeap('I64 Read() {return 42;}'),
+      'folded screen-dimension reads allocate nothing past the boot');
+  }
   const direct=await run('I64 Pen() { return gr.pen_brushes[9]->width; }',{exports:['Pen']});
   assert.equal(direct.instance.exports.Pen(),9n);
-  const alias=await run('CGr *alias=&gr; I64 Pen() { return alias->pen_brushes[7]->width; }',
+  const alias=await run('CGrGlbls *alias=&gr; I64 Pen() { return alias->pen_brushes[7]->width; }',
     {exports:['Pen']});
   assert.equal(alias.instance.exports.Pen(),7n);
 }

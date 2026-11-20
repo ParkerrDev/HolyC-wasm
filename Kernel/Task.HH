@@ -190,11 +190,55 @@ public class CQue
 #define TASK_NAME_LEN 32
 #define TASK_EXCEPT_CALLERS 8
 
+#define CTRLT_GENERIC		0
+#define CTRLT_WIN_HSCROLL	1 //unique
+#define CTRLT_WIN_VSCROLL	2 //unique
+#define CTRLT_VIEWING_ANGLES	3 //unique
+
+#define CTRLF_SHOW		1
+#define CTRLF_BORDER		2
+#define CTRLF_CAPTURE_LEFT_MS	4
+#define CTRLF_CAPTURE_RIGHT_MS	8
+#define CTRLF_CLICKED		16
+
+#define WSSf_SET_TO_POS		0
+
 public class CWinScroll
 {
   I64	min,pos,max;
   U32	flags;
   U8	color,pad[3];
+};
+
+public class CViewAngles
+{
+  I64	sx,sy,sz;
+  F64	ax,ay,az;
+  CColorROPU32 cx,cy,cz,cbd,cbg,cfg;
+};
+
+public class CCtrl
+{
+  CCtrl *next,*last;
+  CTask *win_task;
+  I64	type,flags;
+
+  //win pix coordinates
+  I64	left,right,top,bottom;
+
+  //scrn pix coordinates (derived)
+  I64	scrn_left,scrn_right,scrn_top,scrn_bottom;
+
+  U8	*state;
+
+  //called on resize
+  U0	(*update_derived_vals)(CCtrl *c);
+  U0	(*draw_it)(CDC *dc,CCtrl *c);
+
+  Bool	(*inside_ctrl)(CCtrl *c,I64 x,I64 y); //For nonbox shapes
+  U0	(*left_click)(CCtrl *c,I64 x,I64 y,Bool down);
+  U0	(*right_click)(CCtrl *c,I64 x,I64 y,Bool down);
+  U0	(*wheel_chg)(CCtrl *c,I64 delta);
 };
 
 class CJob
@@ -219,6 +263,50 @@ class CJobCtrl
   CJob *next_waiting,*last_waiting;
   CJob *next_done,*last_done;
   I64	flags;
+};
+
+public class CMenuEntry
+{
+  CMenuEntry *next;
+  CMenuEntry *sub;
+  U8	name[32];
+  I64	msg_code,arg1,arg2;
+  Bool	checked,dir,pad[6];
+};
+
+public class CMenu
+{
+  CMenu *next;
+  CMenuEntry *sub;
+  CTask *task;
+  I64	flags;
+  U8	attr,pad[7];
+};
+
+#define MP_PROCESSORS_NUM	128
+
+class CWinMgrTimingGlbls
+{
+  I64	last_total_jiffies,
+	last_idle_pt_hits[MP_PROCESSORS_NUM],
+	last_swap_cnter[MP_PROCESSORS_NUM];
+  F64	last_calc_idle_time,calc_idle_delta_time;
+  I64	calc_idle_cnt;
+};
+
+#define WINMGR_FPS	(30000.0/1001)
+#define WINMGR_PERIOD	(1001/30000.0)
+
+public class CWinMgrGlbls
+{
+  I64	updates;
+  F64	ode_time,
+	last_ode_time,
+	fps,		//You can read but not write this. You have no control.
+	ideal_refresh_tS,
+	last_refresh_tS;
+  CWinMgrTimingGlbls *t;
+  Bool	show_menu,grab_scroll,grab_scroll_closed;
 };
 
 public class CTaskSettings
@@ -249,6 +337,28 @@ class CTaskDying
 {
   CTask *next,*last;
   I64	wake_jiffy;
+};
+
+#define CPUf_RAN_A_TASK		0
+#define CPUf_DYING_TASK_QUE	1
+
+public class CCPU //The Gs segment reg points to current CCPU.
+{
+  CCPU	*addr; //Self-addressed ptr
+  I64	num,cpu_flags,
+	startup_rip,
+	idle_pt_hits;
+  F64	idle_factor;
+  I64	total_jiffies;
+  CTask *seth_task,*idle_task;
+  I64	tr,   //task reg
+	swap_cnter;
+  U0	(*profiler_timer_irq)(CTask *task);
+  CTaskDying *next_dying,*last_dying;
+  I64	kill_jiffy;
+  CTSS	*tss;
+  I64	start_stk[16];
+#assert !($$&7)
 };
 
 public class CTask //The Fs segment reg points to current CTask.
@@ -351,4 +461,62 @@ public class CKbdStateGlbls
 
   Bool	rst,		//Private: Reset KbdMs
 	irqs_working;	//Private
+};
+
+public class CMsHardStateGlbls
+{
+  CD3I64 pos,		//Position in pixels
+	prescale;
+  CD3	scale;
+  F64	speed;		//Output: How fast the user is moving it.
+  I64	timestamp,	//Output: GetTSC when event.
+	install_attempts, //Private
+	pkt_size;	//Private
+  CFifoU8 *fifo,*fifo2; //Private
+  Bool	bttns[5],
+	has_wheel,
+	has_ext_bttns,
+	evt,		//Private
+	installed,	//Private
+	install_in_progress, //Private
+	irqs_working;	//Private
+};
+
+public class CMsStateGlbls
+{
+  CD3I64 pos,		//Position in pixels
+	pos_text,	//Position in text rows,cols
+	presnap,
+	offset;
+  CD3	scale;
+  F64	speed;		//Output: How fast the user is moving it.
+  I64	timestamp;	//Output: GetTSC when event.
+  F64	dbl_time,	//Input: Time threshold for calling it a double click.
+	left_dbl_time,	//Private
+	right_dbl_time;	//Private
+  Bool	lb,		//Left Bttn
+	rb,		//Right Bttn
+	show,
+	has_wheel,
+	left_dbl,	//Private
+	left_down_sent, //Private
+	right_dbl,	//Private
+	right_down_sent;//Private
+};
+
+public class CGridGlbls
+{
+  Bool	snap	format "$$CB,\"Snap Grid\"$$\n",
+	show	format "$$CB,\"Show Grid\"$$\n",
+	coord	format "$$CB,\"Show Coordinates\"$$\n";
+  U8	pad[5];
+  F64	x	format "$$DA-TRM,A=\"X Spacing:%6.3f\"$$\n",
+	y	format "$$DA-TRM,A=\"Y Spacing:%6.3f\"$$\n",
+	z	format "$$DA-TRM,A=\"Z Spacing:%6.3f\"$$\n",
+	x_offset format "$$DA-TRM,A=\"X Offset :%6.3f\"$$\n",
+	y_offset format "$$DA-TRM,A=\"Y Offset :%6.3f\"$$\n",
+	z_offset format "$$DA-TRM,A=\"Z Offset :%6.3f\"$$\n",
+	x_speed	format "$$DA-TRM,A=\"X Speed  :%6.3f\"$$\n",
+	y_speed	format "$$DA-TRM,A=\"Y Speed  :%6.3f\"$$\n",
+	z_speed	format "$$DA-TRM,A=\"Z Speed  :%6.3f\"$$\n";
 };

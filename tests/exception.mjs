@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {compileHolyC} from "../src/compiler.js";
-import {createHost} from "../src/runtime/host.js";
+import {createTaskHost} from "../src/runtime/tasks.js";
 
 const source=readFileSync(new URL("v503/Exception.HC",import.meta.url));
 const result=compileHolyC(source,{lenient:false,exports:["Safe","Leaf"]});
-const host=createHost({ansi:false,onText:()=>{}});
+const host=createTaskHost({ansi:false,onText:()=>{}});
 const {instance}=await WebAssembly.instantiate(result.bytes,{env:host.env});
 host.attach(instance);
 const fn=instance.exports;
-fn.__main();
+await host.run();
 const stack=fn.__sp.value;
 for (let i=0;i<10000;i++) {
   assert.equal(fn.Safe(BigInt(i)),BigInt(i));

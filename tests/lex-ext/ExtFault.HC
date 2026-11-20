@@ -25,6 +25,7 @@ U0 ExtFaultSetup()
   I64 i;
   Raw(OFF);
   ext_fault_table=HashTableNew(16);
+  ext_fault_table->next=cmp.asm_hash; //The keywords, so #define is one.
   tmpd=CAlloc(sizeof(CHashDefineStr));
   tmpd->str=StrNew("VALUE");
   tmpd->data=StrNew("\"second\" \"third\"");

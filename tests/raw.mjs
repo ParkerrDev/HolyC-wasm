@@ -3,6 +3,7 @@ import {readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {compileHolyC} from '../src/compiler.js';
 import {createHost} from '../src/runtime/host.js';
+import {createTaskHost} from '../src/runtime/tasks.js';
 import {Framebuffer} from '../src/runtime/graphics.js';
 
 const fb=new Framebuffer(null,13,3),host=createHost({gfx:fb}),
@@ -36,9 +37,9 @@ update(base,2,20,0,4,3);update(base,2,0,0,0,3);
 assert.deepEqual(fb.indices,saved);
 memory.grow(1);new Uint8Array(memory.buffer).set([0x80,0],65536);
 update(65536,2,0,0,1,1);assert.equal(fb.indices[0],15);
-assert(!('__gr_update_mono' in createHost().env),'Absent device remains an unresolved import.');
+assert.equal(typeof createHost().env.__gr_update_mono,'function','Raw text reaches a host with no screen and shows nowhere.');
 const noPixels=createHost({gfx:{width:13,height:3}});
-assert(!('__gr_update_mono' in noPixels.env));
+noPixels.env.__gr_update_mono(0n,2n,0n,0n,1n,1n); //No pixel buffer: raw text shows nowhere.
 assert.throws(()=>noPixels.env.__gr_update(0n,13n,0n,0n,13n,3n),
   /indexed pixel storage/,'A configured display cannot silently discard completed pixels.');
 createHost().env.__gr_update(0n,13n,0n,0n,13n,3n);
@@ -60,7 +61,7 @@ const fixture=native.source
 const result=compileHolyC('import U0 RawDeviceChk(U8 *image);\n'+fixture,{lenient:false});
 assert.deepEqual(result.warnings,[]);
 let output='',checks=0;
-const screen=new Framebuffer(null),device=createHost({gfx:screen,ansi:false,onText:s=>output+=s});
+const screen=new Framebuffer(null),device=createTaskHost({gfx:screen,ansi:false,onText:s=>output+=s,jit:result.jit});
 device.env.RawDeviceChk=addr=>{
   const packed=new Uint8Array(device.state.mem.buffer,Number(addr),38400);
   // Repack observed device pixels and compare with the independently checked
@@ -73,15 +74,16 @@ device.env.RawDeviceChk=addr=>{
   assert.deepEqual(observed,packed);checks++;
 };
 const module=new WebAssembly.Module(result.bytes),instance=new WebAssembly.Instance(module,{env:device.env});
-device.attach(instance);instance.exports.__main();
+device.attach(instance);await device.run();await device.dispose();
 assert.equal(output,native.output);assert.equal(checks,64);
 console.log('Packed graphics: literal pixel patterns, clipped/partial writes, rejected ranges, memory growth and 64 native raw-screen states pass.');
 
 output='';
 const fontResult=compileHolyC(font.source,{lenient:false});assert.deepEqual(fontResult.warnings,[]);
-const fontHost=createHost({gfx:new Framebuffer(null),ansi:false,onText:s=>output+=s});
-const fontInstance=new WebAssembly.Instance(new WebAssembly.Module(fontResult.bytes),{env:fontHost.env});fontHost.attach(fontInstance);fontInstance.exports.__main();
+const fontHost=createTaskHost({gfx:new Framebuffer(null),ansi:false,onText:s=>output+=s,jit:fontResult.jit});
+const fontInstance=new WebAssembly.Instance(new WebAssembly.Module(fontResult.bytes),{env:fontHost.env});fontHost.attach(fontInstance);await fontHost.run();await fontHost.dispose();
 assert.equal(output,font.output);
 const missing=compileHolyC("RawPutChar('F');",{lenient:false});
-assert.throws(()=>new WebAssembly.Instance(new WebAssembly.Module(missing.bytes),{env:createHost().env}),WebAssembly.LinkError);
-console.log(font.output.trim(),'both native fonts, public initialization and missing graphics-device refusal pass.');
+const blind=createHost(),raw=new WebAssembly.Instance(new WebAssembly.Module(missing.bytes),{env:blind.env});
+blind.attach(raw);raw.exports.__main(); //No screen: raw text shows nowhere.
+console.log(font.output.trim(),'both native fonts, public initialization and raw text with no screen pass.');

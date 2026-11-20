@@ -39,13 +39,14 @@ runtime.env.__malloc=size=>++attempts===broken?0n:alloc(size);
 const target=new WebAssembly.Instance(new WebAssembly.Module(bridge.bytes),{env:runtime.env});runtime.attach(target);
 const running=runtime.run('Wait');
 const deadline=setTimeout(()=>{throw new Error('FIFO keyboard test did not settle');},15000);
-while(runtime.state.tasks[0].status!=='waiting') await new Promise(resolve=>setTimeout(resolve,1));
+//The boot (AutoComplete's DrvUnlock) Yields too: wait for Wait's own wait.
+while(runtime.state.boot.heapPtr===null || runtime.state.tasks[0].status!=='waiting') await new Promise(resolve=>setTimeout(resolve,1));
 const seed=runtime.env.__malloc(1n);runtime.env.__free(seed);
 for(const fail of [1,2]) {
   attempts=0;broken=fail;
   assert.throws(()=>runtime.keyBytes([0x1E]),WebAssembly.Exception);
   assert.equal(target.exports.KeyCount(),0n,'failed lazy construction precedes key state changes');
-  assert.equal(runtime.state.heapPtr,16777248);assert.equal(runtime.state.tasks[0].allocations,0);
+  assert.equal(runtime.state.heapPtr,runtime.state.boot.heapPtr);assert.equal(runtime.state.tasks[0].allocations,0);
 }
 broken=0;target.exports.Focus(0n);
 runtime.keyBytes([0x1E]);runtime.keyBytes([0x9E]);

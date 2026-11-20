@@ -7,7 +7,7 @@ import {spawnSync} from "node:child_process";
 
 const root=new URL("../",import.meta.url),temp=mkdtempSync(join(tmpdir(),"holyc-source-"));
 try {
-  for (const path of ["Kernel","Compiler","Adam","Misc/RuntimeMk.mjs",
+  for (const path of ["Kernel","Compiler","Adam","HomeSys.HC","Misc/RuntimeMk.mjs",
     "src/runtime/font.js","src/float-scale.js","src/runtime-source.js"]) {
     mkdirSync(dirname(join(temp,path)),{recursive:true});
     cpSync(new URL(path,root),join(temp,path),{recursive:true});

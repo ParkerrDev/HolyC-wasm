@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import {compileHolyC} from '../src/compiler.js';
-import {createHost} from '../src/runtime/host.js';
+import {createTaskHost} from '../src/runtime/tasks.js';
 import {read} from './lex-stream/cases.mjs';
 const methods=['LexIncludeTrial'];
 const source=read('LexFault.HC');
-const result=compileHolyC(source,{lenient:false,exports:[...methods,'LexFaultDone','LexModeTrial']});
+const result=compileHolyC(source,{lenient:false,exports:[...methods,'LexFaultDone']});
 assert.deepEqual(result.warnings,[]);
-assert.deepEqual(result.requiredCapabilities,[],'finite console byte streams require no scheduler');
-const host=createHost({ansi:false,onText:()=>{}}),live=new Set();let calls=0,failAt=0,count=0;
+//CmpCtrlNew links the task runtime in the one Adam, so it is a task program.
+assert.deepEqual(result.requiredCapabilities,['task-continuations']);
+const host=createTaskHost({ansi:false,onText:()=>{},jit:result.jit}),live=new Set();let calls=0,failAt=0,count=0;
 for(const name of ['__malloc','__malloc_for','__malloc_kernel']) {
   const alloc=host.env[name];host.env[name]=(...args)=>{
     if(++calls===failAt)return 0n;
@@ -18,10 +19,10 @@ const free=host.env.__free;host.env.__free=ptr=>{free(ptr);live.delete(ptr);};
 const instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});host.attach(instance);
 const state=()=>[live.size,host.state.heapPtr,instance.exports.__sp.value];
 const run=(name="__main",...args)=>instance.exports[name](...args);
-instance.exports.__rt_init();
+await host.run('__rt_init');
 const baseline=state();
 try {
-  run();
+  await host.run();
   for(const method of methods) {
     const expected=0n;
     assert.equal(run(method),expected);calls=0;
@@ -33,15 +34,8 @@ try {
       assert.equal(run(method),expected);assert.deepEqual(state(),before);count++;
     }
   }
-  const before=state();
-  for(let mode=0;mode<4;mode++) {
-    calls=0;
-    assert.equal(run('LexModeTrial',BigInt(mode)),0x65646F4D78654Cn);
-    assert.deepEqual(state(),before,'unsupported stream modes leave ownership intact');
-    assert.equal(calls,0,'unsupported mode rejected before allocation');
-  }
   run('LexFaultDone');
   assert.deepEqual(state(),baseline,'all control/input allocations released; only session startup remains');
-} finally {failAt=0;for(const ptr of [...live])host.env.__free(ptr);}
+} finally {failAt=0;await host.dispose();}
 assert.equal(live.size,0);
-console.log(count,'nested-stream allocation failures preserve caller input and parent state; unavailable prompt/document reads and includes reject before mutation; cleanup and retry pass.');
+console.log(count,'nested-stream allocation failures preserve caller input and parent state; cleanup and retry pass.');

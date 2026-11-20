@@ -2,6 +2,12 @@
 
 import U0 __gr_palette(I64 color_num,CBGR48 bgr48);
 
+public U8 gr_rainbow_10[10]={
+  BLACK,BROWN,RED,LTRED,YELLOW,GREEN,BLUE,PURPLE,LTGRAY,WHITE};
+
+DefineLstLoad("ST_RAINBOW_10",
+  "BLACK\0BROWN\0RED\0LTRED\0YELLOW\0GREEN\0BLUE\0PURPLE\0LTGRAY\0WHITE\0");
+
 CBGR48 gr_palette_active[256];
 Bool gr_palette_ready=FALSE;
 

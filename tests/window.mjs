@@ -6,6 +6,8 @@ import {createHost} from '../src/runtime/host.js';
 import {createTaskHost} from '../src/runtime/tasks.js';
 const sha=value=>createHash('sha256').update(value,'latin1').digest('hex');
 const deadline=setTimeout(()=>{throw new Error('Window checks did not settle');},20000);
+const restart={WindowStack:'win_z_hash=0xCBF29CE484222325;win_z_cnt=0;',
+  DocState:'doc_chk_hash=0xCBF29CE484222325;'};
 for(const [name,entry] of [['WindowStack','WindowZChk'],['DocState','DocStateChk'],['WindowDraw','WinDrawChk']]) {
   const native=readFileSync(new URL('probes/'+name+'.HC',import.meta.url),'latin1');
   const expected=readFileSync(new URL('probes/'+name+'.out',import.meta.url),'latin1');
@@ -13,11 +15,12 @@ for(const [name,entry] of [['WindowStack','WindowZChk'],['DocState','DocStateChk
   assert.equal(evidence.backend.engine,'qemu');assert.equal(evidence.except,'');
   assert.equal(sha(native),evidence.sourceSha256);assert.equal(sha(expected),evidence.outputSha256);
   // Native probes suspend the real manager while borrowing its public state.
-  // Draw's native adapter isolates the measured fresh-alias callback contract;
-  // WASM exercises the runtime implementation, never that test adapter.
+  // Draw's adapter is V5.03 GrUpdateTaskWin's fresh-alias lines (the runtime
+  // has them inline in Adam/Gr/GrScrn.HC, as V5.03 does), so both run it.
   let source=native.split('//Native manager isolation.')[0];
-  if(name==='WindowDraw') source=source.split('//Shared fixture.')[1];
-  source+='\n'+entry+';';
+  //Each session reruns the probe on one instance, where a native #include
+  //would start from fresh globals: the probe's accumulators restart.
+  source+='\n'+(restart[name]??'')+entry+';';
   const result=compileHolyC(source,{lenient:false});assert.deepEqual(result.warnings,[]);
   const tasks=result.requiredCapabilities.includes('task-continuations');
   let output='',first=null;const errors=[];

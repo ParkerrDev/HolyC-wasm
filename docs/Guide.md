@@ -390,7 +390,11 @@ valid documents. They do not create, clear, parse or render DolDoc documents.
 `WinHostDraw(task,layer)` invokes a registered draw callback with a fresh alias,
 owned by the target task, and releases the alias even when the callback throws.
 `SettingsPush` starts a cooperative `WinMgrTask` for the program, which invokes
-`draw_it` and presents at up to 120 Hz. `SettingsPop` restores window, directory,
+`draw_it` and presents `WINMGR_FPS` (V5.03's 29.97) times a second. Each frame
+draws V5.03's TextBase layer first (`GrUpdateTextBG`, `GrUpdateTextFG`, then
+`TextRect` of the window with `text_attr`), so `TextChar`, `TextPrint` and
+`gr.text_base` show as there; `gr.dc2` is `gr.dc`. `Refresh` waits
+for its frames as V5.03's does. `SettingsPop` restores window, directory,
 palette, callback, song and animation state. These routines are part of both
 runtime profiles; callers do not prepend a separate Adam file. The browser has
 no AutoComplete task, so `AutoComplete` returns false. Persistent surfaces and
@@ -419,7 +423,7 @@ program initialization. `Framebuffer` accepts an optional shared 256-entry
 Uint32 palette; changes recolor existing indexed pixels. Its display maps each
 pixel through the low four bits, matching original DCBlotColor4 and stock planar
 VGA, while the full DAC table remains readable/writable. Initial DAC entries
-16–255 are not claimed to match arbitrary native boot state. `test:palette`
+16 to 255 are not claimed to match arbitrary native boot state. `test:palette`
 checks native DAC state, all shared entries, original planar conversion, RGBA
 presentation and refusal without a device adapter.
 
@@ -515,11 +519,11 @@ rejects task sessions. HEMU's guest-machine snapshots remain the portable
 TempleOS full-state path, and HEMU builds do not acquire the JSPI requirement.
 Hosts without JSPI still need a genuine alternative continuation backend.
 The settings manager does not allocate DolDoc documents; document lifecycle
-uses the explicit APIs described below. Legacy `ScanChar` and `KeyGet` adapters
-are retained
-for unmigrated browser consumers and explicitly rejected by the task host; they are not native input
-parity. Native ScanChar's wait-for-release behavior is still pending. A caller
-can reject those legacy imports at launch before any program side effects.
+uses the explicit APIs described below. Input is V5.03's own: `ScanChar`,
+`GetChar`, `GetKey`, `GetStr`, `GetI64`, `GetF64`, `In`, `InStr` and
+`InputFilterTask` read the task's message queue (Kernel/SerialDev/Message.HC,
+Adam/DolDoc/DocGet.HC); the host's former `__scan_char` and `__get_char`
+adapters are gone.
 
 `Tasks` and `TaskExcept` compare original QEMU behavior. `test:tasks` also checks
 ten same-instance runs, refusal before side effects, cross-task ownership,
@@ -540,7 +544,7 @@ lock keys, PrintScreen and Pause follow V5.03. `resetInput()` releases held
 physical keys and clears an incomplete prefix after focus loss or overflow.
 The default task host handles Ctrl-Alt-C as a cooperative break request. An
 `onControlAlt(sc,index,inIrq)` adapter overrides that route and must handle all
-requested system actions explicitly; other unhandled actions throw. The index is 0–25 for
+requested system actions explicitly; other unhandled actions throw. The index is 0 to 25 for
 registered letter actions and -1 for Ctrl-Alt-Delete. `onKeyboardLeds(sc)` is an
 optional physical-indicator notification. Hardware ports, macro recording,
 raw-cursor editing are not implemented by this host bridge. Native scan codes
@@ -751,7 +755,7 @@ spans. The task adapter includes the native `scroll_z` field for this path.
 The original 64 pen sizes (normal, collision, even and odd brushes), circle
 limits, thick 3D points/lines, transformed curves and native `GrBorder` are now
 available. `Pen.HC` checks every brush bitmap and limit table; `Thick.HC` checks
-1,040 native outputs across thickness 0–65, raster operations, depth, transforms,
+1,040 native outputs across thickness 0 to 65, raster operations, depth, transforms,
 symmetry, mirror selection, curves and borders. Runtime initializer metadata
 tracks referenced global fields, so programs that use only unrelated graphics
 fields do not allocate these tables. Taking the address of the whole graphics
@@ -773,7 +777,8 @@ list-format algorithms. They include the native Pow10I64 table. `%n` means
 engineering notation. `%c` accepts a packed character word. `MSize` reports
 available allocation capacity; heap alignment/capacity need not match x86.
 
-File/document `%F`, date/time `%D`/`%T`, Define-table `%S`/`%Z` and symbol `%p`/`%P`
+Define-table `%S`/`%Z` read the task's Define entries as V5.03 does.
+File/document `%F`, date/time `%D`/`%T` and symbol `%p`/`%P`
 formats raise `FmtHost`, since their OS services are unavailable. They do not
 produce placeholders. Temporary formatting buffers are freed on allocation,
 format and drawing errors. New compiled formatters need the `__msize` host
@@ -977,14 +982,16 @@ gate also runs native child file writes/reads twice, exports their bytes during
 GetKey suspension and verifies disposal releases all owned allocations.
 
 
-### Scoped KeyDev/raw output profile
+### KeyDev and raw output
 
-`compileHolyC(source,{runtimeProfile:'keydev'})` selects native `PutKey`/`PutS`
+There is one profile: every program gets V5.03's native `PutKey`/`PutS`
 chaining, `KeyDevAdd`/`KeyDevRem`, raw/input-filter handlers, `Raw`/`IsRaw`,
-`VGAFlush`, `Busy` and `RawPrint`. The default `console` profile remains a direct
-host text transport and does not acquire task or raw-screen dependencies. Unknown
-profile names, including the former private prototype name `terminal`, fail.
-Functions and initializers remain selected by actual reachability.
+`VGAFlush`, `Busy` and `RawPrint`, and `compileHolyC` throws on the former
+`runtimeProfile` option. A program that prints is a task program
+(`createTaskHost`, with `jit:result.jit`); `createHost` refuses it at
+`__rt_init`. HEMU, the machine rather than a program on Adam, runs its own
+build synchronously (Apps/HEMU/Kernel/Host.js). Functions and initializers
+remain selected by actual reachability.
 
 The KeyDev queue uses the measured stock zero-priority sentinel and native
 positive-priority insertion/replacement algorithm. Zero and negative user

@@ -82,3 +82,39 @@ Bool  MemberLstCmp(CMemberLst *tmpm1,CMemberLst *tmpm2,I64 cnt=I64_MAX)
   else
     return FALSE;
 }
+
+//V5.03 Compiler/OptLib.HC OptClassFwd.
+CHashClass *OptClassFwd(CHashClass *tmpc)
+{//Class forwarding for unions and subclasses.
+  CHashClass *tmpc1;
+  while (tmpc1=tmpc->fwd_class)
+    tmpc=tmpc1;
+  return tmpc;
+}
+
+I64 MemberLstSize(CHashClass *tmpc)
+{
+  CMemberLst *tmpm;
+  CMemberLstMeta *tmp_meta;
+  I64 res=0;
+  tmpm=tmpc->member_lst_and_root;
+  while (tmpm) {
+    res+=MSize2(tmpm->str);
+    res+=LinkedLstSize(tmpm->dim.next);
+    if (tmpm->flags & MLF_STR_DFT_AVAILABLE)
+      res+=MSize2(tmpm->dft_val);
+    if (tmpm->flags & MLF_FUN)
+      res+=HashEntrySize2(tmpm->fun_ptr-tmpm->fun_ptr->ptr_stars_cnt);
+    tmp_meta=tmpm->meta;
+    while (tmp_meta) {
+      res+=MSize2(tmp_meta->str);
+      if (tmp_meta->flags&MLMF_IS_STR)
+	res+=MSize2(tmp_meta->user_data);
+      res+=MSize2(tmp_meta);
+      tmp_meta=tmp_meta->next;
+    }
+    res+=MSize2(tmpm);
+    tmpm=tmpm->next;
+  }
+  return res;
+}

@@ -3,7 +3,7 @@ import {compileHolyC} from '../src/compiler.js';
 import {createTaskHost} from '../src/runtime/tasks.js';
 import {Framebuffer} from '../src/runtime/graphics.js';
 import {read} from './lex-ext/cases.mjs';
-const result=compileHolyC(read('ExtFault.HC'),{lenient:false,runtimeProfile:'keydev',exports:['ExtFaultSetup','ExtFaultCase','ExtFaultDone','ExtFaultCalls']});
+const result=compileHolyC(read('ExtFault.HC'),{lenient:false,exports:['ExtFaultSetup','ExtFaultCase','ExtFaultDone','ExtFaultCalls']});
 assert.deepEqual(result.warnings,[]);
 const diagnostics=[],host=createTaskHost({gfx:new Framebuffer(null),onText:()=>{},onLexError:r=>diagnostics.push(r)}),live=new Set();
 let armed=false,calls=0,failAt=0,failures=0,callbacks=0;

@@ -6,13 +6,26 @@ U0 PutExcept(Bool catch_it=TRUE)
 }
 
 //==================== sound ====================
-F64 ona2freq_tab=0;
-F64 Freq2Ona(F64 f) { return f; }
-U0 Snd(I64 ona=0) {
-  if (ona<=0) { __snd(0.0); return; }
-  // TempleOS ona: freq = 2^((ona-1)/12) * base; we map with a simple scale.
-  F64 f = 65.40639 * __pow(2.0, ona/12.0);
-  __snd(f);
+F64 Ona2Freq(I8 ona)
+{//Ona to freq. Ona=60 is 440.0Hz.
+  if (!ona)
+    return 0;
+  else
+    return 440.0/32*2.0`(ona/12.0);
+}
+
+I8 Freq2Ona(F64 freq)
+{//Freq to Ona. 440.0Hz is Ona=60.
+  if (freq>0)
+    return ClampI64(12*Log2(32.0/440.0*freq),1,I8_MAX);
+  else
+    return 0;
+}
+
+U0 Snd(I8 ona=0)
+{//Play ona, a piano key num. 0 means rest.
+//The host speaker takes the freq V5.03 gives the PIT.
+  __snd(Ona2Freq(ona));
 }
 U0 Beep(I64 ona=0, I64 busy=0) { __snd(880.0); __sleep(60); __snd(0.0); }
 U0 Note(F64 freq, F64 secs=0.2) { __play_note(freq, secs*1000.0); }

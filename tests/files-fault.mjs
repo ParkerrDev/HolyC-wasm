@@ -33,21 +33,29 @@ I64 ChildTrial() {
   return error;
 }
 `;
-function create(tasks=false) {
-  const result=compileHolyC(source,{lenient:false,exports:tasks?['Setup','Reset','ChildTrial']:['Setup','Reset','Trial','DirHostClear']});
+//Cd prints, so both builds are task programs and run on the task host. The
+//prelude's boot (V5.03's Adam) ends at __rt_booted: boot keeps the live
+//allocations it leaves to the instance.
+function create(child=false) {
+  const result=compileHolyC(source,{lenient:false,exports:child?['Setup','Reset','ChildTrial']:['Setup','Reset','Trial','DirHostClear']});
   assert.deepEqual(result.warnings,[]);
-  const host=(tasks?createTaskHost:createHost)({onText:()=>{}}),live=new Set();let calls=0,failAt=0;
+  const tasks=result.requiredCapabilities.includes('task-continuations');
+  const host=(tasks?createTaskHost:createHost)({jit:result.jit,onText:()=>{}}),live=new Set();
+  let calls=0,failAt=0,boot=null;
   for(const name of ['__malloc','__malloc_kernel','__malloc_for']) {
     const alloc=host.env[name];host.env[name]=(...args)=>{
       if(++calls===failAt)return 0n;
       const ptr=alloc(...args);if(ptr>0n)live.add(ptr);return ptr;
     };
   }
-  const free=host.env.__free;host.env.__free=ptr=>{free(ptr);live.delete(ptr);};
+  const free=host.env.__free,booted=host.env.__rt_booted;
+  host.env.__free=ptr=>{free(ptr);live.delete(ptr);boot?.delete(ptr);};
+  host.env.__rt_booted=()=>{booted();boot=new Set(live);};
   const instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});host.attach(instance);
-  return {host,fn:instance.exports,live,get calls(){return calls;},arm(at=0){calls=0;failAt=at;}};
+  return {host,fn:instance.exports,live,tasks,get added(){return live.size-(boot?.size??0);},
+    get calls(){return calls;},arm(at=0){calls=0;failAt=at;}};
 }
-const volume=create();volume.fn.__rt_init();volume.fn.Setup();const baseline=volume.live.size;
+const volume=create();assert(volume.tasks);await volume.host.run('Setup');const baseline=volume.live.size;
 let failures=0;
 for(let mode=0;mode<7;mode++) {
   volume.arm();assert.equal(volume.fn.Trial(BigInt(mode)),0n);const sites=volume.calls;
@@ -60,8 +68,9 @@ for(let mode=0;mode<7;mode++) {
     assert.equal(volume.live.size,baseline);failures++;
   }
 }
-volume.fn.DirHostClear();assert.equal(volume.live.size,0);assert.equal(volume.host.state.heapPtr,16777248);
-const child=create(true);await child.host.run('Setup');const count=child.live.size;
+volume.fn.DirHostClear();assert.equal(volume.added,0);assert.equal(volume.host.state.heapPtr,volume.host.state.boot.heapPtr);
+await volume.host.dispose();assert.equal(volume.live.size,0);assert.equal(volume.host.state.heapPtr,16777248);
+const child=create(true);assert(child.tasks);await child.host.run('Setup');const count=child.live.size;
 child.arm();assert.equal(await child.host.run('ChildTrial'),0n);const childSites=child.calls;
 assert(childSites>=3,'constructor, stack and registered child directory must allocate');
 for(let repeat=0;repeat<10;repeat++)for(let at=1;at<=childSites;at++) {

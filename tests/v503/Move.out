@@ -1,0 +1,38 @@
+Copying ~/MV/A.TXT to ~/MV/C.TXT
+1 0
+Copying ~/MV/Z.TXT.Z to ~/MV/Y.TXT
+Copying ~/MV/Z.TXT.Z to ~/MV/W.TXT.Z
+1 1
+Zebra zebra zebra zebra
+Zebra zebra zebra zebra
+Copying ~/MV/C.TXT to ~/MV/D.TXT
+Del C.TXT
+1 0 1
+1
+C:/Home/MV/Sub/A.TXT 5
+C:/Home/MV/Sub/B.TXT 6
+C:/Home/MV/Sub/D.TXT 5
+C:/Home/MV/Sub/Y.TXT 23
+C:/Home/MV/A.TXT 5
+C:/Home/MV/D.TXT 5
+C:/Home/MV/Y.TXT 23
+C:/Home/MV/W.TXT.Z 32
+C:/Home/MV/Z.TXT.Z 32
+33 1536
+64 46
+102
+5
+C:/Home/MV2/A.TXT 5
+C:/Home/MV2/B.TXT 6
+C:/Home/MV2/D.TXT 5
+C:/Home/MV2/Y.TXT 23
+3
+C:/Home/MV/Sub/A.TXT 5
+C:/Home/MV/Sub/B.TXT 6
+C:/Home/MV/Sub/D.TXT 5
+C:/Home/MV/Sub/Y.TXT 23
+C:/Home/MV/W.TXT.Z 32
+C:/Home/MV/Z.TXT.Z 32
+Del W.TXT.Z
+1 0
+4 5 0 0

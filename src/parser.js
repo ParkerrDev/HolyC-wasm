@@ -31,6 +31,10 @@ export class Parser {
     this.opts = opts;
     this.typeNames = new Set(Object.keys(BASE_TYPES));
     this.classes = new Map(); // name -> ClassDecl
+    // V5.03 PrsClass HashAdds each class it defines, so a class defined again
+    // shadows the old one from there on, and code already compiled keeps the
+    // old one. A class defined again gets a key of its own here.
+    this.classKeys=new Map();this.classRedefs=0;
     this.globalNames=new Set();
     this.globalBindings=new Map();
     this.bindings=[];
@@ -94,7 +98,15 @@ export class Parser {
           statement(this.parseStatement());
         }
       } catch (e) {
-        if (!this.opts || !this.opts.resilient) throw e;
+        if (!this.opts?.resilient) {
+          // V5.03 compiles and runs the program's statements in turn, so the
+          // ones before a compile error have run when it throws 'Compiler'.
+          if (!Deferrable(this.toks[startIdx],topStmts)) throw e;
+          const fail=CompileFail(e.message,this.toks[startIdx]);
+          topStmts.push(...fail);items.push(...fail);
+          this.compileError=e.message;
+          break;
+        }
         this.diagnostics.push(e.message);
         // recover: skip to the next top-level boundary so one bad construct
         // doesn't sink the whole file.
@@ -103,6 +115,7 @@ export class Parser {
       }
     }
     const program=mk("Program",{decls,topStmts,items,diagnostics:this.diagnostics});
+    if (this.compileError) program.compileError=this.compileError;
     this.finishFunctionBindings(program);
     this.finishGlobalBindings(program);
     return program;
@@ -194,6 +207,7 @@ export class Parser {
         const binding=first.get(node.unboundFunction);
         node.name=binding.key;node.functionBinding=binding.id;
       }
+      else if (node.unboundFunction) node.unboundGlobal=node.unboundFunction;
       delete node.unboundFunction;
       for (const value of Object.values(node))
         if (Array.isArray(value)) value.forEach(walk);
@@ -203,8 +217,9 @@ export class Parser {
   }
 
   finishGlobalBindings(program) {
-    const runtimeBindings={};
+    const runtimeBindings={},first=new Map();
     for (const binding of this.bindings) {
+      if (!first.has(binding.name)) first.set(binding.name,binding);
       binding.key=this.globalBindings.get(binding.name)===binding?binding.name:
         "#global:"+binding.name+":"+binding.id;
       if (binding.filename==="<prelude>") runtimeBindings[binding.name]=binding.key;
@@ -218,6 +233,14 @@ export class Parser {
     const seen=new Set(),walk=node=>{
       if (!node || typeof node!=="object" || seen.has(node)) return;
       seen.add(node);
+      // V5.03 binds a name when its function is compiled, so a global
+      // declared after the use can only be the next one of that name: a
+      // later program global of the same name must not capture it.
+      if (node.unboundGlobal && first.has(node.unboundGlobal)) {
+        node.globalBinding=first.get(node.unboundGlobal).id;
+        node.globalType=first.get(node.unboundGlobal).type;
+      }
+      delete node.unboundGlobal;
       if (node.globalBinding!==undefined) node.name=this.bindings[node.globalBinding].key;
       for (const value of Object.values(node))
         if (Array.isArray(value)) value.forEach(walk);
@@ -239,21 +262,27 @@ export class Parser {
     if (anonymous && !nested) this.err("Expected type name",kw);
     if (anonymous) name=`#anonymous:${this.anonymousId++}`;
     let base = null;
-    if (this.optP(":")) { base = this.next().value; }
+    if (this.optP(":")) base=this.classKey(this.next().value);
+    const sourceName=name,prev=this.classes.get(name);
     // forward declaration: `class Name;` (no body) - register the name only.
     if (this.isP(";")) {
       this.next();
-      if (name) this.typeNames.add(name);
-      const fwd = mk("ClassDecl", { name, base, members: [], isUnion, forward: true }, kw);
-      if (name) this.classes.set(name, fwd);
+      this.typeNames.add(name);
+      const fwd = mk("ClassDecl", { name:this.classKey(name), base, members: [], isUnion, forward: true }, kw);
+      if (!prev) this.classes.set(name, fwd);
       return fwd;
     }
+    if (prev && !prev.forward) {
+      this.classKeys.set(name,`${name}#class:${this.classRedefs++}`);
+      name=this.classKey(name);
+    } else if (!anonymous) name=this.classKey(name);
     const members = [],nestedClasses=[];
     const addNested=child=>{
       nestedClasses.push(child);
       members.push({name:null,type:{kind:"classref",name:child.name},anonymous:true});
     };
     this.eatP("{");
+    this.classBody=(this.classBody??0)+1;
     while (!this.isP("}") && !this.atEnd()) {
       if (this.isKw("union")) {
         addNested(this.parseClass(null,true));continue;
@@ -263,13 +292,24 @@ export class Parser {
       do {
         const member=this.parseDeclarator(baseType);
         if (this.optP(":")) this.parseConstIntish();
+        // V5.03 PrsVar.HC: member meta data, `F64 x format "..." data 3;`.
+        member.meta=[];
+        while (this.cur().type==="ident") {
+          const tag=this.next().value;
+          if (this.cur().type==="str") {
+            const bytes=[];
+            while (this.cur().type==="str") {bytes.push(...this.cur().value);this.next();}
+            member.meta.push({name:tag,str:bytes});
+          } else member.meta.push({name:tag,expr:this.parseExpression()});
+        }
         members.push(member);
       } while (this.optP(","));
       this.optP(";");
     }
+    this.classBody--;
     this.eatP("}");
     const node = mk("ClassDecl", { name, base, members, isUnion,scalarBase,anonymous,nestedClasses }, kw);
-    if (name) { this.typeNames.add(name); this.classes.set(name, node); }
+    this.typeNames.add(sourceName);this.classes.set(sourceName,node);
     if (nested) {node.vars=[];this.optP(";");return node;}
     // optional trailing variable declarators: } a, b;
     const vars = [];
@@ -285,7 +325,8 @@ export class Parser {
           for (let d = dims.length - 1; d >= 0; d--) vt = arrayOf(vt, dims[d]);
           const binding=this.localNames===null?this.globalBinding(vn,vt,[],kw):null;
           let init = null;
-          if (this.optP("=")) init = this.parseInitializer();
+          // V5.03 initializes a local with an expression (PrsVar.HC:607-612).
+          if (this.optP("=")) init = this.localNames===null?this.parseInitializer():this.parseAssignment();
           const variable=mk("VarDecl",{name:vn,type:vt,init,storage:[]},kw);
           if (binding) {variable.globalBinding=binding.id;binding.nodes.push(variable);}
           vars.push(variable);
@@ -313,7 +354,11 @@ export class Parser {
     if (t.type !== "ident") this.err("expected type");
     const name = this.next().value;
     if (BASE_TYPES[name]) return BASE_TYPES[name];
-    return { kind: "classref", name };
+    return { kind: "classref", name:this.classKey(name) };
+  }
+
+  classKey(name) {
+    return this.classKeys.get(name)??name;
   }
 
   // ====================================================================
@@ -328,7 +373,12 @@ export class Parser {
 
     const decls=[];
     do {
-      const tok=this.cur(),d=this.parseDeclarator(baseType,false,!topLevel && !storage.includes("static"));
+      // V5.03 PrsType names a local with no name _anon_ and warns of nothing
+      // (Compiler/PrsVar.HC:336-343): I64 i,,j is i and j. No source can
+      // name it, so it is left out.
+      const tok=this.cur(),d=this.parseDeclarator(baseType,!topLevel && "local",
+        !topLevel && !storage.includes("static"));
+      if (d.name===null) continue;
       (topLevel?this.globalNames:this.localNames??this.globalNames).add(d.name);
       if (this.isP("(")) {
         const type={retType:d.type},binding=this.functionBinding(d.name,type,tok,storage);
@@ -352,14 +402,24 @@ export class Parser {
         return fn;
       }
       const binding=topLevel?this.globalBinding(d.name,d.type,storage,tok):null;
-      const init=this.optP("=")?this.parseInitializer():null;
+      // V5.03 initializes a local with an expression (PrsVar.HC:607-612): a
+      // brace list is for globals and static locals (PrsStaticInit).
+      // V5.03 PrsVarInit2 gives a [] a count only in AOT (PrsVar.HC:159-176);
+      // the JIT compile of a program finds no ';' at its brace list.
+      if (d.type.kind==="array" && d.type.count===null && this.isP("=") && this.isP("{",1))
+        this.err("Missing ';'",this.peek(1));
+      const init=!this.optP("=")?null:topLevel || storage.includes("static")?
+        this.parseInitializer():this.parseAssignment();
       if (!topLevel && d.type.kind==="funcptr" && init && !storage.includes("static"))
         this.err("V5.03 requires a separate assignment for a local function pointer",tok);
       const node=mk("VarDecl",{...d,init,storage},tok);
       if (binding) {node.globalBinding=binding.id;binding.nodes.push(node);}
       decls.push(node);
     } while (this.optP(","));
-    this.optP(";");
+    // V5.03 PrsVarLst (Compiler/PrsVar.HC:700-703) also ends a local list at
+    // ')' or '}' and consumes it; a global list needs ';' (PrsStmt.HC:449).
+    if (!topLevel && (this.isP(")") || this.isP("}"))) this.next();
+    else this.optP(";");
     return decls;
   }
 
@@ -377,7 +437,9 @@ export class Parser {
       while (this.optP("*")) stars++;
     }
     if (this.cur().type==="ident") name=this.next().value;
-    else if (!unnamed) this.err("expected declarator name");
+    else if (unnamed!==true && !(unnamed==="local" &&
+        (this.isP(",") || this.isP(";") || this.isP(")"))))
+      this.err("expected declarator name");
     if (callback) {
       this.eatP(")");
       const {params,isVarArgs}=this.parseParams();
@@ -397,7 +459,11 @@ export class Parser {
     this.eatP("(");
     const params=[];
     let isVarArgs=false;
+    // V5.03 PrsVarLst skips ';' before an argument and takes it after one as
+    // it takes ',' (Compiler/PrsVar.HC:428-429,697-706).
     if (!this.isP(")")) do {
+      while (this.optP(";"));
+      if (this.isP(")")) break;
       if (this.optP("...")) {isVarArgs=true;break;}
       let registerHint=null;
       while (this.peek().type==="ident" && STORAGE.has(this.peek().value)) {
@@ -407,9 +473,14 @@ export class Parser {
       const d=this.parseDeclarator(this.parseTypeSpec(),true,true);
       d.registerHint??=registerHint;
       if (d.type.kind==="array") this.err("No arrays in fun args");
-      d.default=this.optP("=")?this.parseAssignment():null;
+      // V5.03 PrsVarLst: a default of lastclass is the name of the class of
+      // the argument before it (PrsVar.HC:631-633, PrsExp.HC:458-459).
+      if (!this.optP("=")) d.default=null;
+      else if (this.cur().type==="ident" && this.cur().value==="lastclass")
+        d.default=mk("LastClass",{},this.next());
+      else d.default=this.parseAssignment();
       params.push(d);
-    } while (this.optP(","));
+    } while (this.optP(",") || this.optP(";"));
     this.eatP(")");
     return {params,isVarArgs};
   }
@@ -418,11 +489,11 @@ export class Parser {
     if (this.isP("{")) {
       const tok = this.next();
       const elements = [];
-      if (!this.isP("}")) {
-        do {
-          if (this.isP("}")) break;
-          elements.push(this.parseInitializer());
-        } while (this.optP(","));
+      // V5.03 eats a comma after an element when there is one; it does not
+      // need one (Compiler/PrsVar.HC:22-23,163-164,187-188).
+      while (!this.isP("}") && !this.atEnd()) {
+        elements.push(this.parseInitializer());
+        this.optP(",");
       }
       this.eatP("}");
       return mk("InitList", { elements }, tok);
@@ -522,6 +593,18 @@ export class Parser {
           this.eatP(";");return mk("Empty",{},t);
         }
         case "lock": { this.next(); return this.parseStatement(); }
+        case "PUSHFD": case "POPFD": case "CLI": case "STI":
+//V5.03 PrsStmt: an opcode in a fun is one asm instruction (CMPF_ONE_ASM_INS),
+//and the ones after it on the next lines join it. IF gates only preemption,
+//which a cooperative single core has not, so these emit nothing.
+          if (this.localNames && !this.localNames.has(t.value)) {
+            while (this.cur().type==="ident" &&
+                ["PUSHFD","POPFD","CLI","STI"].includes(this.cur().value)) {
+              this.next();
+              this.optP(";");
+            }
+            return mk("Empty",{},t);
+          }
       }
       // label:  (ident followed by ':' but not '::')
       if (this.peek(1).type === "punct" && this.peek(1).value === ":" && !(this.peek(2) && this.peek(2).type === "punct" && this.peek(2).value === ":")) {
@@ -771,7 +854,8 @@ export class Parser {
     if (op==="sizeof") while (this.optP("*")) stars++;
     else if (!fields.length) this.err("offset requires a member");
     while (parens--) this.eatP(")");
-    return this.bindReference(mk(op==="sizeof"?"Sizeof":"Offset",{name,fields,stars},t));
+    return this.bindReference(mk(op==="sizeof"?"Sizeof":"Offset",{name,fields,stars,
+      className:this.classKey(name)},t));
   }
 
   parseTypeRef() {
@@ -839,8 +923,50 @@ export class Parser {
       return this.bindReference(mk("Ident",{name:t.value},t));
     }
     if (this.isP("(")) { this.next(); const e = this.parseExpression(); this.eatP(")"); return e; }
+    // V5.03 PrsExp.HC '$': in a class the offset so far (class_dol_offset),
+    // elsewhere the instruction's address (IC_RIP), which wasm code has not.
+    if (this.isP("$")) {
+      if (!this.classBody) this.err("$ outside a class is an instruction address, which wasm code has not");
+      this.next();
+      return mk("ClassOffset",{},t);
+    }
     this.err("unexpected token in expression");
   }
+}
+
+// A compile error is put off to run time only after a statement of the
+// program's own files, as only then has V5.03 run something before it.
+function Deferrable(at,stmts) {
+  return !!at && at.filename!=="<prelude>" && stmts.some(s=>s.filename!=="<prelude>");
+}
+
+// V5.03 LexExcept (Compiler/CExcept.HC:81-95): the error is printed and
+// 'Compiler' thrown where the statement that did not compile would run.
+export function CompileFail(message,at) {
+  const where={line:at.line,col:at.col,filename:at.filename},
+    bytes=[...String(message)].map(c=>c.charCodeAt(0)&255);
+  return [{kind:"Print",format:{kind:"StrLit",bytes:[37,115,10],...where},
+    args:[{kind:"StrLit",bytes,...where}],callee:{kind:"Ident",name:"Print",...where},...where},
+    {kind:"Throw",expr:{kind:"CharLit",value:0x72656C69706D6F43n,text:"Compiler",nchars:8,...where},
+      noLog:null,...where}];
+}
+
+// The program cut before its item that did not generate, with that error
+// thrown in its place; null if V5.03 would not have run anything before it.
+export function CompileCut(program,e,ran=false) {
+  if (!e.filename || e.line===undefined) return null;
+  let k=-1;
+  for (let i=0;i<program.items.length;i++) {
+    const item=program.items[i];
+    if (item.filename===e.filename && item.filename!=="<prelude>" &&
+        (item.line<e.line || item.line===e.line && (item.col??0)<=(e.col??Infinity))) k=i;
+  }
+  if (k<0) return null;
+  const items=program.items.slice(0,k),stmts=new Set(program.topStmts);
+  if (!ran && !Deferrable(program.items[k],items.filter(item=>stmts.has(item)))) return null;
+  const fail=CompileFail(e.message,program.items[k]),kept=new Set(items);
+  return {...program,items:[...items,...fail],decls:program.decls.filter(d=>kept.has(d)),
+    topStmts:[...program.topStmts.filter(s=>kept.has(s)),...fail],compileError:e.message};
 }
 
 export function parse(tokens, filename, opts = {}) {

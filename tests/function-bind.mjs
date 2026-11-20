@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict';
 import {compileHolyC} from '../src/compiler.js';
 import {createHost} from '../src/runtime/host.js';
+import {createTaskHost} from '../src/runtime/tasks.js';
 import {cases,recorded} from './function-bind/cases.mjs';
 recorded('FunctionExports');
 for(const name of cases) {
   const test=recorded(name),result=compileHolyC(test.source.toString('latin1'),{lenient:false});
   assert.deepEqual(result.warnings,[]);let output='';
-  const host=createHost({ansi:false,onText:s=>output+=s});
+  const host=createTaskHost({ansi:false,onText:s=>output+=s});
   const instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});host.attach(instance);
-  instance.exports.__main();assert.equal(output,test.output,name);console.log(test.output.trim());
+  await host.run();assert.equal(output,test.output,name);console.log(test.output.trim());
 }
 const source=`
 I64 replaced=0;

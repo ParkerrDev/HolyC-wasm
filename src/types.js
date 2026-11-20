@@ -125,7 +125,7 @@ export function typeName(t) {
     case "ptr": return typeName(t.to) + "*";
     case "funcptr": return typeName(t.retType)+" (*)()";
     case "array": return typeName(t.of) + "[" + t.count + "]";
-    case "class": return t.name;
+    case "class": return t.name.replace(/#class:\d+$/,"");
     default: return "?";
   }
 }

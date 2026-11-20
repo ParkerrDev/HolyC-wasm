@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import {compileHolyC} from '../src/compiler.js';
-import {createHost} from '../src/runtime/host.js';
+import {createTaskHost} from '../src/runtime/tasks.js';
 import {recorded} from './lex-string/cases.mjs';
 const test=recorded(),result=compileHolyC(test.source,{lenient:false,
   exports:['CmpCtrlNew','CmpCtrlDel','LexInStr']});
-assert.deepEqual(result.warnings,[]);assert.deepEqual(result.requiredCapabilities,[]);
+assert.deepEqual(result.warnings,[]);
+//It prints, so it is a task program.
+assert.deepEqual(result.requiredCapabilities,['task-continuations']);
 let output='',heap=null,count=null,denyAlloc=false,attempts=0;
-const host=createHost({ansi:false,onText:text=>output+=text}),live=new Set();
+const host=createTaskHost({ansi:false,onText:text=>output+=text,jit:result.jit}),live=new Set();
 for(const name of ['__malloc','__malloc_for','__malloc_kernel']) {
   const alloc=host.env[name];host.env[name]=(...args)=>{
     if(denyAlloc){attempts++;return 0n;}
@@ -17,7 +19,7 @@ const free=host.env.__free;host.env.__free=ptr=>{free(ptr);live.delete(ptr);};
 const instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});host.attach(instance);
 try {
   for(let i=0;i<5;i++) {
-    output='';instance.exports.__main();assert.equal(output,test.output);
+    output='';await host.run();assert.equal(output,test.output);
     if(heap===null){heap=host.state.heapPtr;count=live.size;}
     else {assert.equal(host.state.heapPtr,heap);assert.equal(live.size,count);}
   }
@@ -37,6 +39,6 @@ try {
     [...Array(4).fill(0xA5),65,65,0,0,...Array(24).fill(0xA5)]);
   instance.exports.CmpCtrlDel(cc);host.env.__free(dst);host.env.__free(done);
   assert.equal(live.size,count);
-} finally {denyAlloc=false;for(const ptr of [...live])host.env.__free(ptr);}
+} finally {denyAlloc=false;await host.dispose();}
 assert.equal(live.size,0);
 console.log(test.output.trim(),'five lifetimes, native buffer/state/chunk boundaries, allocation-free decoding and final ownership release pass.');

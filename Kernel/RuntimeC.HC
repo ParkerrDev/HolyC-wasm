@@ -17,6 +17,24 @@ public U0 SwapU16(U16 *a,U16 *b)
   *a=*b;*b=tmp;
 }
 
+public U0 SwapU32(U32 *n1,U32 *n2)
+{//Swap two U32s. Not atomic.
+  U32 tmp=*n1;
+  *n1=*n2;*n2=tmp;
+}
+
+public U0 SwapU8(U8 *n1,U8 *n2)
+{//Swap two U8s. Not atomic.
+  U8 tmp=*n1;
+  *n1=*n2;*n2=tmp;
+}
+
+public U16 *MemSetU16(U16 *dst,I64 val,I64 U16cnt)
+{//Set chunk of U16s to value. REP_STOSW in V5.03 Kernel/KUtils.HC.
+  while (U16cnt-->0) *dst++=val;
+  return dst;
+}
+
 public U32 *MemSetU32(U32 *dst,I64 val,I64 cnt)
 {
   U32 *res=dst+cnt;
@@ -112,10 +130,11 @@ U0 GrSprite(CDC *dc,I64 x,I64 y,U8 *image,I64 w,I64 h,I64 scale=1)
   dc->color=old_color;
 }
 
-//==================== misc no-ops demos sometimes call ====================
-U0 Refresh()
-{
-  __gr_update(gr.dc->body,gr.dc->width_internal,0,0,gr.dc->width,gr.dc->height);
+U0 GrUpdateVGAGraphics()
+{//Update Graphic Card. The host shows gr.dc2, his gr.dc1 with no zoom.
+  MemCpy(gr.scrn_image->body,gr.dc1->body,gr.dc1->height*gr.dc1->width_internal>>1);
+  __gr_update(gr.dc2->body,gr.dc2->width_internal,0,0,
+	gr.dc2->width,gr.dc2->height);
   __gr_flip;
 }
 U0 Free(U8 *p) { __free(p); }
@@ -190,13 +209,51 @@ U0 __hcrt_init()
   Fs->win_height=(Fs->pix_height+FONT_HEIGHT-1)/FONT_HEIGHT;
   Fs->win_right=Fs->win_width-1;
   Fs->win_bottom=Fs->win_height-1;
-  Fs->display_flags=1<<DISPLAYf_SHOW|1<<DISPLAYf_NO_BORDER;
+  Fs->display_flags=1<<DISPLAYf_SHOW|1<<DISPLAYf_NO_BORDER|
+	1<<DISPLAYf_NOT_RAW; //As $LK,"DocTermNew",A="MN:DocTermNew"$'s Raw(OFF) leaves a terminal task.
+  Fs->text_attr=WHITE<<4+BLUE; //As $LK,"TaskInit",A="MN:TaskInit"$ gives every task.
   Fs->next_task=Fs->last_task=sys_winmgr_task=Fs;
   sys_focus_task=Fs;
   Fs->next_child_task=Fs->last_child_task=
         (&Fs->next_child_task)(U8 *)-offset(CTask.next_sibling_task);
   Fs->next_input_filter_task=Fs->last_input_filter_task=Fs;
   JobCtrlInit(&Fs->srv_ctrl);
+  QueInit(&Fs->next_ctrl);
+  QueInit(&Fs->next_ode);
+  adam_task=Fs;
+  LBts(&sys_run_level,RLf_VGA); //V5.03 KStart16.HC sets it at boot.
+  adam_task->gs=cpu_structs;
+  CPUStructInit(0,cpu_structs,adam_task);
+}
+
+U0 TaskHostUserCmdLine(I64 dummy=0)
+{//V5.03 UserCmdLine (KTask.HC), with the host's program as its cmd line.
+  no_warn dummy;
+//The page is the desktop and the program its one window, WinMax'd as V5.03's
+//Start.HC runs a game: row 0 stays the Window Mgr's.
+  WinMax;
+  Fs->win_inhibit=WIG_USER_TASK_DFT;
+  CallExtStr("UserStartUp");
+  LBts(&Fs->display_flags,DISPLAYf_SHOW);
+  __task_user(NULL); //The program's entry.
+//V5.03 goes on to the next prompt, where the Window Mgr shows the doc. Here
+//the run ends after the Window Mgr's next frame.
+  Refresh;
+}
+
+U0 TaskHostUser()
+{//The host's choice: its program is a user task's cmd line. V5.03 StartOS.HC
+//spawns the Window Mgr and User, and Adam serves jobs (SrvTaskCont).
+  WinVert(2,10);
+  if (sys_winmgr_task==adam_task)
+    sys_winmgr_task=Spawn(&WinMgrTask,NULL,"Window Mgr");
+  Fs->win_inhibit=WIG_TASK_DFT-WIF_SELF_BORDER
+	-WIF_SELF_GRAB_SCROLL-WIF_SELF_CTRLS;
+  LBts(&Fs->display_flags,DISPLAYf_CHILDREN_NOT_ON_TOP);
+  LBts(&Fs->display_flags,DISPLAYf_SHOW);
+  WallPaperInit;
+  __task_user(Spawn(&TaskHostUserCmdLine,NULL,"Term"));
+  SrvTaskCont;
 }
 
 U0 __hgr_init()
@@ -210,6 +267,19 @@ U0 __hgr_init()
   gr.dc->win_task=gr.dc->mem_task=Fs;
   gr.dc->dc_signature=DCS_SIGNATURE_VAL;
   gr.dc->flags=DCF_SCRN_BITMAP|DCF_ON_TOP;
+  MemSet(gr.dc->body,TRANSPARENT,GR_WIDTH*GR_HEIGHT); //His DCFill.
+  gr.dc2=&gr_dc2_storage; //V5.03 GrInit2's DCNew, as storage.
+  gr.dc2->width=gr.dc2->width_internal=GR_WIDTH;
+  gr.dc2->height=GR_HEIGHT;
+  gr.dc2->body=gr_scrn_bitmap2;
+  gr.dc2->r=gr_scrn_r2;
+  gr.dc2->win_task=gr.dc2->mem_task=Fs;
+  gr.dc2->dc_signature=DCS_SIGNATURE_VAL;
+  gr.dc2->flags=DCF_SCRN_BITMAP|DCF_ON_TOP; //As gr.dc: no z buf covers a win.
+  gr.text_base=gr_text_base;
+  gr.scrn_zoom=1;
+  gr.to_8_bits=gr_to_8_bits;
+  gr.to_8_colors=gr_to_8_colors;
   __gr_font=sys_font_std;
   for (i=0;i<256;i++) {
     bits=0;
@@ -220,6 +290,7 @@ U0 __hgr_init()
     gr.to_8_bits[i]=bits;
   }
   DCRst(gr.dc);
+  DCRst(gr.dc2);
 }
 
 U8 *MemSet(U8 *dst,I64 val,I64 cnt)
@@ -255,8 +326,3 @@ I64 MemCmp(U8 *a,U8 *b,I64 cnt)
 }
 I64 StrLen(U8 *s) { I64 n=0; while (s[n]) n++; return n; }
 U0 StrCpy(U8 *d, U8 *s) { I64 i=0; while (s[i]) { d[i]=s[i]; i++; } d[i]=0; }
-I64 StrCmp(U8 *a, U8 *b) {
-  I64 i=0;
-  while (a[i] && a[i]==b[i]) i++;
-  return a[i]-b[i];
-}

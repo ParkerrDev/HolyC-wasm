@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {compileHolyC} from "../src/compiler.js";
-import {createHost} from "../src/runtime/host.js";
+import {createTaskHost} from "../src/runtime/tasks.js";
 import {Framebuffer} from "../src/runtime/graphics.js";
 
 const source=`U0 Offscreen()
@@ -78,10 +78,10 @@ U0 Direct()
   Refresh;
 }`;
 const result=compileHolyC(source,{lenient:false,exports:["Offscreen","Screen","Flooded","Onscreen","Direct"]});
-const gfx=new Framebuffer(null),host=createHost({gfx,onText:()=>{}});
+const gfx=new Framebuffer(null),host=createTaskHost({gfx,onText:()=>{}});
 gfx.flip=()=>gfx.present();
 const {instance}=await WebAssembly.instantiate(result.bytes,{env:host.env});
-host.attach(instance);instance.exports.__rt_init();
+host.attach(instance);await host.run();
 gfx.indices.fill(17);
 let cursor;
 for (let i=0;i<1000;i++) {
@@ -101,7 +101,7 @@ assert.ok(gfx.indices.every(value=>value===17),"offscreen operations must not to
 instance.exports.Onscreen();
 const screen=new Uint8Array(instance.exports.memory.buffer,Number(instance.exports.Screen()),640*480);
 assert.deepEqual(gfx.indices,screen,"display updates must match native bitmap storage");
-instance.exports.Direct();
+await host.run("Direct"); //Refresh waits as a task.
 assert.equal(gfx.indices[40*640+500],5,"Refresh publishes direct bitmap writes");
 assert.deepEqual(gfx.indices,screen);
 console.log(`Graphics: 1,000 context lifetimes and 100 flood fills stay bounded; scratch grows memory ${initialBytes}->${floodBytes} bytes once. Offscreen isolation and exact bitmap/display synchronization pass.`);

@@ -7,3 +7,80 @@ Bool TaskValidate(CTask *task)
   else
     return TRUE;
 }
+
+I64 BirthWait(CTask **_task,I64 task_num=-1)
+{//Wait for task valid and not task_num.
+  while (!TaskValidate(*_task)||(*_task)->task_num==task_num)
+    Yield;
+  return (*_task)->task_num;
+}
+
+//V5.03 Kernel/KTask.HC SrvTaskCont through User. One core and no interrupts: no
+//GetRFlags, CLI or SetRFlags, and JobsHndlr gets 0 as Kernel/Job.HC's Adam gives it.
+U0 SrvTaskCont()
+{//Act as server task in a loop handling commands.
+  FlushMsgs;
+  while (TRUE) {
+    if (JobsHndlr(0) && Fs->title_src==TTS_TASK_NAME)
+      MemCpy(Fs->task_title,Fs->task_name,TASK_NAME_LEN);
+    FlushMsgs;
+    LBts(&Fs->task_flags,TASKf_IDLE);
+    LBts(&Fs->task_flags,TASKf_AWAITING_MSG);
+    Yield;
+  }
+}
+
+extern I64 ExeCmdLine(CCmpCtrl *cc); //V5.03 Kernel/KernelC.HH.
+
+U0 UserTaskCont()
+{//Terminal key-input-execute loop.
+  CCmpCtrl *cc;
+  CDoc *doc;
+  Bool cont=TRUE;
+  do {
+    cc=CmpCtrlNew(,CCF_CMD_LINE|CCF_PMT|CCF_QUESTION_HELP);
+    QueIns(cc,Fs->last_cc);
+    try {
+      Lex(cc);
+      ExeCmdLine(cc);
+      cont=Bt(&cc->flags,CCf_PMT);
+      QueRem(cc);
+      CmpCtrlDel(cc);
+    } catch {
+      if ((doc=Fs->put_doc) && doc->doc_signature==DOC_SIGNATURE_VAL)
+	DocUnlock(doc);
+      PutExcept;
+    }
+  } while (cont);
+}
+
+U0 SrvCmdLine(I64 dummy=0)
+{
+  no_warn dummy;
+  Fs->win_inhibit=WIG_USER_TASK_DFT;
+  CallExtStr("SrvStartUp");
+  SrvTaskCont;
+}
+
+U0 UserCmdLine(I64 dummy=0)
+{//A user task ends-up calling this.
+  no_warn dummy;
+  Fs->win_inhibit=WIG_USER_TASK_DFT;
+  CallExtStr("UserStartUp");
+//Back with Dbg (V5.03 KDbg.HC, nobody): if (!LBts(...)) Dbg;
+  LBts(&Fs->display_flags,DISPLAYf_SHOW);
+  UserTaskCont;
+}
+
+CTask *User(U8 *fmt=NULL,...)
+{//Create user term task.
+  U8 *st;
+  CTask *task=Spawn(&UserCmdLine);
+  TaskWait(task);
+  if (fmt) {
+    st=StrPrintJoin(NULL,fmt,argc,argv);
+    XTalk(task,st);
+    Free(st);
+  }
+  return task;
+}

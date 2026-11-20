@@ -13,13 +13,11 @@ I64 TokenBoundary(I64 mode)
   CCmpCtrl saved;
   CLexFile *tmpf=token_bound_cc->lex_include_stk,file;
   I64 error=0,lines=cmp.compiled_lines;
-  if (mode==1) token_bound_cc->flags|=CCF_PMT;
-  if (mode==2) tmpf->flags|=LFSF_DOC;
-  if (mode==3) token_bound_cc->lex_include_stk=NULL;
+  if (mode==2) token_bound_cc->lex_include_stk=NULL;
   MemCpy(&saved,token_bound_cc,sizeof(CCmpCtrl));
   MemCpy(&file,tmpf,sizeof(CLexFile));
   try {
-    if (mode==4) Lex(NULL);
+    if (mode==3) Lex(NULL);
     else Lex(token_bound_cc);
   } catch {
     error=Fs->except_ch;
@@ -29,12 +27,10 @@ I64 TokenBoundary(I64 mode)
     if (MemCmp(&saved,token_bound_cc,sizeof(CCmpCtrl)) ||
 	MemCmp(&file,tmpf,sizeof(CLexFile)) || cmp.compiled_lines!=lines)
       throw('BoundMod');
-  } else if (token_bound_cc->cur_buf_ptr!=tmpf->buf+8 ||
-	token_bound_cc->token!=TK_IDENT || token_bound_cc->error_cnt ||
-	StrCmp(token_bound_cc->cur_str,"before")) throw('BoundPos');
+  } else if (error || token_bound_cc->token!=TK_IDENT ||
+	token_bound_cc->error_cnt || StrCmp(token_bound_cc->cur_str,"include"))
+    throw('BoundPos'); //V5.03: no keyword table, so '#' gives the name.
   token_bound_cc->lex_include_stk=tmpf;
-  token_bound_cc->flags&=~CCF_PMT;
-  tmpf->flags&=~LFSF_DOC;
   return error;
 }
 

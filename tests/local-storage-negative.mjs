@@ -3,7 +3,7 @@ import {cpSync,mkdtempSync,readFileSync,writeFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {createHost} from '../src/runtime/host.js';
+import {createTaskHost} from '../src/runtime/tasks.js';
 import {recorded} from './local-storage/cases.mjs';
 const mutations=[
  {name:'discard unused expression references',file:'local-storage.js',from:'if (n.kind==="Sizeof" || n.kind==="Offset") return;',to:'if (n.kind==="Sizeof" || n.kind==="Offset" || n.kind==="ExprStmt" && n.expr.kind!=="Call") return;',test:'Optimizer'},
@@ -25,8 +25,8 @@ for(const mutation of mutations){
   writeFileSync(path,original.replaceAll(mutation.from,mutation.to));
   const {compileHolyC}=await import(pathToFileURL(join(dir,'src/compiler.js'))),test=recorded(mutation.test);
   const result=compileHolyC(test.source.toString('latin1'),{lenient:false});assert.deepEqual(result.warnings,[]);
-  let output='';const host=createHost({onText:s=>output+=s}),instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});
-  host.attach(instance);instance.exports.__main();
+  let output='';const host=createTaskHost({onText:s=>output+=s}),instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});
+  host.attach(instance);await host.run();
   const actual=output.trimEnd().split('\n');assert.equal(actual.length,test.values.length);
   const differences=test.values.filter((line,i)=>line!==actual[i]).length;
   assert(differences>0,mutation.name+' must fail native observable values');

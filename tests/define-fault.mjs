@@ -29,7 +29,7 @@ try {
       assert.equal(await host.run(method),expected);assert.deepEqual(state(),before);count++;
     }
   }
-  await host.run('DefineFaultDone');assert.equal(live.size,2,'only the root hash table remains');
+  await host.run('DefineFaultDone');assert.equal(live.size,host.state.boot.allocations,'only the boot (with the root hash table) remains');
 } finally {failAt=0;await host.dispose();}
 assert.equal(live.size,0);
 console.log(count,'define/list/format/expansion/child/diagnostic allocation failures retain prior bindings and ownership, restore heap/stack and permit immediate retry.');

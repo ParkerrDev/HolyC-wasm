@@ -45,9 +45,9 @@ export class Heap
     this.mem=memory;
   }
 
-  call(name,value) {
+  call(name,...args) {
     this.attach();
-    try {return this.fn[name](value);}
+    try {return this.fn[name](...args);}
     catch (error) {
       Atomics.store(new Int32Array(this.mem.buffer,HEAP_BASE+4,1),0,0);
       throw error;
@@ -61,11 +61,23 @@ export class Heap
       throw new Error("Heap cursor does not match restored linear memory");
   }
 
-  malloc(size) {
+  malloc(size,owner=0n) {
     size=Number(size);
     if (!Number.isSafeInteger(size) || size<0 || size>2**32-32) return 0n;
-    return this.call("HeapAlloc",BigInt(size));
+    return this.call("HeapAlloc",BigInt(size),owner);
   }
+
+  //An owner is a list in RAM of the allocations given to it (a task's).
+  ownerNew() {return this.call("HeapOwnerNew");}
+
+  own(ptr,owner=0n) {
+    if (this.call("HeapOwn",BigInt(ptr),owner)<0n)
+      throw new Error("Invalid or already freed HolyC allocation");
+  }
+
+  ownerCount(owner) {return Number(this.call("HeapOwnerCnt",owner));}
+
+  ownerFirst(owner) {return this.call("HeapOwnerFirst",owner);}
 
   allocation(name,ptr) {
     ptr=Number(ptr);
@@ -77,7 +89,9 @@ export class Heap
     return result;
   }
 
-  free(ptr) {this.allocation("HeapFree",ptr);}
+  //While dying is set, a task's heap goes: a later free of one of its blocks
+  //is then a no-op, as V5.03's Free into a dead heap has no effect.
+  free(ptr) {this.allocation(this.dying?"HeapFreeDead":"HeapFree",ptr);}
 
   size(ptr,internal=false) {
     const span=this.allocation("HeapSize",ptr);

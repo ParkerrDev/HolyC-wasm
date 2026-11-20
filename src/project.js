@@ -14,11 +14,11 @@ function normalize(path){
 
 // Projects must compile the complete program. Missing kernel APIs are
 // errors here, rather than zero-valued globals or skipped function bodies.
-export function compileProject({source,filename='program.HC',files=[]}){
+export function compileProject({source,filename='program.HC',files=[],exports}){
   const sources=new Map(files.map(file=>[normalize(file.path).toLowerCase(),{filename:normalize(file.path),source:file.source}]));
   const entry=normalize(filename);sources.set(entry.toLowerCase(),{filename:entry,source});
   const result=compileHolyC(source,{
-    filename:entry,lenient:false,resilient:false,projectIncludes:true,
+    filename:entry,lenient:false,resilient:false,projectIncludes:true,...(exports?{exports}:{}),
     includeResolver:(path,from=entry)=>{
       const absolute=/^(?:[A-Za-z]:|\/)/.test(path),bases=[];
       if(!absolute){

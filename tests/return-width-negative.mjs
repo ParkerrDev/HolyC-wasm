@@ -3,7 +3,7 @@ import {cpSync,mkdtempSync,readFileSync,writeFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {createHost} from '../src/runtime/host.js';
+import {createTaskHost} from '../src/runtime/tasks.js';
 import {recorded} from './return-width/cases.mjs';
 const dir=mkdtempSync(join(tmpdir(),'holyc-return-'));
 try {
@@ -15,8 +15,8 @@ try {
  writeFileSync(file,source.replace(needle,'this.genExprCoerce(s.expr,this.fn.retType);'));
  const {compileHolyC}=await import(pathToFileURL(join(dir,'src/compiler.js'))),test=recorded();
  const result=compileHolyC(test.source,{lenient:false});let out='';
- const host=createHost({onText:s=>out+=s});
- const instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});host.attach(instance);instance.exports.__main();
+ const host=createTaskHost({onText:s=>out+=s});
+ const instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});host.attach(instance);await host.run();
  const expected=test.output.split('\n').filter(line=>line.startsWith('VAL:')),actual=out.trimEnd().split('\n');
  assert.equal(actual.length,expected.length);
  const count=expected.filter((line,i)=>line!==actual[i]).length;

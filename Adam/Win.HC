@@ -1,57 +1,92 @@
-//Document selection and flags from V5.03 Adam/DolDoc.
+public CWinMgrGlbls winmgr={0,0,0,WINMGR_FPS,tS,tS,NULL,FALSE,FALSE,FALSE};
+winmgr.t=CAlloc(sizeof(CWinMgrTimingGlbls));
+winmgr.t->last_calc_idle_time=tS;
 
-public CDoc *DocPut(CTask *task=NULL)
-{//Current document that StdOut Put() goes to.
-//Basically, StdOut unless double buffering.
-  CDoc *res;
-  if (!task) task=Fs;
-  if (Bt(&task->task_flags,TASKf_INPUT_FILTER_TASK))
-    task=task->parent_task;
-  if ((res=task->put_doc) && res->doc_signature==DOC_SIGNATURE_VAL)
-    return res;
-  else
-    return NULL;
+U0 ProgressBarsRegTf(U8 *path=NULL)
+{
+  F64 t,p1,p2,p3,p4;
+  if (path) {
+    t=tS;
+    if (progress1_t0) p1=t-progress1_t0; else p1=0;
+    if (progress2_t0) p2=t-progress2_t0; else p2=0;
+    if (progress3_t0) p3=t-progress3_t0; else p3=0;
+    if (progress4_t0) p4=t-progress4_t0; else p4=0;
+    RegWrite(path,"progress1_tf=%0.3f;progress2_tf=%0.3f;\n"
+	  "progress3_tf=%0.3f;progress4_tf=%0.3f;\n",p1,p2,p3,p4);
+  }
 }
 
-public CDoc *DocDisplay(CTask *task=NULL)
-{//StdOut displayed unless double buffering.
-  CDoc *res;
-  if (!task) task=Fs;
-  if ((res=task->display_doc) && res->doc_signature==DOC_SIGNATURE_VAL)
-    return res;
-  else
-    return NULL;
+#define PROGRESS_BAR_HEIGHT	20
+#define PROGRESS_BAR_WIDTH	(3*GR_WIDTH/4)
+U0 DrawProgressBars(CDC *dc)
+{
+  I64 i,j,k,n,m;
+  U8 *st,*st2;
+  for (i=0;i<PROGRESS_BARS_NUM;i++) {
+    if (m=sys_progresses[i].max) {
+      dc->color=BLACK;
+      GrRect(dc,
+	    (GR_WIDTH-PROGRESS_BAR_WIDTH)/2,
+	    (GR_HEIGHT-(PROGRESS_BARS_NUM*2-1-i*4)*PROGRESS_BAR_HEIGHT)/2,
+	    PROGRESS_BAR_WIDTH,PROGRESS_BAR_HEIGHT);
+
+      dc->color=LTGREEN;
+      n=sys_progresses[i].val;
+      if (n>m)
+	n=m;
+      GrRect(dc,
+	    (GR_WIDTH-PROGRESS_BAR_WIDTH)/2+2,
+	    (GR_HEIGHT-(PROGRESS_BARS_NUM*2-1-i*4)*PROGRESS_BAR_HEIGHT)/2+2,
+	    n*(PROGRESS_BAR_WIDTH-4)/m,
+	    PROGRESS_BAR_HEIGHT-4);
+
+      if (m>1) {
+	dc->color=BLACK;
+	k=m-1;
+	if (k>19) k=19;
+	for (j=0;j<=k;j++)
+	  GrLine(dc,
+		(GR_WIDTH-PROGRESS_BAR_WIDTH)/2+1+j*
+		(PROGRESS_BAR_WIDTH-4)/ToF64(k+1),
+		(GR_HEIGHT-(PROGRESS_BARS_NUM*2-1-i*4)*
+		PROGRESS_BAR_HEIGHT)/2+4,
+		(GR_WIDTH-PROGRESS_BAR_WIDTH)/2+1+j*
+		(PROGRESS_BAR_WIDTH-4)/ToF64(k+1),
+		(GR_HEIGHT-(PROGRESS_BARS_NUM*2-3-i*4)*
+		PROGRESS_BAR_HEIGHT)/2-4);
+      }
+
+      dc->color=GREEN;
+      if (*sys_progresses[i].desc)
+	st=StrNew(sys_progresses[i].desc);
+      else
+	st=MStrPrint("%d/%d",n,m);
+      if (sys_progresses[i].t0) {
+	st2=MStrPrint("%s %fs",st,tS-sys_progresses[i].t0);
+	Free(st);
+      } else
+	st2=st;
+      if (sys_progresses[i].tf) {
+	st=MStrPrint("%s/%fs",st2,sys_progresses[i].tf);
+	Free(st2);
+      } else
+	st=st2;
+      GrPrint(dc,(GR_WIDTH-FONT_WIDTH*StrLen(st))/2,(GR_HEIGHT-FONT_HEIGHT-
+	    (PROGRESS_BARS_NUM*2-2-i*4)*PROGRESS_BAR_HEIGHT)/2,"%s",st);
+      Free(st);
+    }
+  }
 }
 
-public CDoc *DocBorder(CTask *task=NULL)
-{//Doc holding border of window text.
-  CDoc *res;
-  if (!task) task=Fs;
-  if ((res=task->border_doc) && res->doc_signature==DOC_SIGNATURE_VAL)
-    return res;
-  else
-    return NULL;
-}
-
-public Bool DocCursor(Bool show=OFF,CDoc *doc=NULL)
-{//Show or hide cursor.
-  if (!doc && !(doc=DocPut))
-    return FALSE;
-  return !LBEqu(&doc->flags,DOCf_HIDE_CURSOR,!show);
-}
-
-public Bool DocHighlightCursor(Bool show=OFF,CDoc *doc=NULL)
-{//Highlight or Don't highlight cursor.
-  if (!doc && !(doc=DocPut))
-    return FALSE;
-  return !LBEqu(&doc->flags,DOCf_DONT_HIGHLIGHT_CURSOR,!show);
-}
-
-public Bool DocScroll(Bool val=OFF,CDoc *doc=NULL)
-{//Turn scroll bars OFF/ON.
-  if (!doc && !(doc=DocPut))
-    return FALSE;
-  return !LBEqu(&doc->flags,DOCf_NO_SCROLL_BARS,!val);
+U0 DrawWinGrid(CDC *dc)
+{
+  F64 d;
+  dc->color=BLACK;
+  dc->thick=1;
+  for (d=ms_grid.x_offset;d<GR_WIDTH; d+=ms_grid.x)
+    GrLine(dc,d,0,d,GR_HEIGHT-1);
+  for (d=ms_grid.y_offset;d<GR_HEIGHT;d+=ms_grid.y)
+    GrLine(dc,0,d,GR_WIDTH-1,d);
 }
 
 //Browser tasks share one cooperative CPU and one native window stack.
@@ -300,6 +335,44 @@ public Bool WinVert(I64 top,I64 bottom,CTask *task=NULL)
   }
 }
 
+public U0 WinTileVert()
+{//Tile windows vertically side-by-side.
+  CTask *task,*last_task=Fs;
+  I64 cnt,c,i,horz_size,no_border;
+  PUSHFD
+  CLI //TODO Multiprocessor safe
+  task=sys_winmgr_task;
+  cnt=0;
+  do {
+    if (!Bt(&task->win_inhibit,WIf_SELF_FOCUS))
+      cnt++;
+    task=task->last_task;
+  } while (task!=sys_winmgr_task);
+
+  task=sys_winmgr_task;
+  i=0;
+  do {
+    if (!Bt(&task->win_inhibit,WIf_SELF_FOCUS)) {
+      no_border=Bt(&task->display_flags,DISPLAYf_NO_BORDER);
+      c=cnt- i&~3;
+      if (!c)
+	c=1;
+      else if (c>4)
+	c=4;
+      horz_size=TEXT_COLS/c;
+      WinHorz((i&3)*horz_size+1-no_border,(i&3+1)*horz_size-1+no_border,task);
+      WinVert(2-no_border,TEXT_ROWS-2+no_border,task);
+      last_task=task;
+      if (i&3==3)
+	WinHorz(task->win_left,TEXT_COLS-2,task);
+      i++;
+    }
+    task=task->last_task;
+  } while (task!=sys_winmgr_task);
+  WinHorz(last_task->win_left,TEXT_COLS-2,last_task);
+  POPFD
+}
+
 public Bool WinBorder(Bool val=OFF,CTask *task=NULL)
 {//Turn off (or on) window border.
   Bool old_has_border;
@@ -352,6 +425,49 @@ public U0 WinScrollRestore(CTask *task,CD3I64 *s)
   task->scroll_z=s->z;
 }
 
+//V5.03 Adam/Win.HC DrawMs, without its PUSHFD/CLI/POPFD (one core).
+U0 DrawMs(CDC *dc)
+{
+  I64 x,y;
+  x=ms.pos.x;
+  y=ms.pos.y;
+  if (ms.show && ms_hard.installed) {
+    if (!Bt(&sys_run_level,RLf_VGA)) //if text mode
+      gr.text_base[ms.pos_text.x+ms.pos_text.y*TEXT_COLS]^=0x7F00;
+    else {
+      if (gr.fp_draw_ms) {
+	if (ms.lb)
+	  dc->color=ROP_XOR+LTPURPLE^TRANSPARENT;
+	else if (ms.rb)
+	  dc->color=ROP_XOR+LTCYAN^TRANSPARENT;
+	else
+	  dc->color=ROP_XOR+BLACK^TRANSPARENT;
+	if (winmgr.grab_scroll && gr.fp_draw_grab_ms)
+	  (*gr.fp_draw_grab_ms)(dc,x,y,winmgr.grab_scroll_closed);
+	else
+	  (*gr.fp_draw_ms)(dc,x,y);
+      }
+    }
+  }
+}
+
+U0 WinFinalUpdate(CDC *dc)
+{
+  if (ms_grid.show)
+    DrawWinGrid(dc);
+  if (ms_grid.coord)
+    GrPrint(dc,GR_WIDTH-FONT_WIDTH*10,FONT_HEIGHT*3,
+	  "(%03d,%03d)",ms.pos.x,ms.pos.y);
+  DrawProgressBars(dc);
+  if (winmgr.show_menu)
+    DrawMenu(dc);
+  else
+    sys_cur_submenu_entry=NULL;
+  DrawMs(dc);
+}
+
+gr.fp_final_scrn_update=&WinFinalUpdate;
+
 Bool WinInside(I64 x,I64 y,CTask *task=NULL,I64 border=0)
 {//Is pixel (x,y) inside task's win? Border to FONT_WIDTH.
   if (!task) task=Fs;
@@ -365,45 +481,40 @@ Bool WinInside(I64 x,I64 y,CTask *task=NULL,I64 border=0)
   return FALSE;
 }
 
-U0 WinHostDraw(CTask *task,CDC *layer)
-{//Each V5.03 draw_it invocation owns a fresh alias of the window layer.
-  CDC *dc;
-  if (!TaskValidate(task) || !task->draw_it)
-    return;
-  dc=DCAlias(layer,task);
-  try
-    (*task->draw_it)(task,dc);
-  catch
-    DCDel(dc);
-  DCDel(dc);
-}
-//V5.03 DolDoc locking; Break delivery belongs to the task runtime.
-#define DOClf_LOCKED 0
-#define DOCf_BREAK_UNLOCKED 22
+U0 WinMsUpdate()
+{//V5.03 Adam/Win.HC without its gr.scrn_zoom tail: the runtime has no zoom.
+  Bool set=FALSE;
+  if (ms_hard.installed) {
+    ms.has_wheel=ms_hard.has_wheel;
+    if (ms_hard.evt) {
+      MsUpdate(ms_hard.pos.x,ms_hard.pos.y,ms_hard.pos.z,
+	    ms_hard.bttns[0],ms_hard.bttns[1]);
+      ms_hard.evt=FALSE;
+      set=TRUE;
+    }
+  }
 
-public Bool DocLock(CDoc *doc)
-{//Make this task have exclusive access to this doc.
-  if (!Bt(&doc->locked_flags,DOClf_LOCKED) || doc->owning_task!=Fs) {
-    while (LBts(&doc->locked_flags,DOClf_LOCKED))
-      Yield;
-    if (doc->owning_task!=Fs)
-      LBEqu(&doc->flags,DOCf_BREAK_UNLOCKED,BreakLock(Fs));
-    doc->owning_task=Fs;
-    return TRUE;
+  if (set) {
+    if (ms_hard.installed) {
+      ms.speed=ms_hard.speed;
+      ms.timestamp=ms_hard.timestamp;
+    }
   } else
-    return FALSE;
+    ms.speed*=0.95;
 }
 
-public Bool DocUnlock(CDoc *doc)
-{//Release exclusive lock on access to doc.
-  Bool unlock_break;
-  if (Bt(&doc->locked_flags,DOClf_LOCKED) && doc->owning_task==Fs) {
-    doc->owning_task=0;
-    unlock_break=Bt(&doc->flags,DOCf_BREAK_UNLOCKED);
-    LBtr(&doc->locked_flags,DOClf_LOCKED);
-    if (unlock_break)
-      BreakUnlock(Fs);
-    return TRUE;
-  } else
-    return FALSE;
+//V5.03 Adam/Win.HC WinRefocus, without its PUSHFD/CLI/POPFD (one core).
+public CTask *WinRefocus(CTask *task=NULL)
+{//Reset the focus task if NULL.
+  if (!task) {
+    task=sys_winmgr_task->last_task;
+    while (TaskValidate(task) && task!=sys_winmgr_task) {
+      if (!Bt(&task->win_inhibit,WIf_SELF_FOCUS)) {
+	sys_focus_task=task;
+	break;
+      }
+      task=task->last_task;
+    }
+  }
+  return sys_focus_task;
 }

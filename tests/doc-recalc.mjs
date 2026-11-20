@@ -5,7 +5,7 @@ import {Framebuffer} from '../src/runtime/graphics.js';
 import {cases,recorded} from './doc-recalc/cases.mjs';
 for(const name of cases) {
   const test=recorded(name);if(name==='RecalcOwner')continue;
-  const result=compileHolyC(test.source,{lenient:false,runtimeProfile:'keydev'});
+  const result=compileHolyC(test.source,{lenient:false});
   assert.deepEqual(result.warnings,[]);
   let output='',heap,count;const live=new Set();
   const host=createTaskHost({gfx:new Framebuffer(null),ansi:false,onText:s=>output+=s});
@@ -24,7 +24,8 @@ for(const name of cases) {
   } finally {await host.dispose();}
   assert.equal(live.size,0);console.log(test.output.trim(),'five lifetimes and complete disposal');
 }
-for(const name of ['DocNew','EdLeftClickLink'])
-  assert.throws(()=>compileHolyC(name+';',{lenient:false,runtimeProfile:'keydev'}),/undefined|untyped/);
-assert.throws(()=>compileHolyC('DocRecalc(NULL);',{lenient:false}),/undefined|untyped/);
-console.log('Normal layout is explicit KeyDev functionality; console, screen/editor and construction boundaries remain.');
+//One runtime: V5.03 DocNew and DocRecalc link into every program that calls
+//them; link editing stays unported.
+for(const source of ['DocNew;','DocRecalc(NULL);'])
+  assert.deepEqual(compileHolyC(source,{lenient:false}).requiredCapabilities,['task-continuations'],source);
+console.log('Normal layout and construction are in the one runtime.');

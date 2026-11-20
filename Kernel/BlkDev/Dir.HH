@@ -1,7 +1,39 @@
 
 #define CDIR_FILENAME_LEN 38
+#define BLK_SIZE_BITS	9
+#define BLK_SIZE	(1<<BLK_SIZE_BITS)
+#define INVALID_CLUS (-1)
+#define BDlf_LOCKED		0
+#define DVlf_LOCKED	0
 #define BD_SIGNATURE_VAL 'BDSV'
-#define BDF_INIT_IN_PROGRESS 0x80
+//See $LK,"ST_BLKDEV_TYPES",A="MN:ST_BLKDEV_TYPES"$
+#define BDT_NULL		0
+#define BDT_RAM			1
+#define BDT_ATA			2
+#define BDT_ISO_FILE_READ	3
+#define BDT_ISO_FILE_WRITE	4
+#define BDT_ATAPI		5
+#define BDT_TYPES_NUM		6
+
+#define BDF_REMOVABLE		0x001
+#define BDF_INITIALIZED		0x002
+#define BDF_READ_ONLY		0x004
+#define BDF_READ_ONLY_OVERRIDE	0x008
+#define BDF_LAST_WAS_WRITE	0x010
+#define BDF_READ_CACHE		0x020
+#define BDF_FMT			0x040
+#define BDF_INIT_IN_PROGRESS	0x080
+#define BDF_EXT_SIZE		0x100
+
+#define BDf_REMOVABLE		0
+#define BDf_INITIALIZED		1
+#define BDf_READ_ONLY		2
+#define BDf_READ_ONLY_OVERRIDE	3
+#define BDf_LAST_WAS_WRITE	4
+#define BDf_READ_CACHE		5
+#define BDf_FMT			6
+#define BDf_INIT_IN_PROGRESS	7
+#define BDf_EXT_SIZE		8
 #define FSt_NULL 0
 #define FSt_REDSEA 1
 #define FSt_FAT32 2
@@ -11,7 +43,6 @@
 #define FSt_TYPES_NUM 6
 #define FSG_TYPE_MASK 0x7FFF
 #define FSt_HOST 0x1000
-#define BDT_HOST 0x1000
 #define RS_ATTR_READ_ONLY 0x01
 #define RS_ATTR_HIDDEN 0x02
 #define RS_ATTR_SYSTEM 0x04
@@ -25,16 +56,76 @@
 #define RS_ATTR_COMPRESSED 0x400
 #define RS_ATTR_CONTIGUOUS 0x800
 #define RS_ATTR_FIXED 0x1000
-#define FUf_JUST_DIRS 10
-#define FUf_JUST_FILES 11
-#define FUf_Z_OR_NOT_Z 18
-#define FUf_SCAN_PARENTS 20
-#define FUF_JUST_DIRS 0x400
-#define FUF_JUST_FILES 0x800
-#define FUF_Z_OR_NOT_Z 0x40000
-#define FUF_SCAN_PARENTS 0x100000
-#define FUG_FILE_FIND (FUF_JUST_DIRS|FUF_JUST_FILES|FUF_Z_OR_NOT_Z|\
+//File Util Flags
+//See $LK,"ST_FILE_UTIL_FLAGS",A="MN:ST_FILE_UTIL_FLAGS"$
+#define FUf_RECURSE		0
+#define FUf_DIFF		1
+#define FUf_DEL			1
+#define FUf_IGNORE		2
+#define FUf_ALL			3
+#define FUf_CANCEL		4
+#define FUf_REPLACE		5
+#define FUf_RISKY		5
+#define FUf_PUBLIC		6
+#define FUf_MAP			7
+#define FUf_EXPAND		8
+#define FUf_SINGLE		9
+#define FUf_JUST_DIRS		10
+#define FUf_JUST_FILES		11
+#define FUf_JUST_TXT		12
+#define FUf_JUST_DD		13
+#define FUf_JUST_SRC		14
+#define FUf_JUST_AOT		15
+#define FUf_JUST_JIT		16
+#define FUf_JUST_GR		17
+#define FUf_Z_OR_NOT_Z		18
+#define FUf_CLUS_ORDER	19
+#define FUf_SCAN_PARENTS	20
+#define FUf_FLATTEN_TREE	21
+#define FUf_WHOLE_LABELS	22
+#define FUf_WHOLE_LABELS_BEFORE	23
+#define FUf_WHOLE_LABELS_AFTER	24
+
+#define FUF_RECURSE		0x0000001 //r
+#define FUF_DIFF		0x0000002 //d
+#define FUF_DEL			0x0000002 //d
+#define FUF_IGNORE		0x0000004 //i
+#define FUF_ALL			0x0000008 //a
+#define FUF_CANCEL		0x0000010 //c
+#define FUF_REPLACE		0x0000020 //R
+#define FUF_RISKY		0x0000020 //R
+#define FUF_PUBLIC		0x0000040 //p
+#define FUF_MAP			0x0000080 //m
+#define FUF_EXPAND		0x0000100 //x
+#define FUF_SINGLE		0x0000200 //s
+#define FUF_JUST_DIRS		0x0000400 //D
+#define FUF_JUST_FILES		0x0000800 //F
+#define FUF_JUST_TXT		0x0001000 //T
+#define FUF_JUST_DD		0x0002000 //$$
+#define FUF_JUST_SRC		0x0004000 //S
+#define FUF_JUST_AOT		0x0008000 //A
+#define FUF_JUST_JIT		0x0010000 //J
+#define FUF_JUST_GR		0x0020000 //G
+#define FUF_Z_OR_NOT_Z		0x0040000 //Z
+#define FUF_CLUS_ORDER	0x0080000 //O Move disk head one direction
+#define FUF_SCAN_PARENTS	0x0100000 //P
+#define FUF_FLATTEN_TREE	0x0200000 //f
+#define FUF_WHOLE_LABELS	0x0400000 //l
+#define FUF_WHOLE_LABELS_BEFORE	0x0800000 //lb
+#define FUF_WHOLE_LABELS_AFTER	0x1000000 //la
+
+#define FUG_FILES_FIND	(FUF_RECURSE|FUF_SINGLE|FUF_CLUS_ORDER|\
+  FUF_JUST_DIRS|FUF_JUST_FILES|FUF_JUST_TXT|FUF_JUST_DD|\
+  FUF_JUST_SRC|FUF_JUST_AOT|FUF_JUST_JIT|FUF_JUST_GR|FUF_FLATTEN_TREE)
+#define FUG_FILE_FIND	(FUF_JUST_DIRS|FUF_JUST_FILES|FUF_Z_OR_NOT_Z|\
   FUF_SCAN_PARENTS)
+
+#define FILEMASK_JIT	"*.HC*;*.HH*"
+#define FILEMASK_AOT	"*.HC*;*.HH*;*.PRJ*"
+#define FILEMASK_SRC	"*.HC*;*.HH*;*.IN*;*.PRJ*"
+#define FILEMASK_DD	FILEMASK_SRC ";*.DD*"
+#define FILEMASK_TXT	FILEMASK_DD ";*.TXT*"
+#define FILEMASK_GR	"*.GR*"
 extern class CFile;
 extern class CFAT32FileInfoSect;
 extern class CCacheBlk;
@@ -51,6 +142,7 @@ public class CDirEntry
   I64	clus,size;
   CDate datetime;
 };
+#define CDIR_SIZE (sizeof(CDirEntry)-offset(CDirEntry.start))
 public class CBlkDev
 {
   CBlkDev *lock_fwding; //If two blkdevs on same controller, use just one lock
@@ -127,4 +219,22 @@ public class CDirContext
 {
   CDrv	*old_dv,*dv;
   U8	*old_dir,*mask;
+};
+
+#define FFB_NEXT_BLK		I64_MAX
+
+#define FF_WRITE		1
+#define FF_NEW_FILE		2
+#define FF_BUF_DIRTY		4
+#define FF_NEEDS_WRITE		8
+#define FF_CONTIGUOUS		16
+#define FF_USE_OLD_DATETIME	32
+
+public class CFile //See $LK,"::/Demo/Dsk/DataBase.HC"$.
+{
+  I64	flags;
+  CDirEntry de;
+  CDrv	*dv;
+  I64	fblk_num,clus,file_clus_num,max_blk;
+  U8	*clus_buf;
 };

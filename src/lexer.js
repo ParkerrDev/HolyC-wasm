@@ -6,13 +6,14 @@
 //   - numbers: decimal / 0x hex / 0b binary / floats (1.5 .5 1e3 1.2e-3)
 //   - "strings" with escapes + adjacent-literal concatenation; $$ -> literal $
 //   - 'char' constants, including multi-char packing (up to 8 bytes) used by HolyC
-//   - DolDoc $IB/$IS expressions load binary records; other markup is skipped.
+//   - DolDoc $IB/$IS expressions load binary records, through BP= links to
+//     another document when opts.open is given; other markup is skipped.
 //   - byte strings and Uint8Array input preserve CP437 text and binary payloads.
 //
 // Token shape: { type, value, text, line, col, pos, nchars? }
 //   type: 'num' | 'str' | 'bin' | 'char' | 'ident' | 'punct' | 'eof'
 
-import {DocBins} from "./doldoc.js";
+import {DocBinsLoad} from "./doldoc.js";
 import {ByteString,Identifier,CharByte} from "./encoding.js";
 import {FloatLex} from "./float.js";
 
@@ -56,7 +57,7 @@ const SIMPLE_ESCAPES = {
   "`": 96, d: 36,
 };
 
-export function lex(src, filename = "<src>") {
+export function lex(src, filename = "<src>", opts = {}) {
   src=ByteString(src);
   const tokens = [];
   let i = 0;
@@ -108,6 +109,45 @@ export function lex(src, filename = "<src>") {
     }
   }
 
+  // V5.03 lexes only a document's text entries (Compiler/Lex.HC:322-323,
+  // cmp_type_flags_src_code), so the cursor and markup such as $IV,1$ that
+  // sit inside a word leave it whole: m$IV,0$X is mX.
+  function skipHidden() {
+    if (peek()==="\x05") { adv(); return true; }
+    if (peek()!=="$" || peek(1)==="$") return false;
+    const at=i,l=line,cl=col;
+    skipDolDoc();
+    if (/^(IB|IS|SY)(?=[,+-]|$)/.test(src.slice(at+1,i-1))) {
+      i=at;line=l;col=cl;
+      return false;
+    }
+    return true;
+  }
+  // In quotes V5.03 gives an entry that is not text back as its command
+  // (Compiler/Lex.HC LexDollar: "$$%$$Q$$" of Doc2PlainText), so the
+  // string holds the link in "The $LK+PU,"Holy Spirit",...$ can puppet you."
+  // and its quotes do not end it. The cursor is not in it.
+  function quotedEntry(out) {
+    if (peek()==="\x05") { adv(); return true; }
+    if (peek()!=="$" || peek(1)==="$") return false;
+    const at=i;
+    skipDolDoc();
+    for (const ch of src.slice(at,i)) out.push(CharByte(ch));
+    return true;
+  }
+  // V5.03 LexGetChar gives a $SY$ entry as TK_SUPERSCRIPT, TK_SUBSCRIPT or
+  // TK_NORMALSCRIPT, and Lex takes them as the ident chars '>', '<' and '='
+  // (Compiler/Lex.HC:182-195,453-487). The shift is SY's attr, DOC_DFT
+  // (I32_MIN) when it has none (Adam/DolDoc/DocPlain.HC:280-286).
+  function scriptChar() {
+    if (peek()!=="$" || peek(1)==="$") return null;
+    const cmd=/^\$SY(?:[+-][A-Z]+)*(?:,+(-?)(0x[0-9A-Fa-f]+|\d+))?\$/.exec(src.slice(i,i+64));
+    if (!cmd) return null;
+    for (let k=0;k<cmd[0].length;k++) adv();
+    const attr=cmd[2]===undefined?-1:Number(cmd[2])*(cmd[1]?-1:1);
+    return attr<0?">":attr>0?"<":"=";
+  }
+
   while (i < n) {
     const c = peek();
     const startLine = line, startCol = col, startPos = i;
@@ -152,14 +192,26 @@ export function lex(src, filename = "<src>") {
 
     // DolDoc command in code context
     if (c === "$") {
-      if (peek(1) === "$") { adv(); adv(); continue; } // stray $$ in code -> ignore
+      // V5.03: $$ in a doc is the char $, in code the term $ (PrsExp.HC).
+      if (peek(1) === "$") { adv(); adv(); tokens.push(new Token("punct", "$", "$", startLine, startCol, startPos)); continue; }
+      const script=scriptChar();
+      if (script) {
+        let s=script;
+        while (i<n) {
+          const more=scriptChar();
+          if (more) s+=more;
+          else if (isIdentPart(peek())) s+=adv();
+          else if (!skipHidden()) break;
+        }
+        tokens.push(new Token("ident",Identifier(s),s,startLine,startCol,startPos));
+        continue;
+      }
       skipDolDoc();
       const command=src.slice(startPos+1,i-1);
       const kind=/^(IB|IS)(?=,|$)/.exec(command)?.[1];
       if (kind) {
-        if (/(?:^|,)BP=/.test(command)) err("external DolDoc binary link is not supported");
         const number=/(?:^|,)BI=(\d+)(?:,|$)/.exec(command)?.[1];
-        bins??=DocBins(src,filename);
+        bins??=DocBinsLoad(src,filename,opts.open);
         const bytes=bins.get(Number(number));
         if (!bytes) err(`DolDoc binary ${number??"number"} is missing`);
         tokens.push(new Token(kind==="IB"?"bin":"num",kind==="IB"?bytes:
@@ -176,6 +228,7 @@ export function lex(src, filename = "<src>") {
         let ch = peek();
         if (ch === "\\") { adv(); bytes.push(readEscape() & 0xff); continue; }
         if (ch === "$" && peek(1) === "$") { adv(); adv(); bytes.push(0x24); continue; }
+        if (quotedEntry(bytes)) continue;
         bytes.push(CharByte(adv()));
       }
       if (peek() === '"') adv(); else err("unterminated string");
@@ -191,6 +244,7 @@ export function lex(src, filename = "<src>") {
       while (i < n && peek() !== "'") {
         if (peek() === "\\") { adv(); chars.push(readEscape() & 0xff); continue; }
         if (peek() === "$" && peek(1) === "$") { adv(); adv(); chars.push(0x24); continue; }
+        if (quotedEntry(chars)) continue;
         chars.push(CharByte(adv()));
       }
       if (peek() === "'") adv(); else err("unterminated char constant");
@@ -241,7 +295,12 @@ export function lex(src, filename = "<src>") {
     // identifier
     if (isIdentStart(c)) {
       let s = "";
-      while (i < n && isIdentPart(peek())) s += adv();
+      while (i < n) {
+        const script=scriptChar();
+        if (script) s+=script;
+        else if (isIdentPart(peek())) s += adv();
+        else if (!skipHidden()) break;
+      }
       tokens.push(new Token("ident", Identifier(s), s, startLine, startCol, startPos));
       continue;
     }

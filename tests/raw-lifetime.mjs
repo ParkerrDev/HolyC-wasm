@@ -28,12 +28,14 @@ try{
 assert.equal(host.state.tasks[0].allocations,0,'Session cache is released on dispose.');
 const simple=compileHolyC('I64 cols=text.cols; "READY:%d\\n",cols;',{lenient:false});
 let output='',fail=true;
-const retry=createHost({ansi:false,onText:s=>output+=s}),alloc=retry.env.__malloc_kernel;
+//It prints, so it is a task program.
+const retry=createTaskHost({ansi:false,onText:s=>output+=s,jit:simple.jit}),alloc=retry.env.__malloc_kernel;
 retry.env.__malloc_kernel=size=>{if(size===38400n && fail){fail=false;return 0n;}return alloc(size);};
 const inst=new WebAssembly.Instance(new WebAssembly.Module(simple.bytes),{env:retry.env});retry.attach(inst);
-assert.throws(()=>inst.exports.__main());assert.equal(output,'');
-assert.throws(()=>inst.exports.__main(),/fresh.*instance/);assert.equal(output,'');
-const fresh=createHost({ansi:false,onText:s=>output+=s});
+await assert.rejects(retry.run());assert.equal(output,'');
+await assert.rejects(retry.run(),/fresh.*instance/);assert.equal(output,'');
+await assert.rejects(retry.dispose(),/fresh.*instance/);
+const fresh=createTaskHost({ansi:false,onText:s=>output+=s,jit:simple.jit});
 const clean=new WebAssembly.Instance(new WebAssembly.Module(simple.bytes),{env:fresh.env});fresh.attach(clean);
-clean.exports.__main();assert.equal(output,'READY:80\n');
+await fresh.run();assert.equal(output,'READY:80\n');await fresh.dispose();
 console.log('Raw state: initialized before user globals, child lifetime, five-run heap plateau, session disposal, poisoned-initialization refusal and fresh-instance recovery pass.');

@@ -4,7 +4,7 @@ import {readFileSync,writeFileSync} from "node:fs";
 import {createHash} from "node:crypto";
 import {pathToFileURL} from "node:url";
 import {compileHolyC} from "../../../../src/compiler.js";
-import {createHost} from "../../../../src/runtime/host.js";
+import {createTaskHost} from "../../../../src/runtime/tasks.js";
 
 const file=new URL("JitNative.json",import.meta.url),root=HemuPath("Kernel/"),
   read=name=>readFileSync(new URL(name.includes(".")?name:name+".HC",root),"latin1"),
@@ -25,8 +25,10 @@ assert.equal(hash,expected.sourceHash,"rerun native V5.03 after JIT source chang
 const compiled=compileHolyC(source,{filename:"JitNative.HC",lenient:false});
 assert.deepEqual(compiled.warnings,[]);
 let output="";
-const host=createHost({onText:text=>output+=text}),
+//Every program is a task (G5): its output reads kbd.scan_code, as V5.03's PutS.
+const host=createTaskHost({jit:compiled.jit,ansi:false,onText:text=>output+=text}),
   {instance}=await WebAssembly.instantiate(compiled.bytes,{env:host.env});
-host.attach(instance);instance.exports.__rt_init();instance.exports.__main();
+host.attach(instance);
+try {await host.run();} finally {await host.dispose();}
 assert.equal(output,expected.out);
 console.log("HolyC JIT emits matching modules natively and in WASM: 84 blocks and four dispatchers.");

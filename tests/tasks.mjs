@@ -32,7 +32,7 @@ const expected=readFileSync(new URL('v503/Tasks.out',import.meta.url),'latin1');
 for(let repeat=0;repeat<10;repeat++) {
   output='';await fixture.host.run();assert.equal(output,expected);
   assert.deepEqual(fixture.host.state.tasks.map(task=>[task.status,task.allocations]),[['dead',0]]);
-  assert.equal(fixture.host.state.heapPtr,16777248);
+  assert.equal(fixture.host.state.heapPtr,fixture.host.state.boot.heapPtr);
   assert.equal(fixture.fn.__sp.value,16777216n);
 }
 assert.throws(()=>fixture.host.snapshot(),/cannot be serialized/);await fixture.host.dispose();
@@ -49,7 +49,7 @@ I64 Result() {
 }
 `,{exports:['Result']}));
 assert.equal(await posted.host.run('Result'),4273n);
-assert.equal(posted.host.state.heapPtr,16777248);await posted.host.dispose();
+assert.equal(posted.host.state.heapPtr,posted.host.state.boot.heapPtr);await posted.host.dispose();
 
 // GetKey consumes a zero-character key-down and preserves all 64 scan bits.
 const inputResult=compiled('I64 scan=0; I64 Input() {return GetKey(&scan);}',{exports:['Input']});
@@ -83,7 +83,7 @@ for(const fail of [0,1,2,0,1,2,0]) {
   assert.equal(await failures.host.run('Trial'),fail?0x6D654D74754Fn:0n);
   assert.equal(failures.host.state.tasks.length,1);
   assert.equal(failures.host.state.tasks[0].allocations,0);
-  assert.equal(failures.host.state.heapPtr,16777248);
+  assert.equal(failures.host.state.heapPtr,failures.host.state.boot.heapPtr);
 }
 await failures.host.dispose();
 
@@ -110,7 +110,7 @@ I64 Test() {
 `,{exports:['Test']}),{onTaskError:error=>errors.push(error)});
 assert.equal(await overflow.host.run('Test'),0n);
 assert.equal(errors.length,1);assert.match(errors[0].message,/shadow stack overflow/);
-assert.equal(overflow.host.state.heapPtr,16777248);await overflow.host.dispose();
+assert.equal(overflow.host.state.heapPtr,overflow.host.state.boot.heapPtr);await overflow.host.dispose();
 // A cleanup catch may suspend while another task throws; its exception value is task-local.
 const exceptSource=readFileSync(new URL('v503/TaskExcept.HC',import.meta.url),'latin1')
   .replace(/TaskExcept;\s*$/,'Spawn(&ExceptChild,,,,Fs);ExceptWrap;');
@@ -142,7 +142,7 @@ I64 Ownership() {
 }
 `,{exports:['Ownership']}));
 assert.equal(await ownership.host.run('Ownership'),73n);
-assert.equal(ownership.host.state.heapPtr,16777248);await ownership.host.dispose();
+assert.equal(ownership.host.state.heapPtr,ownership.host.state.boot.heapPtr);await ownership.host.dispose();
 
 const stopped=load(compiled(`
 U0 Grand(U8 *) {MAlloc(123);while(TRUE) Sleep(1);}
@@ -155,7 +155,7 @@ await new Promise(resolve=>setTimeout(resolve,20));
 assert.equal(stopped.host.state.tasks.length,3);
 await stopped.host.stop();await running;
 assert.equal(stopped.host.state.tasks.length,1);
-assert.equal(stopped.host.state.heapPtr,16777248);await stopped.host.dispose();
+assert.equal(stopped.host.state.heapPtr,stopped.host.state.boot.heapPtr);await stopped.host.dispose();
 
 const failed=load(compiled('U0 Child(U8 *) {while(TRUE) Sleep(1);} Spawn(&Child,,,,Fs);MAlloc(97);Sleep(1);throw(73);'));
 await assert.rejects(failed.host.run(),WebAssembly.Exception);

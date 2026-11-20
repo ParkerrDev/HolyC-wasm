@@ -372,6 +372,8 @@ export class Module {
     this.importFuncs = []; // {module,name,typeIdx}
     this.importGlobals = []; // {module,name,vt,mutable}
     this.importMems = []; // {module,name,min,max}
+    this.importTables=[]; // {module,name,min}
+    this.importTags=[]; // {module,name,typeIdx}
 
     this.funcs = []; // {typeIdx, locals:[{count,vt}], body:Func|null}
     this.globals = []; // {vt, mutable, init:[bytes]}
@@ -408,6 +410,18 @@ export class Module {
 
   importMemory(module, name, min, max = undefined, shared = false) {
     this.importMems.push({ module, name, min, max, shared });
+  }
+
+  // A table or tag another module made, so function pointers and exceptions
+  // pass between them. Each is index 0 of its kind.
+  importTable(module,name,min) {
+    if (this.table) throw new Error("a module has one table");
+    this.importTables.push({module,name,min});
+  }
+  importTag(module,name,params) {
+    if (this.tags.length) throw new Error("imported tags precede defined tags");
+    this.importTags.push({module,name,typeIdx:this.typeIndex(params,[])});
+    return this.importTags.length-1;
   }
 
   setMemory(min, max = undefined) {
@@ -447,7 +461,7 @@ export class Module {
   }
 
   addTag(params) {
-    const index=this.tags.length;
+    const index=this.importTags.length+this.tags.length;
     this.tags.push(this.typeIndex(params,[]));
     return index;
   }
@@ -515,6 +529,10 @@ export class Module {
       for (const im of this.importGlobals) {
         items.push([...strBytes(im.module), ...strBytes(im.name), 0x03, im.vt, im.mutable ? 0x01 : 0x00]);
       }
+      for (const im of this.importTables)
+        items.push([...strBytes(im.module),...strBytes(im.name),0x01,0x70,0x00,...uleb(im.min)]);
+      for (const im of this.importTags)
+        items.push([...strBytes(im.module),...strBytes(im.name),0x04,0x00,...uleb(im.typeIdx)]);
       appendBytes(section(2, vec(items)));
     }
 

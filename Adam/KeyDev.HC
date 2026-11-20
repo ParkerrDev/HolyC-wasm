@@ -1,20 +1,5 @@
 
 //The cooperative backend switches tasks only at explicit waits.
-#define DFT_CACHE_LINE_WIDTH 128
-#define SEMA_FLUSH_VGA_IMAGE 9
-#define SEMA_SEMAS_NUM 21
-
-class CSema
-{
-  Bool val,pad[DFT_CACHE_LINE_WIDTH-1];
-};
-CSema sys_semas[SEMA_SEMAS_NUM];
-
-U0 VGAFlush()
-{
-  LBts(&sys_semas[SEMA_FLUSH_VGA_IMAGE],0);
-}
-
 Bool Raw(Bool val)
 {
   if (!val) VGAFlush;
@@ -133,6 +118,15 @@ U0 PutS(U8 *st)
   }
 }
 
+//V5.03 Kernel/KeyDev.HC KeyDescSet.
+U0 KeyDescSet(U8 *fmt,...)
+{//Call this from key hndlr to report desc in $LK,"KeyMap",A="MN:KeyMap"$().
+  U8 *buf=StrPrintJoin(NULL,fmt,argc,argv);
+  StrCpy(keydev.desc,buf);
+//His keydev.hndlr=Caller; waits on Caller (KernelC.HH:165), the return address.
+  Free(buf);
+}
+
 U0 KeyDevRem(CKeyDevEntry *tmpk)
 {//Remove StdOut hook and free.
   QueRem(tmpk);
@@ -159,13 +153,15 @@ CKeyDevEntry *KeyDevAdd(Bool (*fp_put_key)(I64 ch,I64 sc),
 }
 
 Bool KeyConsolePutKey(I64 ch,I64)
-{
+{//The host console is the terminal of a task with no doc; KDDocPutKey has the rest.
+  if (Fs->put_doc) return FALSE;
   if (ch) __putc(ch);
   return TRUE;
 }
 
 Bool KeyConsolePutS(U8 *st)
 {
+  if (Fs->put_doc) return FALSE;
   __puts(st);
   return TRUE;
 }

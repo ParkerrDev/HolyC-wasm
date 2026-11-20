@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import {readFileSync,writeFileSync} from 'node:fs';
 import {compileHolyC} from '../src/compiler.js';
-import {createHost} from '../src/runtime/host.js';
+import {createTaskHost} from '../src/runtime/tasks.js';
 import {hash} from './integer-promotion/cases.mjs';
 const url=new URL('probes/NarrowRegister.HC',import.meta.url),source=readFileSync(url),proofUrl=new URL('probes/NarrowRegister.native.json',import.meta.url);
 const identity={sourceSha256:hash(source),captureSha256:hash(readFileSync(new URL('oracle/QemuCapture.HC',import.meta.url)))};
 let output='';const result=compileHolyC(source.toString('latin1'),{lenient:false});assert.deepEqual(result.warnings,[]);
-const host=createHost({onText:s=>output+=s}),instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});host.attach(instance);instance.exports.__main();
+const host=createTaskHost({onText:s=>output+=s}),instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});host.attach(instance);await host.run();
 if(process.argv.includes('--record')){
  const {QemuRun}=await import('./oracle/Qemu.mjs'),{manifest}=await import('./oracle/Prepare.mjs'),native=await QemuRun([source]),r=native.results[0];
  assert.equal(r.except,'');

@@ -5,7 +5,7 @@ import {Framebuffer} from '../src/runtime/graphics.js';
 import {createTaskHost} from '../src/runtime/tasks.js';
 import {cases,recorded} from './lex-stream/cases.mjs';
 for(const name of cases) {
-  const test=recorded(name),result=compileHolyC(test.wasmSource,{lenient:false,runtimeProfile:test.profile});
+  const test=recorded(name),result=compileHolyC(test.wasmSource,{lenient:false});
   assert.deepEqual(result.warnings,[]);
   const tasks=result.requiredCapabilities.includes('task-continuations');
   let output='',heap=null,count=null;
@@ -33,9 +33,15 @@ for(const name of cases) {
 }
 const count=compileHolyC('I64 Count(){return cmp.compiled_lines;}',{lenient:false,exports:['Count']});
 assert.deepEqual(count.requiredCapabilities,[]);
-assert(!WebAssembly.Module.imports(new WebAssembly.Module(count.bytes)).some(entry=>entry.name==='__malloc'));
-const countHost=createHost(),countInstance=new WebAssembly.Instance(new WebAssembly.Module(count.bytes),{env:countHost.env});
-countHost.attach(countInstance);countInstance.exports.__rt_init();assert.equal(countInstance.exports.Count(),0n);
+//A program boots only the Adam it reaches: this one reaches no file whose
+//boot allocates, and reading the counter allocates nothing.
+const countHost=createHost();let countCalls=0;
+for(const name of ['__malloc','__malloc_for','__malloc_kernel']) {
+  const alloc=countHost.env[name];countHost.env[name]=(...args)=>{countCalls++;return alloc(...args);};
+}
+const countInstance=new WebAssembly.Instance(new WebAssembly.Module(count.bytes),{env:countHost.env});
+countHost.attach(countInstance);countInstance.exports.__rt_init();assert.equal(countCalls,0,'the boot allocates nothing');
+assert.equal(countInstance.exports.Count(),0n);assert.equal(countCalls,0,'the counter read allocates nothing');
 for(const name of ['CInit','CmpFillTables'])
   assert.throws(()=>compileHolyC(name+';',{lenient:false}),/undefined symbol/);
 console.log('Lexical counter has measured complete storage; compiler graphs and CInit stay unavailable.');

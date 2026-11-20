@@ -30,13 +30,10 @@ try {
     }
   }
   const before=state();
-  for(let mode=0;mode<4;mode++) {
-    calls=0;
-    assert.equal(await host.run('CmpModeTrial',BigInt(mode)),0x65646F4D78654Cn);
-    assert.deepEqual(state(),before,'unsupported stream modes leave ownership intact');
-    assert.equal(calls,0,'unsupported mode rejected before allocation');
-  }
+  calls=0;
+  assert.equal(await host.run('CmpModeTrial'),0n);
+  assert.deepEqual(state(),before,'a prompt control frees its line with the control');
   await host.run('CmpFaultDone');
 } finally {failAt=0;await host.dispose();}
 assert.equal(live.size,0);
-console.log(count,'compiler-control/filename/snapshot/child allocation failures preserve caller buffers and stream state; unsupported prompt/document modes reject before mutation; cleanup and retry pass.');
+console.log(count,'compiler-control/filename/snapshot/child allocation failures preserve caller buffers and stream state; a prompt control starts on an empty line it frees; cleanup and retry pass.');

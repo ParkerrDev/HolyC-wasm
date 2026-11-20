@@ -2,6 +2,8 @@ import { format, readCStr, bytesToLatin1, docText } from "./console.js";
 import {fileBridge} from "./files.js";
 import {lexDiagnostics} from "./lex.js";
 import {Heap,LegacyHeap,HOST_HEAP_ABI} from "./heap.js";
+import {JitToken,Jit} from "../jit.js";
+import {ByteString} from "../encoding.js";
 export {HOST_HEAP_ABI} from "./heap.js";
 
 export function createHost(opts = {}) {
@@ -13,8 +15,6 @@ export function createHost(opts = {}) {
     snd: opts.snd || null,        // {tone(freq), note(freq,ms)}
     sleep: opts.sleep || null,    // (ms) => void  (may block via Atomics)
     yield: opts.yield || null,    // () => void
-    scanChar: opts.scanChar || (() => 0),  // () => int (nonblocking)
-    getChar: opts.getChar || (() => 0),    // (echo,scan) => int (blocking)
     timeMs: opts.timeMs || (() => Date.now()),
     dateMs: opts.dateMs || (() => Date.now()),
     clockError:null,
@@ -91,8 +91,6 @@ export function createHost(opts = {}) {
 
     __sleep(ms) { if (state.onTick) state.onTick(); if (state.sleep) state.sleep(Number(ms)); },
     __yield() { if (state.onTick) state.onTick(); if (state.yield) state.yield(); },
-    __scan_char() { if (state.onTick) state.onTick(); return BigInt(state.scanChar() | 0); },
-    __get_char(echo, scan) { if (state.onTick) state.onTick(); return BigInt(state.getChar(Number(echo), Number(scan)) | 0); },
     __ms_set(x,y,z,left,right) {opts.setMouse?.(Number(x),Number(y),Number(z),Boolean(left),Boolean(right));},
     __time_ms() { return state.timeMs(); },
     __tsc() {return -1n;},
@@ -116,11 +114,13 @@ export function createHost(opts = {}) {
       } catch(cause) {state.clockError=cause;return -1n;}
     },
     __task_require:taskRequired,
+    __rt_booted() {},
     __task_spawn:taskRequired,
     __task_kill:taskRequired,
     __task_wait:taskRequired,
     __task_break:taskRequired,
     __task_exit:taskRequired,
+    __task_user:taskRequired,
     __task_stack_fail() {throw new RangeError("HolyC task shadow stack overflow");},
     __kbd_ctrl_alt(sc,ch,inIrq) {
       if(!opts.onControlAlt) throw new Error("TempleOS Ctrl-Alt system actions require a keyboard device adapter");
@@ -142,12 +142,89 @@ export function createHost(opts = {}) {
     __fmod: (x,y) => x%y,
   };
 
+  // Code compiled while the program runs (jit.js): opts.jit is the
+  // compile's symbol table. Later program parts (__jit_rest) and text
+  // (__jit_exe) run directly here; the task host runs them as continuations.
+  const jit={tokens:[],code:[null],table:null};
+  const cstr=addr=>{
+    const bytes=u8(),at=Number(addr),end=bytes.indexOf(0,at);
+    return ByteString(bytes.subarray(at,end<0?at:end));
+  };
+  const symbols=()=>{
+    if(!opts.jit) throw new Error("Code compiled at run time needs the program's compile (createHost opts.jit)");
+    if(!jit.table){
+      jit.table=new Jit(opts.jit,{env:imports,mem:()=>state.mem,out:text=>state.out(text),
+        alloc:size=>Number(imports.__malloc_kernel(BigInt(size)))});
+      jit.table.attach(native);
+    }
+    return jit.table;
+  };
+  jit.symbols=symbols;
+  imports.__jit_tok=(token,i64,f64,str,len)=>{
+    token=Number(token);
+    const bytes=token===0x100 || token===0x101?u8().slice(Number(str),Number(str)+Number(len)):null;
+    jit.tokens.push(JitToken(token,i64,f64,bytes));
+  };
+  imports.__jit_expr=type=>{
+    const tokens=jit.tokens;
+    jit.tokens=[];
+    let code;
+    try{code=symbols().tokens(tokens);}
+    catch(error){
+      state.out(error.message+"\n");
+      return 0n;
+    }
+    if(type) new DataView(state.mem.buffer).setBigInt64(Number(type),BigInt(code.type),true);
+    jit.code.push(code.run);
+    return BigInt(jit.code.length-1);
+  };
+  imports.__jit_call=handle=>{
+    const run=jit.code[Number(handle)];
+    if(!run) throw new Error("LexExpression2Bin code was freed or never made");
+    return run();
+  };
+  imports.__jit_del=handle=>{if(handle) jit.code[Number(handle)]=null;else jit.tokens=[];};
+  //LexStmt2Bin's statement (Compiler/CMain.HC): one that only declares runs here.
+  imports.__jit_stmt=type=>{
+    const tokens=jit.tokens;
+    jit.tokens=[];
+    let code;
+    try{code=symbols().statement(tokens);}
+    catch(error){
+      state.out(error.message+"\n");
+      return 0n;
+    }
+    if(type) new DataView(state.mem.buffer).setBigInt64(Number(type),BigInt(code.type),true);
+    if(code.address!==null) return BigInt(code.address);
+    code.main();
+    return 0x7FFFFFFFFFFFFFFFn; //INVALID_PTR
+  };
+  //Without a symbol table nothing compiles later, so a define needs no copy.
+  imports.__jit_define=(name,text)=>{if(opts.jit) symbols().define(cstr(name),cstr(text));};
+  imports.__jit_rest=part=>{symbols().part(Number(part)).exports.__main();};
+  imports.__call_ext=(name,argc,argv)=>{
+    const call=opts.jit?symbols().external(cstr(name)):null;
+    if(!call) return 0n;
+    call.start?.();
+    const args=call.args(argc,argv);
+    return call.result(args,call.fn(...args));
+  };
+  imports.__jit_exe=(text,filename,res)=>{
+    const instance=symbols().text(cstr(text),filename?cstr(filename):"<exe>");
+    if(!instance) return 0n;
+    const value=instance.exports.__main();
+    if(res) new DataView(state.mem.buffer).setBigInt64(Number(res),value,true);
+    return 1n;
+  };
+
   if(heapAbi===HOST_HEAP_ABI) imports.__fs_seed=files.seed;
   if(typeof state.gfx?.palette==='function')
     imports.__gr_palette=(index,bgr48)=>state.gfx.palette(Number(index),bgr48);
-  if(state.gfx?.indices instanceof Uint8Array)
-    imports.__gr_update_mono=(...args)=>{
+  // Raw text reaches every program through PutKey; with no screen it shows
+  // nowhere, as __gr_plot draws nowhere.
+  imports.__gr_update_mono=(...args)=>{
       const [addr,stride,x,y,width,height]=args.map(Number),gfx=state.gfx;
+      if(!(gfx?.indices instanceof Uint8Array))return;
       if(args.length!==6 || ![addr,stride,x,y,width,height,gfx.width,gfx.height].every(Number.isSafeInteger) ||
           addr<0 || stride<=0 || width<0 || height<0 || gfx.width<=0 || gfx.height<=0 ||
           !Number.isSafeInteger(x+width) || !Number.isSafeInteger(y+height) ||
@@ -168,11 +245,21 @@ export function createHost(opts = {}) {
 
   return {
     env: imports,
+    heap,
+    jit,
     files:files.entries,
     attach(instance) {
       native=instance.exports;
       state.mem = instance.exports.memory;
       return state;
+    },
+    // The pointer is the mouse hardware: V5.03 MsHardSet lands its absolute
+    // state in ms_hard and WinMsUpdate carries it to ms, as the window manager does.
+    mouse(x,y,z,left,right) {
+      if(typeof native?.MsHardSet!=='function')return false;
+      native.MsHardSet(BigInt(x),BigInt(y),BigInt(z),left?1n:0n,right?1n:0n);
+      native.WinMsUpdate();
+      return true;
     },
     state,
   };

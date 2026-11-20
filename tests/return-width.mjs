@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import {compileHolyC} from '../src/compiler.js';
-import {createHost} from '../src/runtime/host.js';
+import {createTaskHost} from '../src/runtime/tasks.js';
 import {recorded} from './return-width/cases.mjs';
 for(const name of ['Returns','Context']) {
 const test=recorded(name),result=compileHolyC(test.source,{lenient:false});assert.deepEqual(result.warnings,[]);
-let out='';const host=createHost({onText:s=>out+=s});
-const instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});host.attach(instance);instance.exports.__main();
+let out='';const host=createTaskHost({onText:s=>out+=s});
+const instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});host.attach(instance);await host.run();
 const expected=test.output.split('\n').filter(line=>/^(VAL|CTX):/.test(line)),actual=out.trimEnd().split('\n');
 assert.equal(actual.length,expected.length);
 const differences=expected.flatMap((line,i)=>line===actual[i]?[]:[{native:line,wasm:actual[i]}]);

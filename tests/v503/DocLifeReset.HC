@@ -1,0 +1,250 @@
+U64 recalc_hash=0;
+I64 recalc_cnt=0;
+
+U0 RecalcMix(I64 value)
+{
+  recalc_hash=(recalc_hash^value)*1099511628211;
+}
+
+U0 RecalcBytes(U8 *ptr,I64 size)
+{
+  I64 i;
+  for (i=0;i<size;i++) RecalcMix(ptr[i]);
+}
+
+I64 RecalcIdx(CDoc *doc,CDocEntry *entry)
+{
+  CDocEntry *tmpde=doc->head.next;
+  I64 i=0;
+  if (entry==doc) return -1;
+  if (!entry) return -2;
+  while (tmpde!=doc) {
+    if (tmpde==entry) return i;
+    tmpde=tmpde->next;
+    if (++i>4096) throw('RecalcQ');
+  }
+  return -3;
+}
+
+CDoc *RecalcNew(CTask *owner=NULL)
+{
+  CDoc *doc;
+  if (!owner) owner=Fs;
+  doc=CAlloc(sizeof(CDoc),owner);
+  doc->doc_signature=DOC_SIGNATURE_VAL;
+  doc->mem_task=owner;doc->win_task=Fs;
+  StrCpy(doc->filename.name,"Layout.DD");
+  QueInit(&doc->head);QueInit(&doc->bin_head);QueInit(&doc->undo_head);
+  doc->head.type=DOCT_ERROR;
+  doc->cur_entry=doc;
+  doc->max_entries=I64_MAX;
+  doc->old_cur_col=-11;
+  doc->settings_head.page_len=66;
+  doc->settings_head.cur_text_attr=0x70;
+  doc->settings_head.dft_text_attr=0x70;
+  MemCpy(&doc->head.settings,&doc->settings_head,sizeof(CDocSettings));
+  return doc;
+}
+
+CDocEntry *RecalcEntry(CDoc *doc,I64 type,U8 *tag=NULL,I64 attr=0,
+	I64 flags=0)
+{
+  CDocEntry *entry=CAlloc(sizeof(CDocEntry),doc->mem_task);
+  entry->type=type;
+  entry->de_flags=flags;
+  entry->attr=attr;
+  if (tag) {
+    entry->tag=StrNew(tag,doc->mem_task);
+    entry->de_flags|=DOCEF_TAG;
+    entry->max_col=StrLen(tag);
+  }
+  QueIns(entry,doc->head.last);
+  return entry;
+}
+
+U0 RecalcDel(CDoc *doc)
+{
+  while (doc->head.next!=doc) DocEntryDel(doc,doc->head.next);
+  Free(doc);
+}
+
+U0 RecalcState(CDoc *doc)
+{
+  CDoc copy;
+  CDocEntry node,*entry=doc->head.next;
+  I64 size,cnt=0;
+  MemCpy(&copy,doc,sizeof(CDoc));
+  copy.head.next=RecalcIdx(doc,doc->head.next);
+  copy.head.last=RecalcIdx(doc,doc->head.last);
+  copy.cur_entry=RecalcIdx(doc,doc->cur_entry);
+  copy.old_cur_entry=RecalcIdx(doc,doc->old_cur_entry);
+  copy.win_task=doc->win_task==Fs;
+  copy.mem_task=doc->mem_task==Fs;
+  copy.owning_task=doc->owning_task==Fs;
+  copy.bin_head.next=copy.bin_head.last=NULL;
+  copy.undo_head.next=copy.undo_head.last=NULL;
+  RecalcBytes(&copy,sizeof(CDoc));
+  while (entry!=doc) {
+    if (entry->next->last!=entry || entry->last->next!=entry)
+      throw('RecalcQ');
+    size=sizeof(CDocEntryBase);
+    if (MSize(entry)>=sizeof(CDocEntry)) size=sizeof(CDocEntry);
+    MemCpy(&node,entry,size);
+    node.next=RecalcIdx(doc,entry->next);
+    node.last=RecalcIdx(doc,entry->last);
+    node.tag=NULL;
+    RecalcMix(size);RecalcBytes(&node,size);
+    if (entry->tag) {
+      RecalcMix(StrLen(entry->tag));
+      RecalcBytes(entry->tag,StrLen(entry->tag));
+    } else
+      RecalcMix(-1);
+    entry=entry->next;
+    if (++cnt>4096) throw('RecalcQ');
+  }
+  RecalcMix(cnt);
+  RecalcMix(Fs->win_left);RecalcMix(Fs->win_right);
+  RecalcMix(Fs->win_top);RecalcMix(Fs->win_bottom);
+  RecalcMix(Fs->win_width);RecalcMix(Fs->win_height);
+  recalc_cnt++;
+}
+
+U0 RecalcWindow(I64 seed)
+{
+  BreakUnlock;
+  WinBorder(OFF);
+  WinHorz(seed%3,15+seed%7);
+  WinVert(seed%2,20+seed%5);
+  Fs->scroll_x=(seed%3-1)*8;
+  Fs->scroll_y=(seed%5-2)*8;
+}
+U0 LifeState(CDoc *doc)
+{
+  CDoc copy;
+  if (doc->head.next!=doc || doc->head.last!=doc ||
+	doc->bin_head.next!=&doc->bin_head ||
+	doc->bin_head.last!=&doc->bin_head ||
+	doc->undo_head.next!=&doc->undo_head ||
+	doc->undo_head.last!=&doc->undo_head) throw('LifeQue');
+  MemCpy(&copy,doc,sizeof(CDoc));
+  copy.head.next=copy.head.last=NULL;
+  copy.head.tag=ToBool(copy.head.tag);
+  copy.cur_entry=RecalcIdx(doc,doc->cur_entry);
+  copy.old_cur_entry=RecalcIdx(doc,doc->old_cur_entry);
+  copy.dollar_buf=ToBool(copy.dollar_buf);
+  copy.find_replace=ToBool(copy.find_replace);
+  copy.win_task=ToBool(copy.win_task);
+  copy.mem_task=ToBool(copy.mem_task);
+  copy.owning_task=ToBool(copy.owning_task);
+  copy.left_click_link=ToBool(copy.left_click_link);
+  copy.right_click_link=ToBool(copy.right_click_link);
+  copy.user_put_data=ToBool(copy.user_put_data);
+  copy.parent_doc=ToBool(copy.parent_doc);
+  copy.bin_head.next=copy.bin_head.last=NULL;
+  copy.undo_head.next=copy.undo_head.last=NULL;
+  RecalcBytes(&copy,sizeof(CDoc));
+  if (doc->head.tag) RecalcBytes(doc->head.tag,StrLen(doc->head.tag));
+  if (doc->dollar_buf) RecalcBytes(doc->dollar_buf,doc->dollar_buf_size);
+  if (doc->find_replace)
+    RecalcBytes(doc->find_replace,sizeof(CEdFindText));
+  recalc_cnt++;
+}
+
+I64 LifeLink(CDoc *,CDocEntry *)
+{
+  throw('LifeCall');
+  return 0;
+}
+
+U0 LifeFill(CDoc *doc,I64 seed,Bool old)
+{
+  CDocEntry *entry;
+  CDocUndo *undo;
+  CDocBin *bin;
+  I64 i;
+  doc->flags=0x123F00|seed;
+  doc->head.tag="head";
+  doc->head.de_flags=0x12345;
+  doc->left_click_link=&LifeLink;
+  doc->right_click_link=&LifeLink;
+  doc->parent_doc=doc;
+  doc->user_put_data="user";
+  doc->user_data=seed*123;
+  doc->dollar_buf_size=84;
+  doc->dollar_buf=MAlloc(84,doc->mem_task);
+  MemSet(doc->dollar_buf,seed,84);doc->dollar_buf_ptr=33;
+  doc->find_replace=CAlloc(sizeof(CEdFindText),doc->mem_task);
+  MemSet(doc->find_replace,seed,sizeof(CEdFindText));
+  doc->cur_bin_num=42;
+  doc->settings_head.final_u32_attr=0x12345678;
+  doc->settings_head.left_margin=-123;
+  doc->settings_head.page_len=0;
+  doc->old_cur_col=seed;doc->cmd_U8=123;
+  doc->undo_head.size=999;doc->undo_head.time_stamp=888;
+  doc->bin_head.num=123;doc->bin_head.use_cnt=77;
+  if (old) {
+    bin=CAlloc(sizeof(CDocBin),doc->mem_task);
+    bin->data=MAlloc(11,doc->mem_task);bin->size=11;bin->use_cnt=2;
+    bin->tag=StrNew("shared",doc->mem_task);
+    QueIns(bin,doc->bin_head.last);
+    for (i=0;i<2;i++) {
+      entry=RecalcEntry(doc,DOCT_SPRITE,"bin",,DOCEF_HAS_BIN);
+      entry->bin_data=bin;
+      doc->cur_entry=doc->old_cur_entry=entry;
+      undo=CAlloc(sizeof(CDocUndo),doc->mem_task);
+      undo->body=MAlloc(17,doc->mem_task);undo->size=17;
+      QueIns(undo,doc->undo_head.last);doc->undo_cnt++;
+    }
+    bin=CAlloc(sizeof(CDocBin),doc->mem_task);
+    bin->data=MAlloc(9,doc->mem_task);bin->size=9;bin->use_cnt=1;
+    QueIns(bin,doc->bin_head.last);
+  }
+}
+
+Raw(OFF);
+U0 LifeReset()
+{
+  CDoc *doc,*old_put=Fs->put_doc;
+  U8 *head,*data;
+  I64 seed,old,valid,held,break_flags;
+  recalc_hash=14695981039346656037;recalc_cnt=0;
+  for (seed=0;seed<16;seed++)
+    for (old=0;old<2;old++)
+      for (valid=0;valid<2;valid++)
+	for (held=0;held<2;held++) {
+	  RecalcWindow(seed);
+	  doc=RecalcNew;
+	  LifeFill(doc,seed,old);
+	  if (!old) {
+	    doc->head.next=doc->head.last=NULL;
+	    doc->bin_head.next=doc->bin_head.last=NULL;
+	    doc->undo_head.next=doc->undo_head.last=NULL;
+	    doc->cur_entry=NULL;
+	  }
+	  if (seed&1) StrCpy(doc->filename.name,"Source.HC");
+	  if (!valid) {
+	    doc->doc_signature=0;
+	    doc->win_task=NULL;doc->max_entries=-7;
+	  }
+	  head=doc->head.tag;data=doc->user_put_data;
+	  BEqu(&Fs->task_flags,TASKf_BREAK_LOCKED,seed&4);
+	  if (held) DocLock(doc);
+	  break_flags=Bt(&Fs->task_flags,TASKf_BREAK_LOCKED);
+	  Fs->put_doc=doc;
+	  if (seed&2 && valid) DocRst(NULL,old);
+	  else DocRst(doc,old);
+	  if (head!=doc->head.tag || data!=doc->user_put_data ||
+		doc->left_click_link!=&LifeLink ||
+		doc->right_click_link!=&LifeLink) throw('LifeKeep');
+	  if (Bt(&Fs->task_flags,TASKf_BREAK_LOCKED)!=break_flags)
+	    throw('LifeLock');
+	  LifeState(doc);
+	  if (held) DocUnlock(doc);
+	  Fs->put_doc=old_put;
+	  Free(doc->dollar_buf);Free(doc->find_replace);Free(doc);BreakUnlock;
+	}
+  Fs->put_doc=NULL;DocRst(NULL,TRUE);Fs->put_doc=old_put;
+  "LifeReset:%016X:%d\n",recalc_hash,recalc_cnt;
+}
+
+LifeReset;

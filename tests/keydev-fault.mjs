@@ -4,7 +4,7 @@ import {compileHolyC} from '../src/compiler.js';
 import {createTaskHost} from '../src/runtime/tasks.js';
 import {Framebuffer} from '../src/runtime/graphics.js';
 function build(source,exports=[]) {
-  const result=compileHolyC(source,{lenient:false,runtimeProfile:'keydev',exports});
+  const result=compileHolyC(source,{lenient:false,exports});
   assert.deepEqual(result.warnings,[]);return new WebAssembly.Module(result.bytes);
 }
 function tracked(module,options={}) {
@@ -74,14 +74,18 @@ assert.equal(run.live.size,0);assert.equal(run.host.state.tasks[0].allocations,0
 const startup=build(`I64 started=0; started=1; if(keydev.put_key_head.priority || kbd.scan_code&SCF_SCROLL)throw('Sentinel');`);
 const normal=tracked(startup);await normal.host.run();const allocations=normal.calls;
 await normal.host.dispose();assert.equal(normal.live.size,0);
+let absorbed=0;
 for(let n=1;n<=allocations;n++) {
   const trial=tracked(startup);trial.arm(n);
-  try {
-    await assert.rejects(trial.host.run());
+  //The boot runs V5.03 AutoComplete's ACInit, whose ACMainFileLstTraverse catches
+  //what fails inside it, so that boot goes on.
+  if(await trial.host.run().then(()=>true,()=>false)) {absorbed++;await trial.host.dispose();}
+  else try {
     trial.arm();await assert.rejects(trial.host.run(),/fresh.*instance/);
   } finally {await assert.rejects(trial.host.dispose(),/fresh.*instance/);}
   assert.equal(trial.live.size,0,'Initialization allocation '+n);
 }
+assert(absorbed<allocations/2,'most boot allocation failures fail the boot');
 const unavailable=createTaskHost({gfx:new Framebuffer(null)});delete unavailable.env.__time_ms_checked;
 assert.throws(()=>new WebAssembly.Instance(module,{env:unavailable.env}),WebAssembly.LinkError);
-console.log(allocations,'initialization allocation failures require a fresh instance and release partial session state on disposal.');
+console.log(allocations,'initialization allocation failures ('+absorbed+' caught by ACMainFileLstTraverse) require a fresh instance and release partial session state on disposal.');

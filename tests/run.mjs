@@ -1,6 +1,7 @@
 // Compiles and runs each program in tests/v503 and compares what it prints
 // with NAME.out, the output TempleOS V5.03 gave for the same file. A program
-// with NAME.err must fail to compile, with that text in the message.
+// with NAME.err must fail to compile, with that text in the message (at run
+// time when a statement comes before it, as in V5.03).
 //   node tests/run.mjs [NAME...]
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { Worker, isMainThread, parentPort, workerData } from "node:worker_threads";
@@ -9,11 +10,15 @@ import { compileHolyC } from "../src/compiler.js";
 import { createHost } from "../src/runtime/host.js";
 import {createTaskHost} from "../src/runtime/tasks.js";
 
+const DIR = new URL("./v503/", import.meta.url).pathname;
+
 if (!isMainThread) {
   let out = "";
-  const module=new WebAssembly.Module(workerData);
-  const tasks=WebAssembly.Module.imports(module).some(entry=>entry.name==='__task_require');
-  const host = (tasks?createTaskHost:createHost)({ ansi: false, onText: (s) => { out += s; } });
+  const module=new WebAssembly.Module(workerData.bytes),imports=WebAssembly.Module.imports(module);
+  const tasks=imports.some(entry=>entry.name==='__task_require');
+  // LexExpression2Bin compiles against the program's compile, which stays here.
+  const jit=imports.some(entry=>entry.name.startsWith('__jit_'))?compile(workerData.name).jit:undefined;
+  const host = (tasks?createTaskHost:createHost)({ ansi: false, onText: (s) => { out += s; },jit });
   const instance = new WebAssembly.Instance(module,{ env: host.env });
   host.attach(instance);
   try {
@@ -24,7 +29,6 @@ if (!isMainThread) {
   process.exit(0);
 }
 
-const DIR = new URL("./v503/", import.meta.url).pathname;
 const want = new Set(process.argv.slice(2));
 const names = readdirSync(DIR).filter((f) => f.endsWith(".HC")).map((f) => f.slice(0, -3))
   .filter((n) => !want.size || want.has(n)).sort();
@@ -33,9 +37,9 @@ for (const name of want)
 if (!names.length) throw new Error("No compiler tests found");
 
 // Runs the program in a worker, so one that never ends fails after 10 s.
-function run(bytes) {
+function run(bytes,name) {
   return new Promise((done) => {
-    const w = new Worker(new URL(import.meta.url), { workerData: bytes });
+    const w = new Worker(new URL(import.meta.url), { workerData: {bytes,name} });
     const t = setTimeout(() => { w.terminate(); done("[timeout]\n"); }, 10000);
     w.on("message", (out) => { clearTimeout(t); done(out); });
     w.on("error", (e) => { clearTimeout(t); done(`[error ${e.message}]\n`); });
@@ -59,16 +63,19 @@ async function check(name) {
   if (existsSync(errFile)) {
     if (evidence.except !== "Compiler") return "native compiler did not reject this fixture";
     const msg = readFileSync(errFile, "latin1").trim();
-    try { compile(name); } catch (e) {
+    let r;
+    try { r=compile(name); } catch (e) {
       return String(e.message).includes(msg) ? null : `wrong error: ${e.message}`;
     }
+    //After a statement has run, V5.03 throws 'Compiler' where the error is.
+    if (r.compileError) return r.compileError.includes(msg) ? null : `wrong error: ${r.compileError}`;
     return `compiled, expected error: ${msg}`;
   }
   if (evidence.except || hash(readFileSync(DIR + name + ".out")) !== evidence.outputSha256)
     return "expected output changed since native oracle recording";
   let r;
   try { r = compile(name); } catch (e) { return `compile error: ${e.message}`; }
-  const got = await run(r.bytes);
+  const got = await run(r.bytes,name);
   const exp = readFileSync(DIR + name + ".out", "latin1");
   if (got === exp) return null;
   const g = got.split("\n"), x = exp.split("\n");

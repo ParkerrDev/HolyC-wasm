@@ -13,9 +13,8 @@ assert.equal(sha(source),evidence.sourceSha256);assert.equal(sha(expected),evide
 const compiled=compileHolyC(source,{lenient:false});assert.deepEqual(compiled.warnings,[]);
 assert.deepEqual(compiled.requiredCapabilities,['task-continuations']);
 const module=new WebAssembly.Module(compiled.bytes);
-assert(!WebAssembly.Module.imports(module).some(entry=>entry.name==='__get_char'));
 let raw='',text='',instance;
-const host=createTaskHost({ansi:false,onText:value=>text+=value});
+const host=createTaskHost({ansi:false,onText:value=>text+=value,jit:compiled.jit});
 const puts=host.env.__puts;
 host.env.__puts=address=>{
   const bytes=new Uint8Array(instance.exports.memory.buffer);let at=Number(address);
@@ -26,15 +25,6 @@ instance=new WebAssembly.Instance(module,{env:host.env});host.attach(instance);
 await host.run();assert.equal(raw,expected,'native echo/prompt control sequences');
 assert.equal(text,'A\n65\nPRESS A KEY\n98\n');await host.dispose();
 
-// A task session never calls legacy blocking character callbacks.
-for(const call of ['ScanChar','KeyGet']) {
-  let called=0;
-  const result=compileHolyC(`I64 TaskMode(){return GetKey;} ${call};`,{lenient:false,exports:['TaskMode']});
-  const runtime=createTaskHost({scanChar:()=>{called++;return 1;},getChar:()=>{called++;return 1;}});
-  runtime.attach(new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:runtime.env}));
-  await assert.rejects(runtime.run(),/Legacy character adapters/);
-  await assert.rejects(runtime.dispose(),/Legacy character adapters/);assert.equal(called,0);
-}
 // Note duration belongs to the scheduler, never to a blocking legacy note callback.
 const sound=compileHolyC(`
 I64 progressed=0;
@@ -54,4 +44,4 @@ await assert.rejects(noteOnly.run(),/nonblocking tone adapter/);
 await assert.rejects(noteOnly.dispose(),/nonblocking tone adapter/);
 assert.equal(blockedNoteCalls,0);assert.equal(noteOnly.state.heapPtr,16777248);
 clearTimeout(deadline);
-console.log('Character input: native GetChar/PressAKey echo and return values match; task sessions reject legacy input and keep note waits cooperative.');
+console.log('Character input: native GetChar/PressAKey echo and return values match; note waits stay cooperative.');

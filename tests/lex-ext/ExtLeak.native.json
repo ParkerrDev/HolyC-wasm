@@ -15,12 +15,12 @@
     "accelerator": "kvm",
     "version": "QEMU emulator version 11.1.2"
   },
-  "evidence": "tests/.oracle/qemu-99jqblpk",
+  "evidence": "tests/.oracle/qemu-zgqme9gw",
   "sourceSha256": "086fa30bdf019830439aa4cc64e5284744cb967203a88d69026241a72b9fe1f3",
-  "librarySha256": "3e2f6da865e0bb15c90c7b6972f45ccbc634fa4f12940af58d333415ed1208d5",
+  "librarySha256": "e36e58fc48db358f6c3e7835fc7a031e04aaf8d1e7be3f58594a06b42ece2578",
   "inputSha256": [
     "086fa30bdf019830439aa4cc64e5284744cb967203a88d69026241a72b9fe1f3",
-    "58ba70e5f4d0beaf9c8507f64647243a1e170c1524b98c21a80019808b228a01"
+    "ce7f5a43c16d3bdbc19a4f3f08cccf8567055bc44fc9555dd664c021622aae6a"
   ],
   "captureSha256": "baa39e21c404a0da05762f7630e2c10b3c52e7e16d305546b306254c35056317",
   "results": [

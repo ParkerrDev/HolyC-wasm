@@ -3,7 +3,7 @@ import {readFileSync,writeFileSync} from "node:fs";
 import {createHash} from "node:crypto";
 import {pathToFileURL} from "node:url";
 import {compileHolyC} from "../../../../src/compiler.js";
-import {createHost} from "../../../../src/runtime/host.js";
+import {createTaskHost} from "../../../../src/runtime/tasks.js";
 import {hemuFile} from "../Compile.js";
 
 const native=process.argv.includes("--record"),
@@ -29,8 +29,10 @@ let output="";
 const compiled=compileHolyC(probe.toString("latin1"),{filename:"FpuNative.HC",lenient:false,
   includeResolver:name=>name==="Fpu"?source:null});
 assert.deepEqual(compiled.warnings,[]);
-const host=createHost({onText:text=>output+=text}),
+//Every program is a task (G5): its output reads kbd.scan_code, as V5.03's PutS.
+const host=createTaskHost({jit:compiled.jit,ansi:false,onText:text=>output+=text}),
   {instance}=await WebAssembly.instantiate(compiled.bytes,{env:host.env});
-host.attach(instance);instance.exports.__rt_init();instance.exports.__main();
+host.attach(instance);
+try {await host.run();} finally {await host.dispose();}
 assert.equal(output,expected.out);
 console.log("484 FPU module outputs match original V5.03 compilation: bit casts, sign operations, arithmetic, rounding, stores, constants and polar angle.");

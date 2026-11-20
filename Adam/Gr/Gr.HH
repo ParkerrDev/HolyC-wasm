@@ -34,7 +34,16 @@
 #define DCF_FILL_NOT_COLOR 0x8000
 #define DCF_RECORD_EXTENTS 0x10000
 #define DCF_ON_TOP 0x20000
+#define DCSF_COMPRESSED		1
+#define DCSF_PALETTE_GET	2
+
 #define DCS_SIGNATURE_VAL 'DvCS'
+
+//z-vals less than zero are in front of scrn and not drawn.
+//we want to shift all Z-vals into a drawable range.
+//GR_Z_ALL is set to half of the Z-range which is an I32.
+#define GR_Z_ALL	(I32_MAX/2)
+
 #define GR_SCALE (1<<32)
 #define CC_LEFT 1
 #define CC_RIGHT 2
@@ -46,6 +55,14 @@ public I64 class CDate
 {
   U32	time;
   I32	date;
+};
+
+#help_index "Date;Date/CDate"
+public class CDateStruct
+{
+  U8	sec10000,sec100,sec,min,hour,
+	day_of_week,day_of_mon,mon;
+  I32	year;
 };
 
 class CGrSym

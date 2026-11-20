@@ -9,12 +9,15 @@ export const base=read('DefineChk.HC').replace(/\nDefineChk;\s*$/,'\n');
 const nativeMeta=read('MetaNative.HC'),hostMeta=read('MetaHost.HC');
 const symbols=/\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b(DefineLoad|DefineLstLoad|UndefinedDefine|Define|DefineSub|DefineCnt|DefineMatch|DefinePrint|HashDefineLstAdd)\b/g;
 const rename=source=>source.replace(symbols,(text,name)=>name?name+'Host':text);
+//DefineLoad tells the jit of a new define (__jit_define); V5.03's compiler
+//finds it in Fs->hash_table itself, so the native input's hook does nothing.
+const jitDefine='U0 __jit_define(U8 *,U8 *) {}\n';
 assert.equal(rename('// caller\'s DefineLoad\nDefineLoad("Define",\'D\');'),
   '// caller\'s DefineLoad\nDefineLoadHost("Define",\'D\');');
 export function fixture(name) {
   const source=read(name+'.HC'),prefix=name==='DefineChk'?'':base;
   const wasmSource=hostMeta+prefix+source;
-  const inputs=[nativeMeta+prefix+source,rename(DEFINE_SRC+hostMeta+prefix+source)].map(text=>Buffer.from(text,'latin1'));
+  const inputs=[nativeMeta+prefix+source,jitDefine+rename(DEFINE_SRC+hostMeta+prefix+source)].map(text=>Buffer.from(text,'latin1'));
   const identity={sourceSha256:hash(Buffer.from(source,'latin1')),prefixSha256:hash(Buffer.from(prefix,'latin1')),
     nativeMetadataCheck:nativeMeta,hostMetadataCheck:hostMeta,librarySha256:hash(Buffer.from(DEFINE_SRC,'latin1')),
     wasmSourceSha256:hash(Buffer.from(wasmSource,'latin1')),inputSha256:inputs.map(hash),

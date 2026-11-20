@@ -107,35 +107,15 @@ I64 CmpTaskTrial()
   return cmp_fault_child_error;
 }
 
-I64 CmpModeTrial(I64 mode)
-{
-  CLexFile *tmpf=cmp_fault_cc->lex_include_stk;
-  I64 error=0;
-  if (mode) tmpf->flags=LFSF_DOC;
-  try {
-    switch (mode) {
-      case 0:
-	CmpCtrlNew("borrowed",CCF_PMT|CCF_DONT_FREE_BUF);
-	break;
-      case 1:
-	LexFilePop(cmp_fault_cc);
-	break;
-      case 2:
-	CmpCtrlDel(cmp_fault_cc);
-	break;
-      case 3:
-	CmpCtrlSize(cmp_fault_cc);
-	break;
-    }
-  } catch {
-    error=Fs->except_ch;
-    Fs->catch_except=TRUE;
-  }
-  if (cmp_fault_cc->lex_include_stk!=tmpf ||
-	StrCmp(tmpf->buf,"borrowed"))
+I64 CmpModeTrial()
+{//V5.03: a prompt control starts on an empty 8-byte line that CmpCtrlDel frees.
+  CCmpCtrl *cc=CmpCtrlNew(,CCF_PMT);
+  CLexFile *tmpf=cc->lex_include_stk;
+  if (!tmpf->buf || *tmpf->buf || MSize(tmpf->buf)<8 ||
+	cc->cur_buf_ptr!=tmpf->buf || tmpf->line_start!=tmpf->buf)
     throw('CmpState');
-  tmpf->flags=0;
-  return error;
+  CmpCtrlDel(cc);
+  return 0;
 }
 
 U0 CmpFaultDone()

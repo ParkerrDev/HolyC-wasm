@@ -5,15 +5,9 @@ I64 Lex(CCmpCtrl *cc)
   CHash *tmph;
   Bool str_done,neg_e;
   U8 *buf2=NULL,*buf3=NULL,buf[STR_LEN];
-  CLexFile *tmpf;
   if (!cc) LexHostFail(NULL,"Missing compiler control",'LexState');
-  if (cc->flags&CCF_PMT)
-    LexHostFail(cc,"Interactive input requires native execution",'LexCaps');
   if (!cc->lex_include_stk)
     LexHostFail(cc,"Missing source stream",'LexState');
-  for (tmpf=cc->lex_include_stk;tmpf;tmpf=tmpf->next)
-    if (tmpf->flags&LFSF_DOC)
-      LexHostFail(cc,"Document input requires native execution",'LexCaps');
   try {
     cc->last_line_num=cc->lex_include_stk->line_num;
     while (TRUE) {
@@ -263,8 +257,34 @@ lex_float_start:
 	    cc->token=ch;
 	    goto lex_end;
 	  }
-	  LexHostFail(cc,"Compiler directives require native execution",
-		'LexCaps');
+	  if (Lex(cc)!=TK_IDENT)	//skip '#'
+	    goto lex_end;
+	  if (!(tmph=cc->hash_entry))
+	    goto lex_end;
+	  if (!(tmph->type & HTT_KEYWORD))
+	    goto lex_end;
+	  switch (i=tmph(CHashGeneric *)->user_data0) {
+	    case KW_INCLUDE:
+	      if (Lex(cc)!=TK_STR)
+		goto lex_end;
+	      buf3=ExtDft(cc->cur_str,"HC.Z");
+	      buf2=FileNameAbs(buf3);
+	      Free(buf3);
+	      buf3=NULL;
+	      if (Bt(&sys_run_level,RLf_DOC))
+		LexAttachDoc(cc,,,buf2);
+	      else
+		LexIncludeStr(cc,buf2,FileRead(buf2),TRUE);
+	      Free(buf2);
+	      buf2=NULL;
+	      break;
+//Back with the compiler's directives (A): V5.03 Lex.HC:712-1000, #define,
+//#if, #ifdef, #ifndef, #ifaot, #ifjit, #else, #endif, #assert, #exe and
+//#help_index, #help_file.
+	    default:
+	      LexHostFail(cc,"Compiler directives require native execution",
+		    'LexCaps');
+	  }
 	  break;
 	case '\n':
 	  if (!(cc->flags&CCF_KEEP_NEW_LINES))

@@ -33,10 +33,10 @@ assert.equal(old.env.__msize2(0n),0n);
 assert.throws(()=>old.env.__msize2(old.env.__malloc(8n)),/legacy bump-heap/);
 const fixture=native('v503/AllocIdent');let text='';
 const compiled=compileHolyC(fixture.source,{lenient:false});assert.deepEqual(compiled.warnings,[]);
-const host=createHost({ansi:false,onText:value=>text+=value});
+const host=createTaskHost({ansi:false,onText:value=>text+=value,jit:compiled.jit});
 const instance=new WebAssembly.Instance(new WebAssembly.Module(compiled.bytes),{env:host.env});host.attach(instance);
-instance.exports.__main();assert.equal(text,fixture.output);
-assert.equal(host.state.heapPtr,16777248);
+await host.run();assert.equal(text,fixture.output);
+assert.equal(host.state.heapPtr,host.state.boot.heapPtr);
 
 const owned=native('v503/AllocIdentTask');
 const result=compileHolyC(owned.source,{lenient:false,exports:['AllocIdentTask']});assert.deepEqual(result.warnings,[]);
@@ -48,7 +48,7 @@ for(const name of ['__malloc','__malloc_for','__malloc_kernel']) {
 inst=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:runtime.env});runtime.attach(inst);
 for(let trial=0;trial<30;trial++) for(let mode=0;mode<3;mode++) for(fail of [false,true,false]) {
   assert.equal(await runtime.run('AllocIdentTask',BigInt(mode)),fail?0x6D654D74754Fn:0n);
-  assert.equal(inst.exports.__sp.value,16777216n);assert.equal(runtime.state.heapPtr,16777248);
+  assert.equal(inst.exports.__sp.value,16777216n);assert.equal(runtime.state.heapPtr,runtime.state.boot.heapPtr);
   assert.deepEqual(runtime.state.tasks.map(t=>[t.status,t.allocations]),[['dead',0]]);
 }
 await runtime.dispose();clearTimeout(deadline);

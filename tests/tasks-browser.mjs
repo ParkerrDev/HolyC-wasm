@@ -5,7 +5,6 @@ import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {recorded as keydevRecorded} from './keydev/cases.mjs';
 import {recorded as hashRecorded} from './hash/cases.mjs';
-import {recorded as docRecorded} from './doc-entry/cases.mjs';
 import {recorded as defineRecorded} from './define/cases.mjs';
 import {recorded as cmpRecorded} from './cmp-control/cases.mjs';
 import {recorded as memberRecorded} from './member/cases.mjs';
@@ -51,15 +50,17 @@ try {
     const {compileHolyC}=await import('/src/compiler.js');
     const {createTaskHost,taskSupport}=await import('/src/runtime/tasks.js');
     if(!taskSupport()) throw new Error('This browser lacks JSPI task continuations');
+    //GetKey reaches V5.03's JobsHndlr and ExePrint (ScanMsg), so a program with it
+    //compiles at run time and its host gets the compile, as the site's worker's does.
     const results=[];
     for(const fixture of fixtures) {
       let output='';const result=compileHolyC(fixture.source,{lenient:false});
-      const host=createTaskHost({ansi:false,onText:text=>output+=text});
+      const host=createTaskHost({jit:result.jit,ansi:false,onText:text=>output+=text});
       const instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});
       host.attach(instance);
       await host.run();
       const row={name:fixture.name,match:output===fixture.expected,output,tasks:host.state.tasks.length,
-        allocations:host.state.tasks[0].allocations};
+        allocations:host.state.tasks[0].allocations,boot:host.state.boot.allocations};
       await host.dispose();row.disposedAllocations=host.state.tasks[0].allocations;results.push(row);
     }
     return results;
@@ -67,8 +68,11 @@ try {
   for(const result of results) {
     assert(result.match,result.name+': '+result.output);
     assert.equal(result.tasks,1);
-    if(['CmpTask','LexTask','QueVectorTask','CmpTableTask'].includes(result.name))assert(result.allocations>2,'native directory/hash state remains session-owned');
-    else assert.equal(result.allocations,['HashTask','DefineTask'].includes(result.name)?2:0);
+    //What Adam's boot made (the volume, the compiler's directory and hash
+    //tables) is the boot's, as in V5.03, so a session holds only its own.
+    assert.equal(result.allocations,0);
+    if(['CmpTask','LexTask','QueVectorTask','CmpTableTask'].includes(result.name))
+      assert(result.boot>results[0].boot,result.name+': native directory/hash state is the boot\'s');
     assert.equal(result.disposedAllocations,0);
   }
   const volumes=await Promise.all(['DirectoryTask','FileTask'].map(async name=>({name,
@@ -80,7 +84,7 @@ try {
     const {createTaskHost}=await import('/src/runtime/tasks.js');
     const result=compileHolyC(fixture.source+' "VOLUME_WAIT\\n"; GetKey;',{lenient:false});
     let output='',ready;
-    const host=createTaskHost({files:[{path:new Uint8Array([67,58,47,255]),bytes:new Uint8Array([0,255,10])}],
+    const host=createTaskHost({jit:result.jit,files:[{path:new Uint8Array([67,58,47,255]),bytes:new Uint8Array([0,255,10])}],
       ansi:false,onText:text=>{output+=text;if(output.endsWith('VOLUME_WAIT\n'))ready();}});
     host.attach(new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env}));
     const rows=[];
@@ -100,15 +104,15 @@ try {
   },directory);
   assert.deepEqual(volume,{rows:[{match:true,bytes:[0,255,10]},{match:true,bytes:[0,255,10]}],allocations:0});
   }
-  for(const fixture of [keydevRecorded('KeyScroll'),docRecorded('DocEntryTask'),lexRecorded('LexEcho')]) {
+  for(const fixture of [keydevRecorded('KeyScroll'),lexRecorded('LexEcho')]) {
   const keydev=await page.evaluate(async fixture=>{
     const {compileHolyC}=await import('/src/compiler.js');
     const {createTaskHost}=await import('/src/runtime/tasks.js');
     const {Framebuffer}=await import('/src/runtime/graphics.js');
     let output='';
-    const result=compileHolyC(fixture.source,{lenient:false,runtimeProfile:'keydev'});
+    const result=compileHolyC(fixture.source,{lenient:false});
     if(result.warnings.length)throw new Error(result.warnings.join('\n'));
-    const host=createTaskHost({gfx:new Framebuffer(null),ansi:false,onText:text=>output+=text});
+    const host=createTaskHost({jit:result.jit,gfx:new Framebuffer(null),ansi:false,onText:text=>output+=text});
     host.attach(new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env}));
     await host.run();const heap=host.state.heapPtr,first=output;
     output='';await host.run();
@@ -126,9 +130,9 @@ try {
     const canvas=document.createElement('canvas');canvas.width=640;canvas.height=480;
     document.body.append(canvas);const gfx=new Framebuffer(canvas.getContext('2d'));
     const result=compileHolyC('I64 stage=0; I64 Stage(){return stage;} RawPrint(8,"A"); stage=1; GetKey; Raw(OFF); "DONE";',
-      {lenient:false,runtimeProfile:'keydev',exports:['Stage']});
+      {lenient:false,exports:['Stage']});
     window.rawOutput='';
-    const host=createTaskHost({gfx,ansi:false,timeMs:()=>performance.now(),
+    const host=createTaskHost({jit:result.jit,gfx,ansi:false,timeMs:()=>performance.now(),
       onTick:()=>gfx.present(),onText:text=>window.rawOutput+=text});
     const instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});host.attach(instance);
     window.rawInstance=instance;window.rawHost=host;window.rawRun=host.run();window.rawCanvas=canvas;
@@ -149,7 +153,7 @@ try {
     const {KEY,KeyBytes}=await import('/site/Keyboard.js');
     const result=compileHolyC('while(TRUE) {I64 ch=GetKey; "%d\\n",ch;}',{lenient:false});
     window.keyOutput='';
-    const host=createTaskHost({ansi:false,onText:text=>window.keyOutput+=text});
+    const host=createTaskHost({jit:result.jit,ansi:false,onText:text=>window.keyOutput+=text});
     host.attach(new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env}));
     window.keyHost=host;window.keyRun=host.run();
     for(const type of ['keydown','keyup']) addEventListener(type,event=>{

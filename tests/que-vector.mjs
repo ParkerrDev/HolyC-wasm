@@ -20,8 +20,10 @@ for(const name of cases) {
       assert.equal(output,test.output,name);
       if(heap===null){heap=host.state.heapPtr;count=live.size;}
       else {assert.equal(host.state.heapPtr,heap,name);assert.equal(live.size,count,name);}
-      if(name==='QueVector')assert.equal(live.size,0,'Pure queue vectors need no session directory/hash allocations.');
-      else assert(live.size>2,name+': session directory/hash state remains owned');
+      //What the instance's boot keeps (Adam's directory and hash table) is not the session's.
+      const session=live.size-(tasks?host.state.boot.allocations:0);
+      if(name==='QueVector')assert.equal(session,0,'Pure queue vectors need no session directory/hash allocations.');
+      else assert(live.size>2,name+': directory/hash state remains owned');
       if(tasks)assert.equal(host.state.tasks.length,1);
     }
   } finally {

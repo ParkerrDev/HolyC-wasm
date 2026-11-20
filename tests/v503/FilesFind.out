@@ -1,0 +1,22 @@
+110101
+101010
+Make Directory:~/FF
+Make Directory:~/FF/Sub
+5
+. 10 0 C:/Home/FF/.
+.. 10 0 C:/Home/FF/..
+Sub 10 0 C:/Home/FF/Sub
+Ant.DD 0 4 C:/Home/FF/Ant.DD
+Bee.TXT 0 3 C:/Home/FF/Bee.TXT
+Sub 10 512 C:/Home/FF/Sub
+  Cat.DD 0 5 C:/Home/FF/Sub/Cat.DD
+Ant.DD 0 4 C:/Home/FF/Ant.DD
+Cat.DD 0 5 C:/Home/FF/Sub/Cat.DD
+Dog.HC 0 6 C:/Home/FF/Sub/Dog.HC
+Ant.DD 0 4 C:/Home/FF/Ant.DD
+Bee.TXT 0 3 C:/Home/FF/Bee.TXT
+Sub 10 512 C:/Home/FF/Sub
+Sub 10 512 C:/Home/FF/Sub
+Dog.HC 0 6 C:/Home/FF/Sub/Dog.HC
+Sub 10 0 C:/Home/FF/Sub
+0 C:/Home

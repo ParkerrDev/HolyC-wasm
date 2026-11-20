@@ -15,16 +15,16 @@
     "accelerator": "kvm",
     "version": "QEMU emulator version 11.1.2"
   },
-  "evidence": "tests/.oracle/qemu-2df3tcf1",
+  "evidence": "tests/.oracle/qemu-_14tv82v",
   "sourceSha256": "9ce824248031b22c5da5215b7c9c45c590d77fed4a2d8406bbe0f14186813307",
   "prefixSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   "nativeMetadataCheck": "U0 DefineMetaChk(CHashDefineStr *entry)\n{\n  U8 *ptr=entry->src_link;\n  if (!ptr || ptr[0]!='A' || ptr[1]!='D' || ptr[2]!=':' ||\n\tptr[3]!='0' || ptr[4]!='x' || !ptr[5]) throw('DefMeta');\n  ptr+=5;\n  while (*ptr) {\n    if (!('0'<=*ptr<='9' || 'A'<=*ptr<='F')) throw('DefMeta');\n    ptr++;\n  }\n}\n",
   "hostMetadataCheck": "U0 DefineMetaChk(CHashDefineStr *entry)\n{\n  if (entry->src_link) throw('DefMeta');\n}\n",
-  "librarySha256": "c227b2f9fb4b5e40a07ad1f019350b9e1a9e38ce63c8ffde89f6dfd7df6e30b5",
+  "librarySha256": "7a3702e17933c2844ee461bdb58d9558b43765518fa50e1c068bd6a654fc1be6",
   "wasmSourceSha256": "8e52efcd0437b657c9485fbecc3b710424b8582f5e2564e1d3b3358a20dfd934",
   "inputSha256": [
     "20750bd0e51bbe5a1b99fbc31852cbfbd086f51b13a85b80db131cdb6de8479b",
-    "1788388657978f241e8b8183b99fb8e60146d27382e5958c681b81695ee6ed08"
+    "fa23c4a4e61cefec4d3e36186182defee5dfa76e8a2bdee82f763d180f3796eb"
   ],
   "captureSha256": "baa39e21c404a0da05762f7630e2c10b3c52e7e16d305546b306254c35056317",
   "results": [

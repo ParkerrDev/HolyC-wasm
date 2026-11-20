@@ -3,7 +3,7 @@ import {readFileSync,writeFileSync} from "node:fs";
 import {createHash} from "node:crypto";
 import {pathToFileURL} from "node:url";
 import {compileHolyC} from "../../../../src/compiler.js";
-import {createHost} from "../../../../src/runtime/host.js";
+import {createTaskHost} from "../../../../src/runtime/tasks.js";
 import {hemuFile} from "../Compile.js";
 
 const probe=readFileSync(new URL("./MemNative.HC",import.meta.url)),source=hemuFile("Mem.HC"),
@@ -29,9 +29,11 @@ assert.equal(hash(Buffer.from(source,"latin1")),expected.sourceHash,"regenerate 
 const compiled=compileHolyC(probe.toString("latin1"),{filename:"MemNative.HC",lenient:false,
   includeResolver:name=>name==="Mem"?source:null});
 assert.deepEqual(compiled.warnings,[]);
+//Every program is a task (G5): its output reads kbd.scan_code, as V5.03's PutS.
 let output="";
-const host=createHost({onText:text=>output+=text}),
+const host=createTaskHost({jit:compiled.jit,ansi:false,onText:text=>output+=text}),
   {instance}=await WebAssembly.instantiate(compiled.bytes,{env:host.env});
-host.attach(instance);instance.exports.__rt_init();instance.exports.__main();
+host.attach(instance);
+try {await host.run();} finally {await host.dispose();}
 assert.equal(output,expected.out);
 console.log("324 memory/module outputs match native V5.03: unaligned widths, RAM aliases, boundary padding, saved-device offsets and IPI destinations.");

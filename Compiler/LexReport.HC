@@ -1,9 +1,4 @@
 
-U32 char_bmp_displayable[16]=
-  {0x80000000,0xFFFFFFFF,0xFFFFFFFF,0x7FFFFFFF,
-  0xFFFFFFFF,0xFFFFFFFF,0xFFFFFFFF,0xFFFFFFFF,
-  0,0,0,0,0,0,0,0};
-
 U0 LexPutToken(CCmpCtrl *cc)
 {//Print cur token to StdOut. (Crude)
   '"';
@@ -38,4 +33,10 @@ U0 LexPutLine(CCmpCtrl *cc,U8 *start)
     '' ch;
   }
   '\n';
+}
+
+U0 LexExcept(CCmpCtrl *cc,U8 *str=NULL)
+{//Print err msg, $LK,"LexPutPos",A="MN:LexPutPos"$() and throw exception.
+//The browser has no Adam or debugger: $LK,"LexHostFail",A="MN:LexHostFail"$ reports and throws.
+  LexHostFail(cc,str);
 }

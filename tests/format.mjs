@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {compileHolyC} from "../src/compiler.js";
-import {createHost} from "../src/runtime/host.js";
+import {createTaskHost} from "../src/runtime/tasks.js";
 
 const source=`U8 text[3001];
 I64 format_error=0;
@@ -50,10 +50,10 @@ I64 DrawFail()
 const compiled=compileHolyC(source,{lenient:false,
   exports:["Build","Error","Unsupported","DrawFail","Free","MAlloc","MSize","StrLen"]});
 let calls=0,failAt=0;
-const host=createHost({onText:()=>{}}),malloc=host.env.__malloc;
+const host=createTaskHost({onText:()=>{}}),malloc=host.env.__malloc;
 host.env.__malloc=size=>++calls===failAt?0n:malloc(size);
 const {instance}=await WebAssembly.instantiate(compiled.bytes,{env:host.env});
-const fn=instance.exports;host.attach(instance);fn.__rt_init();
+const fn=instance.exports;host.attach(instance);await host.run();calls=0;
 let ptr=fn.Build();assert.notEqual(ptr,0n);assert.equal(fn.StrLen(ptr),9007n);
 const allocations=calls;fn.Free(ptr);
 const heap=host.state.heapPtr,stack=fn.__sp.value;
@@ -70,7 +70,7 @@ for (let i=1;i<=allocations;i++) {
 assert.equal(fn.DrawFail(),0x6C69614677617244n);
 assert.equal(host.state.heapPtr,heap,"failed drawing must free its formatted text");
 assert.equal(fn.__sp.value,stack);
-for (const format of ["%F","%D","%T","%S","%Z","%p","%P"]) {
+for (const format of ["%F","%D","%T","%p","%P"]) {
   ptr=fn.MAlloc(8n,0n);
   new Uint8Array(fn.memory.buffer,Number(ptr),3).set([37,format.charCodeAt(1),0]);
   assert.equal(fn.Unsupported(ptr),0x74736F48746D46n,`${format} must report missing OS services`);

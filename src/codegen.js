@@ -25,6 +25,7 @@ import {
 import { foldConstInt, foldDim } from "./fold.js";
 import { usesGoto, Gotos } from "./goto.js";
 import {nativeRegisters} from "./local-storage.js";
+import {Names,StrWords,Walk} from "./names.js";
 // A product rounds to x87's 64-bit significand before native FISTTP.
 export const FLOAT_MUL_I64="#mul-f64-i64";
 
@@ -35,6 +36,14 @@ export class CodegenError extends Error {}
 
 export function compile(programAst, opts = {}) {
   return new Codegen(programAst, opts).run();
+}
+
+// Code compiled while the program runs (src/jit.js), as V5.03 compiles each
+// top-level statement after the one before it has run: a later part of the
+// program, text from ExePutS, or one expression. jit is the program's symbol
+// table so far (Jit in jit.js); program holds the part's own decls and items.
+export function compileJit(program, jit, expr=null) {
+  return new Codegen(program,{lenient:false,jit}).runSegment(expr);
 }
 
 class Codegen {
@@ -52,7 +61,7 @@ class Codegen {
     this.opts={...opts,runtimeInitializers:opts.runtimeInitializers?.map(bind),
       runtimeInterfaces:opts.runtimeInterfaces?.map(bind)};
     this.runtimeAddresses=new Map((opts.runtimeAddresses||[])
-      .map(({name,storage})=>[binding(name),binding(storage)]));
+      .map(({name,storage,offset})=>[binding(name),{storage:binding(storage),offset}]));
     this.m = new Module();
     this.classes = new Map();   // name -> ClassDecl node
     this.classLayouts = new Map(); // name -> {size, align, fields:Map}
@@ -74,6 +83,8 @@ class Codegen {
     // documented no-ops. Strict tests pass {lenient:false} to surface real bugs.
     this.lenient = opts.lenient !== false;
     this.unknownSyms = new Set();
+    this.jit=opts.jit??null;
+    this.forwardStubs=new Set();
   }
 
   warn(msg) { this.warnings.push(msg); }
@@ -90,6 +101,7 @@ class Codegen {
   errAt(node, msg) { throw new CodegenError(`line ${node && node.line}: ${msg}`); }
 
   alloc(size, align = 8) {
+    if (this.jit) return this.jit.alloc(size,align);
     if (!Number.isFinite(size)) { if (this.lenient) { this.warn("non-finite alloc size; using 8"); size = 8; } else throw new CodegenError("non-finite alloc size " + size); }
     if (!Number.isFinite(align) || align < 1) align = 8;
     this.cursor = align8(this.cursor, align);
@@ -103,7 +115,7 @@ class Codegen {
       const data=this.literals.get(node);data.owners.add(owner);return data;
     }
     const bytes = node.kind === "BinLit" ? node.bytes : [...node.bytes, 0];
-    const data={bytes,owners:new Set([owner])};
+    const data={bytes,owners:new Set([owner]),str:node.kind==="StrLit"};
     this.data.push(data);
     this.literals.set(node,data);
     return data;
@@ -144,24 +156,57 @@ class Codegen {
     // reserve __rt_init and __main
     this.rtInit = this.m.func([], []);
     this.mainFn = this.m.func([], []);
+    this.boot=[];this.unresolved=new Map();
 
     // PASS 2: generate bodies
     for (const fn of this.functions.values()) {
       if (fn.isImport || fn.isAlias) continue;
-      if (fn.node && fn.node.body) { this.genFunctionBody(fn); continue; }
+      if (fn.node && fn.node.body) {
+        this.adam(fn.node,fn.index,()=>this.genFunctionBody(fn),()=>fn.slot.setBody([],new Func().unreachable()));
+        continue;
+      }
       //Unused prototypes reserve a slot; strict references to them are errors.
       if (fn.slot) this.genStubBody(fn);
     }
     const initContext=this.genGlobalInitializers();
     this.genMain();
-    const linked=this.reachable();
+    // Code compiled at run time names the program's functions as V5.03's
+    // symbol table holds them: the later parts' names, every function of the
+    // program's own files and the names in its strings stay linked. Text is
+    // compiled only when the program's own code reaches the compiler: what the
+    // host may call (a task's Break, say) runs only the jobs the program made.
+    const own=this.reachable({own:true});
+    const later=this.opts.jitMain,compiles=["__jit_exe","__jit_expr","__jit_rest","__call_ext"]
+      .some(name=>own.functions.has(this.imports[name]?.index));
+    let linked=this.reachable();
+    if (compiles) {
+      const user=this.program.items.filter(item=>item.filename!=="<prelude>");
+      //FileRead is how V5.03's Lex reads an #include (Compiler/Lex.HC:707).
+      const words=new Set([...later?.names??[],...StrWords(user),
+        "Print","PutChars","FileRead",FLOAT_MUL_I64]);
+      for (const fn of this.functions.values())
+        if (fn.node?.filename && fn.node.filename!=="<prelude>") words.add(fn.name);
+      this.jitExports=[...words].filter(name=>this.functions.get(name)?.slot &&
+        !this.unresolved.has(this.functions.get(name).index));
+      linked=this.reachable({strings:true});
+      this.jitExports.push(...linked.named);
+    }
+    for (const [key,error] of this.unresolved)
+      if (linked.functions.has(key) || linked.globals.has(key)) throw error;
     this.genRtInit(initContext,linked);
 
-    if (this.functionAddresses.size) {
+    if (this.functionAddresses.size || compiles) {
       this.m.setTable(this.functionAddresses.size+1);
       for (const [index,address] of this.functionAddresses)
-        if (linked.functions.has(index)) this.m.addElement(address,[index]);
+        if (linked.functions.has(index) && !this.forwardStubs.has(index)) {
+          const entry=this.tableEntry(index);
+          linked.functions.add(entry);this.m.addElement(address,[entry]);
+        }
       this.m.exportTable("__functions");
+    }
+    if (compiles) {
+      this.exceptionTag();
+      this.m.exportGlobal("__exception",this.excGlobal);
     }
 
     // Strictly validate every body before assigning storage to live literals.
@@ -173,6 +218,7 @@ class Codegen {
       }
     for (const index of linked.functions)
       this.m.funcs[index-this.m.importFuncs.length]?.body.resolveDataAddresses();
+    this.rootStk(linked);
 
     // exports
     this.m.exportMemory("memory");
@@ -183,7 +229,7 @@ class Codegen {
     // functions the host calls back into (a runtime JIT's memory/step hooks, guest-execution entry points,
     // test probes): named by the caller via opts.exports - the compiler has no built-in list.
     const published=new Map();
-    for (const nm of new Set([...(this.opts.exports || []),...linked.exports])) {
+    for (const nm of new Set([...(this.opts.exports || []),...linked.exports,...this.jitExports??[]])) {
       const fn = this.functions.get(nm);
       if (fn && fn.slot) {
         if (!this.lenient && !fn.node) throw new CodegenError("Unresolved exported function: " + nm);
@@ -199,7 +245,7 @@ class Codegen {
       if (this.cursor>=STACK_TOP) throw new CodegenError("Task runtime data exceeds the root shadow stack");
       const limit=this.m.addGlobal(VT.i64,true,new Func().i64_const(this.cursor));
       this.m.exportGlobal("__stack_limit",limit);
-      this.m.exportGlobal("__exception",this.excGlobal);
+      if (!compiles) this.m.exportGlobal("__exception",this.excGlobal);
       const fault=this.imports.__task_stack_fail.index;
       for (const slot of this.m.funcs)
         slot.body.guardStack(size=>new Func().global_get(this.spGlobal)
@@ -215,8 +261,145 @@ class Codegen {
     const bytes = this.m.emit();
     const globals=new Map([...this.globals].filter(([,g])=>!g.node?.internal));
     return { bytes, warnings: this.warnings, dataEnd: this.cursor, globals,
+      memory:{initial,maximum,shared},
+      ...(compiles?{symbols:this.symbols(published,linked)}:{}),
       requiredCapabilities:[...linked.interfaces].map(api=>api.name),
       ...(this.localRegisters?{localRegisters:this.localRegisters}:{}) };
+  }
+
+  // V5.03 TaskStkNew gives Adam a CTaskStk with its stack after it. The root
+  // task's stack is the shadow stack, from here up to STACK_TOP, so its
+  // CTaskStk goes at the foot of it and fs_storage.stk points at it, in a
+  // program that reads a task's stk.
+  rootStk(linked) {
+    const root=this.globals.get("fs_storage");
+    if (this.jit || !root || !linked.fields.has("CTask.stk") || !this.classes.has("CTask") || !this.classes.has("CTaskStk")) return;
+    const fields=this.layoutClass("CTaskStk").fields,stk=this.alloc(fields.get("stk_base").offset,8);
+    const head=new DataView(new ArrayBuffer(fields.get("stk_base").offset));
+    head.setBigInt64(fields.get("stk_size").offset,BigInt(STACK_TOP-this.cursor),true);
+    this.m.addData(stk,new Uint8Array(head.buffer));
+    const at=new DataView(new ArrayBuffer(8));
+    at.setBigInt64(0,BigInt(stk),true);
+    this.m.addData(root.addr+this.layoutClass("CTask").fields.get("stk").offset,new Uint8Array(at.buffer));
+  }
+
+  // What code compiled at run time links to (Jit in jit.js): every global,
+  // the constants, the published functions and the function addresses.
+  symbols(published,linked) {
+    const byIndex=new Map([...this.functions.values()].filter(fn=>fn.slot).map(fn=>[fn.slot.index,fn]));
+    const exported=new Map([...published].map(([name,index])=>[index,name]));
+    const functions=new Map(),addresses=new Map();
+    for (const fn of this.functions.values()) {
+      if (!fn.slot || !exported.has(fn.slot.index)) continue;
+      functions.set(fn.name,{params:fn.params,retType:fn.retType,isVarArgs:fn.isVarArgs,
+        exportName:exported.get(fn.slot.index),defined:!!fn.node && !this.forwardStubs.has(fn.index)});
+    }
+    for (const [index,address] of this.functionAddresses)
+      if (linked.functions.has(index) && byIndex.has(index)) {
+        const fn=byIndex.get(index);
+        addresses.set(fn.name,address);
+        //One not exported is still called through its table entry, not copied.
+        if (!exported.has(index) && !this.forwardStubs.has(index) && fn.node)
+          functions.set(fn.name,{params:fn.params,retType:fn.retType,isVarArgs:fn.isVarArgs,
+            exportName:null,address,defined:true});
+      }
+    //The prelude's statements, for the ones a file reached later needs (src/jit.js).
+    const boot=this.boot.map(({item,file,uses,names,index})=>({item,file,uses,names,ran:linked.functions.has(index)}));
+    return {globals:new Map(this.globals),constEnv:{...this.constEnv},functions,addresses,boot,
+      stackLimit:linked.interfaces.size>0,tableSize:this.functionAddresses.size+1,
+      linkedGlobals:new Set(linked.globals),preludeFiles:this.opts.preludeFiles??[]};
+  }
+
+  // A part of the program, text or one expression, compiled against the
+  // symbols so far. The module imports the program's memory, stack pointer,
+  // core, exception and stack limit globals, its table and exception tag,
+  // and the functions it names; its own globals and literals go where
+  // jit.alloc puts them. __main runs its statements in order and returns the
+  // last expression statement's 64 bits; with expr, __main is that value.
+  runSegment(expr) {
+    const jit=this.jit,{initial,maximum,shared}=jit.memory;
+    this.m.importMemory("env","mem",initial,maximum,shared);
+    this.imports={};
+    for (const [name,sig] of Object.entries(HOST_IMPORTS))
+      this.imports[name]={index:this.m.importFunc("env",name,sig.params,sig.results),sig};
+    const defined=new Set(this.program.decls.filter(d=>d.kind==="FuncDecl" && d.body).map(d=>d.name));
+    const prototypes=this.program.decls.filter(d=>d.kind==="FuncDecl" && !d.body).map(d=>d.name);
+    for (const name of [...Names(expr?[expr]:this.program.items),...prototypes,"Print","PutChars",FLOAT_MUL_I64]) {
+      const fn=jit.functions.get(name);
+      if (!fn || defined.has(name) || this.functions.has(name)) continue;
+      const sig=this.wasmSig(fn.params,fn.retType,fn.isVarArgs);
+      this.functions.set(name,{name,isImport:true,index:this.m.importFunc("fn",name,sig.params,sig.results),
+        params:fn.params,retType:fn.retType,isVarArgs:fn.isVarArgs});
+    }
+    this.spGlobal=this.m.importGlobal("env","__sp",VT.i64,true);
+    this.coreGlobal=this.m.importGlobal("env","__core",VT.i64,true);
+    this.excGlobal=this.m.importGlobal("env","__exception",VT.i64,true);
+    const limit=jit.stackLimit?this.m.importGlobal("env","__stack_limit",VT.i64,true):null;
+    this.m.importTable("env","__functions",0);
+    this.exceptionTagIndex=this.m.importTag("env","__exception_tag",[VT.i64]);
+    for (const [name,g] of jit.globals) this.globals.set(name,g);
+    //A declaration makes new storage; an extern one names what is there.
+    for (const d of this.program.decls)
+      for (const v of d.kind==="VarDecl"?[d]:d.kind==="ClassDecl"?d.vars??[]:[])
+        if (!v.storage?.some(s=>s==="extern" || s==="_extern")) this.globals.delete(v.name);
+    this.collectClasses();
+    this.collectConsts();
+    Object.assign(this.constEnv,jit.constEnv);
+    this.collectGlobals();
+    this.collectStatics();
+    this.collectInitializers();
+    this.collectFunctions();
+    this.mainFn=this.m.func([],[VT.i64],"__main");
+    const own=[...this.functions.values()].filter(fn=>fn.slot && !fn.isImport && !fn.isAlias);
+    for (const fn of own) {
+      if (fn.node?.body) this.genFunctionBody(fn);
+      else this.genStubBody(fn);
+      const address=jit.addresses.get(fn.name);
+      if (fn.node?.body && address!==undefined && jit.functions.get(fn.name)?.defined===false)
+        this.m.addElement(address,[this.tableEntry(fn.index)]);
+    }
+    if (expr) {
+      const ctx=new FnCtx(this,{name:"__main",params:[],retType:T.I64,node:{body:null}});
+      const type=this.resolveType(ctx.genExpr(expr));
+      if (isFloat(type)) ctx.f.op("i64_reinterpret_f64");
+      else if (isVoid(type)) ctx.f.i64_const(0);
+      this.mainFn.setBody(ctx.localDecls(),ctx.f);
+      this.exprType=type;
+    } else this.genMain();
+    const live=new Set(),visit=index=>{
+      if (live.has(index)) return;
+      live.add(index);
+      for (const callee of this.m.funcs[index-this.m.importFuncs.length]?.body.references??[])
+        visit(callee);
+    };
+    visit(this.mainFn.index);
+    for (const fn of own) visit(fn.index);
+    for (const element of this.m.elements) element.funcIndices.forEach(visit);
+    for (const d of this.data) {
+      if (d.addr===undefined) d.addr=this.alloc(d.bytes.length,1);
+      this.m.addData(d.addr,d.bytes);
+    }
+    for (const index of live)
+      this.m.funcs[index-this.m.importFuncs.length]?.body.resolveDataAddresses();
+    if (limit!==null) {
+      const fault=this.imports.__task_stack_fail.index;
+      for (const slot of this.m.funcs)
+        slot.body.guardStack(size=>new Func().global_get(this.spGlobal)
+          .global_get(limit).i64_const(size).op("i64_add").op("i64_lt_u")
+          .if_().call(fault).unreachable().end());
+      live.add(fault);
+    }
+    this.m.exportFunc("__main",this.mainFn.index);
+    const functions=new Map();
+    for (const fn of own) {
+      this.m.exportFunc(fn.name,fn.slot.index);
+      functions.set(fn.name,{params:fn.params,retType:fn.retType,isVarArgs:fn.isVarArgs,
+        exportName:fn.name,defined:!!fn.node?.body});
+    }
+    this.m.linkFunctions(live);
+    const classes=this.program.decls.filter(d=>d.kind==="ClassDecl");
+    return {bytes:this.m.emit(),type:this.exprType,warnings:this.warnings,
+      symbols:{globals:this.globals,constEnv:this.constEnv,functions,classes}};
   }
 
   exceptionTag() {
@@ -227,7 +410,39 @@ class Codegen {
     return this.exceptionTagIndex;
   }
 
+  //V5.03 calls a function pointer with the args its type gives and reads RAX
+  //after: Call on a U0 function, JobQue's I64 (*)(U8 *) on U0 MPUpdateWin. A
+  //wasm call_indirect traps unless the types match, so the table holds each
+  //function at one type for its count of args: each an I64, giving an I64.
+  tableSig(sig) {
+    return {params:sig.params.map(()=>VT.i64),results:[VT.i64]};
+  }
+  tableEntry(index) {
+    const fn=[...this.functions.values()].find(fn=>fn.index===index);
+    const sig=this.wasmSig(fn.params,fn.retType,fn.isVarArgs),table=this.tableSig(sig);
+    if (JSON.stringify(sig)===JSON.stringify(table)) return index;
+    this.tableThunks??=new Map();
+    if (!this.tableThunks.has(index)) {
+      const slot=this.m.func(table.params,table.results,"@"+fn.name),f=new Func();
+      sig.params.forEach((vt,i)=>{f.local_get(i);if (vt===VT.f64) f.op("f64_reinterpret_i64");});
+      f.call(index);
+      if (!sig.results.length) f.i64_const(0);
+      else if (sig.results[0]===VT.f64) f.op("i64_reinterpret_f64");
+      slot.setBody([],f);
+      this.tableThunks.set(index,slot.index);
+    }
+    return this.tableThunks.get(index);
+  }
+
   functionAddress(fn) {
+    if (this.jit) {
+      let address=this.jit.addresses.get(fn.name);
+      if (address===undefined) {
+        address=this.jit.reserve(fn.name);
+        this.m.addElement(address,[this.tableEntry(fn.index)]);
+      }
+      return address;
+    }
     if (!this.functionAddresses.has(fn.index))
       this.functionAddresses.set(fn.index,this.functionAddresses.size+1);
     return this.functionAddresses.get(fn.index);
@@ -240,7 +455,7 @@ class Codegen {
       if (node.name) this.classes.set(node.name,node);
       for (const child of node.nestedClasses??[]) add(child);
     };
-    this.program.decls.forEach(add);
+    [...this.program.classes??[],...this.program.decls].forEach(add);
     const names=new Map(),active=new Set();
     const members=name=>{
       if (names.has(name)) return names.get(name);
@@ -278,6 +493,8 @@ class Codegen {
     // mark as in-progress to allow self-referential pointers
     this.classLayouts.set(name, { size: 0, align: 1, fields, incomplete: true });
     for (const mem of node.members) {
+      //V5.03 PrsVar.HC: $ in a member is the class's size so far.
+      Walk([mem.type],n=>{if (n.kind==="ClassOffset") {n.kind="IntLit";n.value=BigInt(node.isUnion?0:off);}});
       let ty = this.resolveType(mem.type);
       if (ty && ty.kind === "class" && !this.classes.has(ty.name)) {
         if (this.lenient) { this.warn(`unknown class '${ty.name}' as member ${name}.${mem.name}; treated as I64`); ty = T.I64; }
@@ -321,7 +538,13 @@ class Codegen {
         const of = this.resolveType(t.of,locals);
         let count;
         try { count = t.count == null ? 0 : foldDim(t.count,this.constEnv,node=>this.layoutQuery(node,locals)); }
-        catch (e) { if (this.lenient) { count = 1; this.warn("non-constant array dimension; assumed [1]"); } else throw e; }
+        catch (e) {
+          //V5.03 runs a dimension's expression when it compiles the declaration.
+          if (this.jit) {
+            count=this.jit.dimension(t.count);
+            t.count={kind:"IntLit",value:BigInt(count),line:t.count.line,filename:t.count.filename};
+          } else if (this.lenient) { count = 1; this.warn("non-constant array dimension; assumed [1]"); } else throw e;
+        }
         return arrayOf(of, count);
       }
       case "ClassDecl": return { kind: "class", name: t.name || ("__anon" + (t.line || 0)) };
@@ -380,7 +603,8 @@ class Codegen {
         this.globals.get(node.name)?.kind==="exportedAddress")
       this.errAt(node,"Size not defined: "+node.name);
     let type=node.globalType || locals?.get(node.name)?.type || this.globals.get(node.name)?.type ||
-      BASE_TYPES[node.name] || (this.classes.has(node.name)?{kind:"classref",name:node.name}:null);
+      BASE_TYPES[node.name] ||
+      (this.classes.has(node.className??node.name)?{kind:"classref",name:node.className??node.name}:null);
     if (!type) throw new CodegenError(`${node.filename}:${node.line}: Invalid class or variable in ${node.kind}: ${node.name}`);
     type=this.resolveType(type,locals);
     let offset=0;
@@ -448,7 +672,7 @@ class Codegen {
   collectInitializers() {
     const constant=node=>{
       if (!node) return true;
-      if (["IntLit","CharLit","FloatLit","StrLit","BinLit"].includes(node.kind))
+      if (["IntLit","CharLit","FloatLit","StrLit","BinLit","LastClass"].includes(node.kind))
         return true;
       if (node.kind==="Unary") return !["++","--"].includes(node.op) && constant(node.operand);
       if (node.kind==="Cast") return constant(node.operand);
@@ -456,10 +680,13 @@ class Codegen {
       if (node.kind==="Chain") return node.operands.every(constant);
       return false;
     };
-    let index=0,deferred=false;
-    const statements=new Set(this.program.topStmts);
+    //The prelude's globals initialize before the hooks (DirHostInit builds on
+    //dir_host_*), its statements at boot after them; only the program's defer.
+    let index=0,deferred=false,prelude=true;
+    const statements=new Set(this.program.topStmts),externs=new Set();
     for (const item of this.program.items) {
-      if (statements.has(item)) {deferred=true;continue;}
+      if (prelude && !["<prelude>","<compiler>"].includes(item.filename)) {prelude=false;deferred=!!this.jit;}
+      if (statements.has(item)) {if (!prelude) deferred=true;continue;}
       const names=[],seen=new Set();
       const walk=node=>{
         if (!node || typeof node!=="object" || seen.has(node)) return;
@@ -482,21 +709,28 @@ class Codegen {
       };
       walk(item);
       const globals=item.kind==="VarDecl"?[item]:item.vars||[];
-      for (const node of globals)
+      for (const node of globals) {
         if (this.globals.get(node.name)?.node===node) names.push(node.name);
-      for (const name of names) this.globals.get(name).deferred=deferred;
+        if (node.storage?.some(s=>s==="extern" || s==="_extern")) externs.add(node.name);
+      }
+      //Only code that named the global by an extern before it can see it before its
+      //initializer runs; otherwise its constant data can be there from the start.
+      for (const name of names) Object.assign(this.globals.get(name),{deferred,seenEarly:externs.has(name)});
       this.declarationInitializers.set(item,names);
     }
   }
   declareGlobal(d) {
     if (d.forwardGlobal || this.globals.has(d.name)) return;
     const ty = this.resolveType(d.type);
-    const storage=this.runtimeAddresses.get(d.name);
+    const {storage,offset}=this.runtimeAddresses.get(d.name)??{};
     if (storage) {
       const backing=this.globals.get(storage);
       if (!backing || d.filename!=="<prelude>" || d.init)
         this.errAt(d,"Invalid runtime address binding: "+d.name);
-      this.globals.set(d.name,{kind:"exportedAddress",addr:backing.addr,
+      //A label at an offset in its storage is a typed global there (V5.03's
+      //_extern SYS_PROGRESS1 I64 progress1); a bare label is only its address.
+      if (offset!==undefined) this.globals.set(d.name,{addr:backing.addr+offset,type:ty,init:null,node:d,storage});
+      else this.globals.set(d.name,{kind:"exportedAddress",addr:backing.addr,
         type:ty,init:null,node:d,storage});
       return;
     }
@@ -585,6 +819,7 @@ class Codegen {
     if (this.lenient) return;
     const defined = new Set();
     for (const d of this.program.decls) if (d.kind === "FuncDecl" && d.body) defined.add(d.name);
+    if (this.jit) return;
     for (const d of this.program.decls) {
       if (d.kind !== "FuncDecl" || d.body || !d.storage?.includes("import")) continue;
       if (this.imports[d.name] || defined.has(d.name)) continue;
@@ -642,6 +877,17 @@ class Codegen {
   // Stub body for a prototype/extern function: ignore args, return 0 (or void).
   genStubBody(fn) {
     const f = new Func();
+    if ((this.opts.jitMain ?? this.jit)?.laterBodies?.has(fn.name)) {
+      //V5.03 resolves a prototype when a later statement defines its body.
+      const sig=this.wasmSig(fn.params,fn.retType,fn.isVarArgs),table=this.tableSig(sig);
+      sig.params.forEach((vt,i)=>{f.local_get(i);if (vt===VT.f64) f.op("i64_reinterpret_f64");});
+      f.i32_const(this.functionAddress(fn)).call_indirect(this.m.typeIndex(table.params,table.results));
+      if (!sig.results.length) f.drop();
+      else if (sig.results[0]===VT.f64) f.op("f64_reinterpret_i64");
+      this.forwardStubs.add(fn.index);fn.forward=true;
+      fn.slot.setBody([],f);
+      return;
+    }
     if (!this.lenient) {
       f.unreachable();
       fn.slot.setBody([], f);
@@ -659,15 +905,38 @@ class Codegen {
         const g=this.globals.get(name);
         if (g.init==null || g.deferred) continue;
         ctx.f=new Func();
-        ctx.genGlobalInit(g);
+        this.adam(g.node,name,()=>ctx.genGlobalInit(g),()=>ctx.f=new Func().unreachable());
         this.globalInitializers.set(name,ctx.f);
       }
     return ctx;
   }
 
-  reachable() {
+  //V5.03 compiles Adam once, in order, so every name in it is defined by then.
+  //Here Adam is compiled with each program, so a name in Adam that does not
+  //resolve fails only a program that links the code using it.
+  adam(node,key,gen,stub) {
+    if (node?.filename!=="<prelude>") return gen();
+    try {return gen();}
+    catch (error) {
+      if (!(error instanceof CodegenError)) throw error;
+      this.unresolved.set(key,error);stub();
+    }
+  }
+
+  preludeFile(line) {//The index of the Adam file holding this prelude line.
+    const starts=this.opts.preludeFiles??[];
+    let lo=0,hi=starts.length-1;
+    while (lo<hi) {
+      const mid=(lo+hi+1)>>1;
+      if (starts[mid]<=line) lo=mid;
+      else hi=mid-1;
+    }
+    return lo;
+  }
+
+  reachable({own=false,strings=false}={}) {
     const functions=new Set(),globals=new Set(),fields=new Set(),bodies=new Set(),hooks=new Set();
-    const interfaces=new Set(),exports=new Set();
+    const interfaces=new Set(),exports=new Set(),named=new Set(),scanned=new Set(),words=new Set();
     const writeOnly=new Map(),byIndex=new Map([...this.functions.values()].map(fn=>[fn.index,fn]));
     const trusted=(index,seen=new Set())=>{
       if (seen.has(index)) return true;
@@ -691,28 +960,43 @@ class Codegen {
       for (const name of body.fieldUses || [])
         if (!initialized?.has(name.split('.')[0])) fields.add(name);
     };
+    //The files of Adam this program reaches, as V5.03 loads them.
+    const files=new Set(),fileOf=node=>node?.filename==="<prelude>"?this.preludeFile(node.line):undefined;
     const visitFunction=index=>{
       if (functions.has(index)) return;
       functions.add(index);
+      files.add(fileOf(byIndex.get(index)?.node));
       visitBody(this.m.funcs[index-this.m.importFuncs.length]?.body,writeOnly.get(index));
     };
     const visitGlobal=name=>{
       if (globals.has(name)) return;
       globals.add(name);
+      files.add(fileOf(this.globals.get(name)?.node));
       const storage=this.globals.get(name)?.storage;
       if (storage) visitGlobal(storage);
       visitBody(this.globalInitializers.get(name));
     };
     visitFunction(this.mainFn.index);
     visitFunction(this.rtInit.index);
-    for (const name of this.opts.exports || []) {
+    for (const name of [...this.opts.exports || [],...this.jitExports || []]) {
       const fn=this.functions.get(name);
       if (fn) visitFunction(fn.index);
     }
+    // A later part of the program reads these globals and fields.
+    const later=this.opts.jitMain?.names??new Set();
+    for (const name of later) if (this.globals.has(name)) visitGlobal(name);
     // User globals are observable through the returned address map, and their
     // initializers may have side effects even when no function reads the value.
     for (const [name,g] of this.globals)
       if (g.node?.filename!=="<prelude>") visitGlobal(name);
+    const Word=word=>{
+      if (words.has(word)) return false;
+      words.add(word);
+      const fn=strings && this.functions.get(word);
+      if (fn?.slot && !this.unresolved.has(fn.index)) {named.add(word);visitFunction(fn.index);}
+      return true;
+    };
+    for (const word of this.opts.jitMain?.words??[]) Word(word);
     let changed=true;
     while (changed) {
       changed=false;
@@ -721,7 +1005,7 @@ class Codegen {
             !(api.imports||[]).some(name=>functions.has(this.imports[name]?.index)) &&
             !(api.globals||[]).some(name=>globals.has(name))) continue;
         interfaces.add(api);
-        for (const name of [api.check,...api.exports]) {
+        for (const name of [api.check,...own?[]:api.exports]) {
           const fn=this.functions.get(name);
           if (!fn) throw new CodegenError("Missing runtime interface: "+name);
           visitFunction(fn.index);
@@ -732,27 +1016,62 @@ class Codegen {
       for (const hook of this.opts.runtimeInitializers || []) {
         if (hooks.has(hook.name)) continue;
         if (!hook.always && !(hook.globals||[]).some(name=>globals.has(name)) &&
-            !(hook.fields||[]).some(name=>fields.has(name) || fields.has(name.split('.')[0]+'.*')))
+            !(hook.fields||[]).some(name=>fields.has(name) || fields.has(name.split('.')[0]+'.*') ||
+              later.has(name.slice(name.lastIndexOf('.')))))
           continue;
         const fn=this.functions.get(hook.name);
         if (!fn) throw new CodegenError("Missing runtime initializer: "+hook.name);
         hooks.add(hook.name);
         visitFunction(fn.index);
-        for (const name of hook.exports || []) {
+        for (const name of own?[]:hook.exports || []) {
           const exported=this.functions.get(name);
           if (!exported) throw new CodegenError("Missing runtime initializer export: "+name);
           visitFunction(exported.index);exports.add(name);
         }
         changed=true;
       }
+      //A prelude statement runs when the program has its file, uses what it
+      //sets or names what it makes (a string of its that is one name).
+      for (const stmt of this.boot) {
+        if (functions.has(stmt.index) || !files.has(stmt.file) &&
+            ![...stmt.uses].some(name=>globals.has(name)) && ![...stmt.names].some(name=>words.has(name)) &&
+            !stmt.fields.some(name=>fields.has(name) || later.has(name.slice(name.lastIndexOf('.')))))
+          continue;
+        visitFunction(stmt.index);
+        changed=true;
+      }
+      //A name in a string is reached: text the program compiles can call it
+      //(ExePrint), and a define list is found by its name (DefineSub).
+      for (const d of this.data) {
+        if (!d.str || scanned.has(d) || ![...d.owners].some(owner=>bodies.has(owner))) continue;
+        scanned.add(d);
+        const text=String.fromCharCode(...d.bytes.slice(0,4096));
+        for (const word of text.match(/[A-Za-z_][A-Za-z0-9_]*/g)??[]) changed=Word(word)||changed;
+      }
     }
-    return {functions,globals,bodies,hooks,interfaces,exports};
+    return {functions,globals,fields,bodies,hooks,interfaces,exports,named};
+  }
+
+  //A prelude statement that only stores a number or a function's address in a
+  //field of a global, as GrComposites.HC's gr.fp_draw_ms=&DrawStdMs;, is for
+  //the code that reads that field: its keys are the field and the whole global.
+  fieldStore(item) {
+    const e=item.kind==="ExprStmt"?item.expr:null;
+    if (e?.kind!=="Assign" || e.op!=="=" || e.target.kind!=="Member") return;
+    let root=e.target,first;
+    while (root.kind==="Member" && !root.arrow) {first=root.name;root=root.base;}
+    const g=root.kind==="Ident"?this.globals.get(root.name):null,cls=g&&this.resolveType(g.type),v=e.value;
+    if (!g || g.node?.filename!=="<prelude>" || !isClass(cls) || root===e.target) return;
+    if (!["IntLit","FloatLit","CharLit"].includes(v.kind) && !(v.kind==="Unary" && v.op==="&" &&
+        v.operand.kind==="Ident" && this.functions.has(v.operand.name))) return;
+    return [cls.name+'.'+first,root.name+'.*'];
   }
 
   genRtInit(ctx,linked) {
     const f=ctx.f=new Func();
     const initializers=[...this.globalInitializers].filter(([name])=>linked.globals.has(name));
-    if (linked.hooks.size || initializers.length || this.rtGuard!==undefined) {
+    const boot=this.boot.filter(stmt=>linked.functions.has(stmt.index));
+    if (linked.hooks.size || initializers.length || boot.length || linked.interfaces.size || this.rtGuard!==undefined) {
       const guard=this.rtGuard??=this.alloc(8,8),fault=this.imports.__rt_init_failed.index;
       const state=()=>f.i64_const(guard).op("i32_wrap_i64");
       state().load("i64_load",0,3).i64_const(2).op("i64_ne").if_();
@@ -766,6 +1085,12 @@ class Codegen {
             !this.globals.get(name).node.defaultCapture) f.append(body);
       for (const hook of this.opts.runtimeInitializers || [])
         if (linked.hooks.has(hook.name)) f.call(this.functions.get(hook.name).index);
+      //The prelude's statements this program reaches, as V5.03 runs them at boot.
+      for (const stmt of boot) f.call(stmt.index);
+      //A task host owns what the boot made to the instance, not to a session.
+      if (linked.interfaces.size) {
+        f.call(this.imports.__rt_booted.index);linked.functions.add(this.imports.__rt_booted.index);
+      }
       for (const [name,body] of initializers)
         if (this.globals.get(name).node?.filename!=="<prelude>" ||
             this.globals.get(name).node.defaultCapture) f.append(body);
@@ -778,23 +1103,48 @@ class Codegen {
   }
 
   genMain() {
-    const stmts=[],statements=new Set(this.program.topStmts);
+    const stmts=[],boot=[],statements=new Set(this.program.topStmts);
     for (const item of this.program.items) {
-      if (statements.has(item)) stmts.push(item);
+      //The prelude's statements run once, in __rt_init, as V5.03 runs them at
+      //boot. A host that calls __main every frame (HEMU) reruns only the program's.
+      const to=item.filename==="<prelude>"?boot:stmts;
+      if (statements.has(item)) to.push(item);
       else {
         const names=(this.declarationInitializers.get(item)||[])
           .filter(name=>this.globals.get(name).deferred && this.globals.get(name).init!=null);
-        if (names.length) stmts.push({kind:"GlobalInit",names});
+        //__rt_init's own guard covers the boot's.
+        if (names.length) to.push({kind:"GlobalInit",names,boot:to===boot});
       }
     }
-    const bodyBlock = { kind: "Block", stmts };
+    const block=list=>({kind:"Block",stmts:this.jit?list.map(s=>s.kind==="ExprStmt"?
+      {...s,kind:"Result"}:s):list});
+    //Each prelude statement is its own function, linked by reachable().
+    for (const item of this.boot?boot:[]) {
+      const bootBlock=block([item]),bootCtx=new FnCtx(this,{name:"__boot",params:[],retType:T.U0,node:{body:bootBlock}});
+      const fn=this.m.func([],[]),node=item.kind==="GlobalInit"?this.globals.get(item.names[0]).node:item;
+      this.adam({filename:"<prelude>"},fn.index,()=>{
+        bootCtx.beginFrame();bootCtx.genStmt(bootBlock);bootCtx.endFrameFallthrough();
+        fn.setBody(bootCtx.localDecls(),bootCtx.f);
+      },()=>{bootCtx.f=new Func().unreachable();fn.setBody([],bootCtx.f);});
+      const names=new Set(this.data.filter(d=>d.str && d.owners.has(bootCtx.f))
+        .map(d=>String.fromCharCode(...d.bytes.slice(0,-1))).filter(text=>/^[A-Za-z_]\w*$/.test(text)));
+      const store=this.fieldStore(item);
+      this.boot.push({item,index:fn.index,file:this.preludeFile(node.line),
+        uses:store?new Set():bootCtx.f.globalUses??new Set(),names,fields:store??[]});
+    }
+    const bodyBlock = block(stmts);
     const fakeFn = { name: "__main", params: [], retType: T.U0, node: { body: bodyBlock } };
     const ctx = new FnCtx(this, fakeFn);
     const f = ctx.f;
-    f.call(this.rtInit.index);
+    if (this.jit) ctx.result=ctx.newWLocal(VT.i64);
+    else f.call(this.rtInit.index);
     ctx.beginFrame();
     ctx.genStmt(bodyBlock);
+    //The next part of the program compiles once this one has run.
+    const next=(this.opts.jitMain ?? this.jit)?.next;
+    if (next) f.i64_const(next).call(this.imports.__jit_rest.index);
     ctx.endFrameFallthrough();
+    if (this.jit) f.local_get(ctx.result);
     this.mainFn.setBody(ctx.localDecls(), f);
   }
 }
@@ -825,8 +1175,10 @@ class FnCtx {
     this.assignParams();
     if (fn.node && fn.node.body) this.collectLocals(fn.node.body);
     const narrowCasts=new Set();
+    let carry=false;
     const casts=n=>{
       if (!n || typeof n!=="object") return;
+      if (n.kind==="Ident" && n.name==="Carry") carry=true;
       if (n.kind==="Cast" && n.postfix && n.operand.kind==="Ident") {
         const d=this.localBinding(n.operand),type=this.cg.resolveType(n.type);
         if (d && isInt(type) && type.bits<this.cg.typeSize(d.type)*8)
@@ -839,6 +1191,11 @@ class FnCtx {
       }
     };
     casts(fn.node?.body);
+    //V5.03 KernelB.HH IC_CARRY reads the CPU's carry flag. A function that
+    //reads it keeps CF in a local: the add, subtract, shift, compare or
+    //logic op it ran last sets it as the x86 instruction V5.03 emits does.
+    if (carry && !this.cg.functions.get("Carry")?.node?.body)
+      this.carry={cf:this.newWLocal(VT.i64),a:this.newWLocal(VT.i64),b:this.newWLocal(VT.i64)};
     const registers=nativeRegisters(fn,this.locals,this.addrTaken,n=>this.cg.fold(n,this.locals));
     for (const {name,d,reg} of registers) {
       d.nativeReg=reg>=0 && reg<16;
@@ -867,7 +1224,11 @@ class FnCtx {
   }
 
   // ---- diagnostics ----
-  err(node, msg) { throw new CodegenError(`${node?.filename??"<source>"}:${node?.line}: ${msg}`); }
+  err(node, msg) {
+    const e=new CodegenError(`${node?.filename??"<source>"}:${node?.line}: ${msg}`);
+    if (node?.filename) Object.assign(e,{filename:node.filename,line:node.line,col:node.col});
+    throw e;
+  }
 
   // ---- wasm locals ----
   newWLocal(vt) { const idx = this.nextWLocal++; this.wlocalTypes.push(vt); return idx; }
@@ -1014,13 +1375,24 @@ class FnCtx {
       case "Block": for (const st of s.stmts) this.genStmt(st); return;
       case "Empty": return;
       case "DeclStmt": this.genDeclStmt(s); return;
+      case "Result": {
+        const t=this.cg.resolveType(this.genExpr(s.expr));
+        this.cg.exprType=t;
+        if (isVoid(t)) return;
+        if (isFloat(t)) this.f.op("i64_reinterpret_f64");
+        this.f.local_set(this.result);return;
+      }
       case "GlobalInit": {
+        if (this.cg.jit) {
+          for (const name of s.names) this.genGlobalInit(this.cg.globals.get(name));
+          return;
+        }
         const guard=this.cg.alloc(8,8),f=this.f;
         const moduleGuard=this.cg.rtGuard??=this.cg.alloc(8,8);
         f.i64_const(guard).op("i32_wrap_i64").load("i64_load",0,3).op("i64_eqz").if_();
-        f.i64_const(moduleGuard).op("i32_wrap_i64").i64_const(1).store("i64_store",0,3);
+        if (!s.boot) f.i64_const(moduleGuard).op("i32_wrap_i64").i64_const(1).store("i64_store",0,3);
         for (const name of s.names) this.genGlobalInit(this.cg.globals.get(name));
-        f.i64_const(moduleGuard).op("i32_wrap_i64").i64_const(2).store("i64_store",0,3);
+        if (!s.boot) f.i64_const(moduleGuard).op("i32_wrap_i64").i64_const(2).store("i64_store",0,3);
         f.i64_const(guard).op("i32_wrap_i64").i64_const(1).store("i64_store",0,3);
         f.end();return;
       }
@@ -1072,7 +1444,8 @@ class FnCtx {
     type = this.cg.resolveType(type);
     if (isArray(type) && init.kind === "StrLit" && this.cg.typeSize(type.of) === 1) {
       const size = this.cg.typeSize(type);
-      if (init.bytes.length > size) this.err(init, "string initializer exceeds array");
+      //V5.03 PrsVarInit2 copies the array's count of bytes: a longer string
+      //is cut, and a [] array is 0 bytes (Compiler/PrsVar.HC:131-150).
       pushAddr(); this.f.op("i32_wrap_i64");
       this.f.i32_const(0).i32_const(size).memory_fill();
       pushAddr(); this.f.op("i32_wrap_i64");
@@ -1111,7 +1484,7 @@ class FnCtx {
   genGlobalValue(g) {
     // Constant integer arrays (sprite/bitmap data, tables) compile to one wasm
     // data segment rather than thousands of per-element stores - instant to emit.
-    if (!g.deferred && g.init.kind === "InitList" && this.cg.tryStaticConstArray(g,this.f)) return;
+    if ((!g.deferred || this.cg.jit || !g.seenEarly) && g.init.kind === "InitList" && this.cg.tryStaticConstArray(g,this.f)) return;
     const pushAddr = () => this.f.i64_const(g.addr);
     this.storeInitInto(pushAddr, g.type, g.init);
   }
@@ -1360,6 +1733,8 @@ class FnCtx {
     if (node.kind === "Unary" && node.op === "!") { this.genCond(node.operand); this.f.op("i32_eqz"); return; }
     if (node.kind === "Chain") { this.genChain(node, true); return; }
     const t = node.kind === "Logical" && node.op !== "^^" ? this.genShortCircuit(node) : this.genExpr(node);
+    //V5.03 tests what RAX holds after a U0 call (if (F())); here it is 0.
+    if (isVoid(t)) this.f.i64_const(0);
     if (isFloat(t)) this.f.op("i64_reinterpret_f64");
     this.f.i64_const(0).op("i64_ne");
   }
@@ -1367,6 +1742,7 @@ class FnCtx {
   genTruth(node) {
     if (node.kind === "Unary" && node.op === "!") { this.genTruth(node.operand); this.f.op("i32_eqz"); return; }
     const t = this.genExpr(node);
+    if (isVoid(t)) this.f.i64_const(0);
     if (isFloat(t)) this.f.op("i64_reinterpret_f64");
     this.f.i64_const(0).op("i64_ne");
   }
@@ -1579,7 +1955,9 @@ class FnCtx {
       return this.genCall({kind:"Call",callee:node,args:[]});
     const fn = this.functionAt(node);
     if (fn) { return this.emitCall(fn, [], node); } // no-paren call
+    if (node.name==="Carry" && this.carry) {this.f.local_get(this.carry.cf);return T.I64;}
     if (node.name==="MyCore") {this.f.global_get(this.cg.coreGlobal);return T.I64;}
+    if (node.name==="GetRSP") {this.f.global_get(this.cg.spGlobal);return ptrTo(T.U8);}
     // Unknown symbol: in lenient mode it becomes a global I64 (kernel
     // global/constant we don't model) so the program still compiles & runs.
     if (this.cg.lenient) {
@@ -1609,7 +1987,7 @@ class FnCtx {
         if (!b) return null;
         const bt = this.cg.resolveType(b.type);
         if (!bt || !isClass(bt)) return null;
-        const fld = this.fieldOf(bt, node.name);
+        const fld = this.fieldOf(bt, node.name, node);
         if (!fld) return null;
         return { addr: b.addr + Number(fld.offset || 0), type: fld.type };
       }
@@ -1680,8 +2058,9 @@ class FnCtx {
     if (isArray(bt)) { this.genAddr(node.base); elemT = bt.of; }
     else if (isPtr(bt)) { this.genExpr(node.base); elemT = bt.to; }
     else {
-      if (!this.cg.lenient) this.err(node,"Not array or ptr");
+      // The base first: an undefined name is reported as undefined.
       this.genExpr(node.base); elemT = T.I64;
+      if (!this.cg.lenient) this.err(node,"Not array or ptr");
     }
     const esz = this.cg.typeSize(elemT);
     // constant index: fold idx*esz at compile time (a[0] adds NOTHING) - hot for the per-core
@@ -1702,14 +2081,15 @@ class FnCtx {
   // Look up a class field; in lenient mode return a default {offset:0,type:I64}
   // when the base isn't a known class so member access on opaque kernel values
   // never aborts compilation.
-  fieldOf(cls, name) {
+  fieldOf(cls, name, node) {
     cls = this.cg.resolveType(cls);
     if (isClass(cls) && this.cg.classes.has(cls.name)) {
       (this.f.fieldUses??=new Set()).add(cls.name+"."+name);
       return this.cg.classField(cls,name);
     }
     if (this.cg.lenient) { this.cg.warnOnceCg(`member '.${name}' on non-class value; offset 0`); return { offset: 0, type: T.I64 }; }
-    throw new CodegenError(`member access '.${name}' on non-class type`);
+    this.err(node,isClass(cls)?`member access '.${name}' on undefined class ${cls.name}`:
+      `member access '.${name}' on non-class type ${typeName(cls)}`);
   }
 
   genMemberAddr(node) {
@@ -1723,7 +2103,7 @@ class FnCtx {
         const sub=UNION_MEMBERS[node.name];
         return arrayOf(sub,Math.max(1,sizeof(cls)/sizeof(sub)));
       }
-      const fld = this.fieldOf(cls, node.name);
+      const fld = this.fieldOf(cls, node.name, node);
       if (fld.offset) this.f.i64_const(fld.offset).op("i64_add");
       return fld.type;
     }
@@ -1737,13 +2117,13 @@ class FnCtx {
     if (isPtr(bt)) { // allow . on pointer too (lenient)
       const cls = this.cg.resolveType(bt.to);
       this.genExpr(node.base);
-      const fld = this.fieldOf(cls, node.name);
+      const fld = this.fieldOf(cls, node.name, node);
       if (fld.offset) this.f.i64_const(fld.offset).op("i64_add");
       return fld.type;
     }
     // The outer lvalue recorded the full field path; its base does not escape.
     this.genAddr(node.base,false);
-    const fld = this.fieldOf(bt, node.name);
+    const fld = this.fieldOf(bt, node.name, node);
     if (fld.offset) this.f.i64_const(fld.offset).op("i64_add");
     return fld.type;
   }
@@ -2029,7 +2409,42 @@ class FnCtx {
     return false;
   }
 
+  // CF of op on a and b, with a and b on the stack, leaving op's value.
+  carryOp(op) {
+    const {cf,a,b}=this.carry,f=this.f;
+    f.local_set(b);f.local_set(a);f.local_get(a);f.local_get(b);
+    if (op==="+" || op==="-") {
+      f.op(op==="+"?"i64_add":"i64_sub");
+      if (op==="+") {f.local_tee(b);f.local_get(a);f.op("i64_lt_u");f.local_get(b);f.local_set(a);}
+      else {f.local_get(a);f.local_get(b);f.op("i64_lt_u");}
+      f.op("i64_extend_i32_u");f.local_set(cf);
+      if (op==="+") f.local_get(a);
+      return true;
+    }
+    if (op==="<<" || op===">>") return false;
+    f.op({"&":"i64_and","|":"i64_or","^":"i64_xor"}[op]);
+    f.i64_const(0);f.local_set(cf);
+    return true;
+  }
+  // CF of a shift: the last bit out; a count of 0 leaves it.
+  carryShift() {
+    const {cf,a,b}=this.carry,f=this.f;
+    f.local_get(cf);
+    f.local_get(a);
+    if (this.carryLeft) {f.i64_const(64);f.local_get(b);f.i64_const(63);f.op("i64_and");f.op("i64_sub");}
+    else {f.local_get(b);f.i64_const(63);f.op("i64_and");f.i64_const(1);f.op("i64_sub");}
+    f.op("i64_shr_u");f.i64_const(1);f.op("i64_and");
+    f.local_get(b);f.i64_const(63);f.op("i64_and");f.op("i64_eqz");
+    f.op("select");f.local_set(cf);
+  }
   intOp(op, unsigned) {
+    if (this.carry && ["+","-","&","|","^","<<",">>"].includes(op)) {
+      if (this.carryOp(op)) return;
+      //carryOp left a and b on the stack for the shift.
+      this.f.op(op==="<<"?"i64_shl":unsigned?"i64_shr_u":"i64_shr_s");
+      this.carryLeft=op==="<<";this.carryShift();
+      return;
+    }
     switch (op) {
       case "+": this.f.op("i64_add"); break;
       case "-": this.f.op("i64_sub"); break;
@@ -2056,6 +2471,13 @@ class FnCtx {
   }
   intCmp(op, unsigned) {
     const u = unsigned;
+    if (this.carry) {
+      //CMP: CF is the unsigned borrow of a-b.
+      const {cf,a,b}=this.carry,f=this.f;
+      f.local_set(b);f.local_set(a);
+      f.local_get(a);f.local_get(b);f.op("i64_lt_u");f.op("i64_extend_i32_u");f.local_set(cf);
+      f.local_get(a);f.local_get(b);
+    }
     switch (op) {
       case "<": this.f.op(u ? "i64_lt_u" : "i64_lt_s"); break;
       case ">": this.f.op(u ? "i64_gt_u" : "i64_gt_s"); break;
@@ -2162,7 +2584,8 @@ class FnCtx {
       if (node.operand.kind === "Ident") {
         const fn = this.functionAt(node.operand);
         if (fn && !this.localBinding(node.operand) && !this.cg.globals.has(node.operand.name)) {
-          if (!this.cg.lenient && !fn.node && !fn.isImport)
+          if (!this.cg.lenient && !fn.node && !fn.isImport && !fn.forward &&
+              !(this.cg.opts.jitMain ?? this.cg.jit)?.laterBodies?.has(fn.name))
             this.err(node, "Unresolved function: " + fn.name);
           this.f.references.add(fn.index);
           this.f.i64_const(this.cg.functionAddress(fn));
@@ -2239,6 +2662,18 @@ class FnCtx {
     return t;
   }
   scratchI64b() { return this.scratch.i64b ??= this.newWLocal(VT.i64); }
+  //A call through the table (codegen tableSig): sig's args are on the stack.
+  callTable(sig,target) {
+    const f=this.f,table=this.cg.tableSig(sig);
+    if (sig.params.includes(VT.f64)) {
+      const spill=sig.params.map(vt=>this.newWLocal(vt));
+      for (let i=spill.length-1;i>=0;i--) f.local_set(spill[i]);
+      spill.forEach((local,i)=>{f.local_get(local);if (sig.params[i]===VT.f64) f.op("i64_reinterpret_f64");});
+    }
+    f.local_get(target).call_indirect(this.cg.m.typeIndex(table.params,table.results));
+    if (!sig.results.length) f.drop();
+    else if (sig.results[0]===VT.f64) f.op("f64_reinterpret_i64");
+  }
   scratchF64b() { return this.scratch.f64b ??= this.newWLocal(VT.f64); }
 
   // ================================================== calls
@@ -2250,10 +2685,10 @@ class FnCtx {
       this.genExpr(callee);
       this.f.op("i32_wrap_i64").local_set(target);
       const bytes=this.emitArgs(type.params,node.args,node,type.isVarArgs);
-      this.f.local_get(target).call_indirect(this.cg.m.typeIndex(sig.params,sig.results));
+      this.callTable(sig,target);
       this.releaseArgs(bytes);
       //A null-only callback still needs a table so a call traps at runtime.
-      if (!this.cg.m.table) this.cg.m.setTable(1);
+      if (!this.cg.m.table && !this.cg.m.importTables.length) this.cg.m.setTable(1);
       return type.retType;
     }
     if (callee.kind === "Ident") {
@@ -2296,8 +2731,16 @@ class FnCtx {
         this.f.op(unaryMath[callee.name]);
         return type;
       }
+      if (callee.name==="Carry" && this.carry) {
+        if (node.args.length) this.err(node,"Carry takes no args");
+        this.f.local_get(this.carry.cf);return T.I64;
+      }
       if (callee.name==="MyCore" && (callee.intrinsicFunction || !this.cg.functions.has("MyCore"))) {
         this.f.global_get(this.cg.coreGlobal);return T.I64;
+      }
+      //V5.03 KernelB.HH IC_GET_RSP: the stack a frame's addressable data is on.
+      if (callee.name==="GetRSP" && (callee.intrinsicFunction || !this.cg.functions.has("GetRSP"))) {
+        this.f.global_get(this.cg.spGlobal);return ptrTo(T.U8);
       }
       if (callee.name.startsWith("__a_")) { const r = this.genAtomic(callee.name, node.args); if (r) return r; }   // SMP intrinsic: native WASM atomic RMW (LOCK ops over shared memory)
       const fn = this.functionAt(callee);
@@ -2340,7 +2783,8 @@ class FnCtx {
   }
 
   emitCall(fn, args, node) {
-    if (!this.cg.lenient && !fn.isImport && !fn.node)
+    if (!this.cg.lenient && !fn.isImport && !fn.node && !fn.forward &&
+        !(this.cg.opts.jitMain ?? this.cg.jit)?.laterBodies?.has(fn.name))
       this.err(node, "Unresolved function: " + fn.name);
     const bytes=this.emitArgs(fn.params||[],args,node,fn.isVarArgs);
     this.f.call(fn.index);
@@ -2371,8 +2815,24 @@ class FnCtx {
       .op("i64_add").global_set(this.cg.spGlobal);
   }
 
+  // V5.03 PrsFunCall: lastclass is the name of the class of the last
+  // argument given before it, less its stars; with none, it is 0.
+  lastClass(args,i) {
+    let last=null;
+    for (let j=0;j<i && j<args.length;j++) if (args[j]) last=args[j];
+    if (!last) return {kind:"IntLit",value:0n};
+    let t=this.cg.resolveType(this.peekType(last));
+    for (let depth=0;t && (isPtr(t) || isArray(t)) && depth<64;depth++)
+      t=this.cg.resolveType(isPtr(t)?t.to:t.of);
+    //I16 to U64 are unions over V5.03's internal types I16i to U64i
+    //(Kernel/KernelA.HH:60-106, Compiler/CInit.HC:6-14), whose names it gives.
+    const name=typeName(t)+(isInt(t) && t.bits>=16?"i":"");
+    return {kind:"StrLit",bytes:[...name].map(c=>c.charCodeAt(0)&255),filename:last.filename,line:last.line};
+  }
+
   emitArgs(params,args,node,isVarArgs=false) {
-    const values=params.map((p,i)=>args[i]??this.cg.defaultValues.get(p.default)??p.default),
+    const values=params.map((p,i)=>args[i]??(p.default?.kind==="LastClass"?this.lastClass(args,i):
+      this.cg.defaultValues.get(p.default)??p.default)),
       types=params.map(p=>this.cg.resolveType(p.type));
     if (!this.cg.lenient && values.some(value=>value==null))
       this.err(node,"Missing required function argument");

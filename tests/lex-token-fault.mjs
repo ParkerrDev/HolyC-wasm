@@ -4,7 +4,7 @@ import {createTaskHost} from '../src/runtime/tasks.js';
 import {Framebuffer} from '../src/runtime/graphics.js';
 import {read} from './lex-token/cases.mjs';
 const exports=['TokenFaultSetup','TokenFaultDone','TokenFaultNew','TokenFaultRun','TokenFaultDel','TokenFaultCalls'];
-const result=compileHolyC(read('TokenFault.HC'),{lenient:false,runtimeProfile:'keydev',exports});
+const result=compileHolyC(read('TokenFault.HC'),{lenient:false,exports});
 assert.deepEqual(result.warnings,[]);
 const host=createTaskHost({gfx:new Framebuffer(null),onText:()=>{}}),live=new Set();let calls=0,failAt=0,failures=0,callbacks=0;
 for(const name of ['__malloc','__malloc_for','__malloc_kernel']) {

@@ -28,15 +28,18 @@ let calls=0,failAt=0;
 host.env.__malloc=size=>++calls===failAt?0n:malloc(size);
 const instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});host.attach(instance);
 instance.exports.__rt_init();let faults=0;
+//What the first call makes once (the task's lazily made state) stays; take the heap after it.
+assert.equal(instance.exports.PathTrial(0n),0n);
+const boot=host.state.heapPtr,stack=instance.exports.__sp.value;
 for(let mode=0;mode<4;mode++) {
   calls=0;failAt=0;assert.equal(instance.exports.PathTrial(BigInt(mode)),0n);
   const sites=calls;assert(sites>0);
   for(let repeat=0;repeat<20;repeat++) for(let failure=1;failure<=sites;failure++) {
     calls=0;failAt=failure;
     assert.equal(instance.exports.PathTrial(BigInt(mode)),0x6D654D74754Fn);
-    assert.equal(host.state.heapPtr,16777248);assert.equal(instance.exports.__sp.value,16777216n);
+    assert.equal(host.state.heapPtr,boot);assert.equal(instance.exports.__sp.value,stack);
     calls=0;failAt=0;assert.equal(instance.exports.PathTrial(BigInt(mode)),0n);
-    assert.equal(host.state.heapPtr,16777248);faults++;
+    assert.equal(host.state.heapPtr,boot);faults++;
   }
 }
 console.log(`Path strings: ${faults} internal allocation failures release temporary buffers, preserve input and stack, and allow immediate retry.`);

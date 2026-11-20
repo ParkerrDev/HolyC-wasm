@@ -33,6 +33,7 @@ instance.exports.MemberLayout();instance.exports.MemberLookup();instance.exports
 const data=new DataView(instance.exports.memory.buffer),parts=test.output.trim().split(':');
 assert.equal(data.getBigUint64(result.globals.get('member_hash').addr,true),BigInt('0x'+parts[1]));
 assert.equal(data.getBigInt64(result.globals.get('member_cnt').addr,true),BigInt(parts[2]));assert.equal(attempts,0);
-for(const name of ['MemberAdd','MemberLstNew','MemberLstDel','ClassMemberLstDel','MemberLstSize','CInit'])
+//MemberLstSize is V5.03 Compiler/Member.HC's query, ported; the graph's builders stay absent.
+for(const name of ['MemberAdd','MemberLstNew','MemberLstDel','ClassMemberLstDel','CInit'])
   assert.throws(()=>compileHolyC(name+';',{lenient:false}),/undefined symbol/);
 console.log('Native member queries allocate nothing and require no task backend; compiler graph construction/destruction stays absent.');

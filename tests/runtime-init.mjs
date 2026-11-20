@@ -27,11 +27,11 @@ for(const name of ['DeferredInit','DeferredDefault']) {
   let out='';
   const result=compileHolyC(source.toString('latin1'),{lenient:false});
   assert.deepEqual(result.warnings,[]);
-  const host=createHost({onText:s=>out+=s});
+  const host=createTaskHost({onText:s=>out+=s,jit:result.jit}); //It prints, so it is a task.
   const instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});host.attach(instance);
-  assert.throws(()=>instance.exports.__main(),WebAssembly.Exception);
+  await assert.rejects(host.run(),WebAssembly.Exception);
   assert.equal(out,proof.out);
-  assert.throws(()=>instance.exports.__main(),poisoned);assert.equal(out,proof.out);
+  await assert.rejects(host.run(),poisoned);assert.equal(out,proof.out);
 }
 // A real graphics hook allocation fails before any user initializer or main.
 let fail=true,calls=0,effects=0;
@@ -119,22 +119,25 @@ const taskResult=compileHolyC(hookSource+' I64 Waiter(){return GetKey;}',{lenien
 const taskHost=createTaskHost(),taskMalloc=taskHost.env.__malloc;
 let taskFail=true;
 taskHost.env.__malloc=size=>taskFail?0n:taskMalloc(size);
+//Startup frees what it took before the failure.
+const taskLive=new Set(),taskKernel=taskHost.env.__malloc_kernel,taskFree=taskHost.env.__free;
+taskHost.env.__malloc_kernel=size=>{const ptr=taskKernel(size);if(ptr)taskLive.add(ptr);return ptr;};
+taskHost.env.__free=ptr=>{taskLive.delete(ptr);return taskFree(ptr);};
 taskHost.env.Effect=()=>{taskEffects++;return 1n;};
 const taskInstance=new WebAssembly.Instance(new WebAssembly.Module(taskResult.bytes),{env:taskHost.env});taskHost.attach(taskInstance);
-const taskHeap=taskHost.state.heapPtr;
 await assert.rejects(taskHost.run(),WebAssembly.Exception);taskFail=false;
 await assert.rejects(taskHost.run(),poisoned);assert.equal(taskEffects,0);
 await assert.rejects(taskHost.dispose(),poisoned);
-assert.equal(taskHost.state.heapPtr,taskHeap);
+assert.equal(taskLive.size,0);assert.equal(taskHost.state.heapPtr,16777248,'disposal leaves the heap empty');
 const delayedTask=compileHolyC('import I64 Side(); Side; I64 value=Side; GetKey;',{lenient:false});
 const delayedHost=createTaskHost();let delayedCalls=0;
 delayedHost.env.Side=()=>{if(++delayedCalls===2)throw new Error('deferred task failure');return 7n;};
 const delayedInstance=new WebAssembly.Instance(new WebAssembly.Module(delayedTask.bytes),{env:delayedHost.env});
-delayedHost.attach(delayedInstance);const delayedHeap=delayedHost.state.heapPtr;
+delayedHost.attach(delayedInstance);
 await assert.rejects(delayedHost.run(),/deferred task failure/);
 await assert.rejects(delayedHost.run(),poisoned);assert.equal(delayedCalls,2);
 await assert.rejects(delayedHost.dispose(),poisoned);
-assert.equal(delayedHost.state.heapPtr,delayedHeap);
+assert.equal(delayedHost.state.heapPtr,16777248,'disposal leaves the heap empty');
 // Controlled runtime data must initialize before its hook; user globals follow.
 const ast=parse(lex('I64 data=7; U0 Hook(){data+=1;} I64 observed=data; I64 Read(){return observed;}','init.hc'));
 ast.decls.find(node=>node.name==='data').filename='<prelude>';
@@ -151,6 +154,10 @@ for(const cooperative of [false,true]) {
   const instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});
   host.attach(instance);
   const running=cooperative?host.run():instance.exports.__main();
+  //The boot (AutoComplete's DrvUnlock) Yields too: wait for GetKey's own wait.
+  for(let i=0;cooperative && (host.state.boot.heapPtr===null || host.state.tasks[0].status!=='waiting');i++) {
+    assert(i<5000,'the program never reached GetKey');await new Promise(resolve=>setTimeout(resolve,1));
+  }
   for(let y=0;y<480;y++) for(let x=0;x<640;x++)
     assert.equal(indices[y*640+x],x<20 && y<20 || x===639 && y===479?4:0,
       `omitted CDC must draw before waiting at ${x},${y}`);

@@ -5,10 +5,9 @@ import {createTaskHost} from '../src/runtime/tasks.js';
 import {Framebuffer} from '../src/runtime/graphics.js';
 import {cases,recorded} from './lex-token/cases.mjs';
 for(const name of cases) {
-  const test=recorded(name),result=compileHolyC(test.wasmSource,{lenient:false,runtimeProfile:test.profile});
+  const test=recorded(name),result=compileHolyC(test.wasmSource,{lenient:false});
   assert.deepEqual(result.warnings,[]);
   const tasks=result.requiredCapabilities.includes('task-continuations');
-  assert.equal(tasks,test.profile==='keydev');
   let output='',heap,count;const live=new Set(),diagnostics=[];
   const host=(tasks?createTaskHost:createHost)({gfx:new Framebuffer(null),ansi:false,onText:s=>output+=s,
     onLexError:record=>diagnostics.push(record)});
@@ -45,6 +44,8 @@ for(const name of cases) {
   } finally {if(tasks)await host.dispose();else for(const ptr of [...live])host.env.__free(ptr);}
   assert.equal(live.size,0);console.log(name,'native token/state/error data, five lifetimes and final disposal');
 }
-for(const name of ['LexPutPos','LexWarn','LexExcept'])
+for(const name of ['LexPutPos','LexWarn'])
   assert.throws(()=>compileHolyC(name+';',{lenient:false}),/undefined symbol/);
-console.log('Finite scanning preserves console independence and requires its diagnostic device before execution; debugger diagnostics remain absent.');
+//V5.03 Compiler/LexReport.HC's LexExcept is in the one runtime, with its prototype.
+assert.throws(()=>compileHolyC('LexExcept;',{lenient:false}),/Missing required function argument/);
+console.log('Finite scanning preserves console independence and requires its diagnostic device before execution; LexPutPos and LexWarn remain absent.');

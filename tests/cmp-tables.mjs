@@ -6,7 +6,8 @@ import {recorded} from './cmp-tables/cases.mjs';
 const proof=recorded(),expected=17104939n;
 function load(source,{tasks=false,failAt=0,exports=[]}={}) {
   const result=compileHolyC(source,{lenient:false,exports});assert.deepEqual(result.warnings,[]);
-  let output='',calls=0;const live=new Set(),host=(tasks?createTaskHost:createHost)({ansi:false,onText:s=>output+=s});
+  tasks||=result.requiredCapabilities.includes('task-continuations'); //A program that prints is a task.
+  let output='',calls=0;const live=new Set(),host=(tasks?createTaskHost:createHost)({ansi:false,onText:s=>output+=s,jit:result.jit});
   const alloc=host.env.__malloc_kernel;
   host.env.__malloc_kernel=size=>{if(++calls===failAt)return 0n;const ptr=alloc(size);if(ptr)live.add(ptr);return ptr;};
   const free=host.env.__free;host.env.__free=ptr=>{free(ptr);live.delete(ptr);};
@@ -14,15 +15,20 @@ function load(source,{tasks=false,failAt=0,exports=[]}={}) {
   return {result,host,instance,live,get calls(){return calls;},get output(){return output;},clear(){output='';}};
 }
 const release=test=>{for(const ptr of [...test.live])test.host.env.__free(ptr);assert.equal(test.live.size,0);};
+//A program boots only the Adam it reaches, so its boot is its own: the first
+//session makes the kernel's blocks, the six tables among them (the forms below
+//count those alone), and later sessions make none.
 const native=load(proof.source);
 try {
-  let heap;
+  let heap,boot;
   for(let i=0;i<5;i++) {
-    native.clear();native.instance.exports.__main();assert.equal(native.output,proof.output);
-    assert.equal(native.calls,6);assert.equal(native.live.size,6);
+    native.clear();await native.host.run();assert.equal(native.output,proof.output);
+    boot??=native.calls;assert(native.result.globals.has('cmp') && boot>=6);
+    assert.equal(native.calls,boot);assert.equal(native.live.size,boot);
     if(heap===undefined)heap=native.host.state.heapPtr;else assert.equal(native.host.state.heapPtr,heap);
   }
-} finally {release(native);}
+} finally {await native.host.dispose();}
+assert.equal(native.live.size,0);
 for(const source of [
   'I64 Read(){return cmp.compiled_lines;}',
   'I64 Read(){return sizeof(CCmpGlbls);}',
@@ -62,12 +68,15 @@ try {
   for(let i=0;i<16;i++)assert.equal(memory.getBigUint64(addr+8+i*8,true),0n,'No fabricated internal types.');
 } finally {release(escaped);}
 const faultSource='I64 started=0; I64 Read(){return cmp.dual_U16_tokens1[43];} started=1;';
+//The hooks before the tables (Adam's hash table, for the boot's defines) keep
+//theirs; every failure point leaves the heap as the first one does.
+let failed=null;
 for(let failAt=1;failAt<=6;failAt++) {
   const test=load(faultSource,{failAt,exports:['Read']});
   const warm=test.host.env.__malloc(8n);test.host.env.__free(warm);
-  const before=test.host.state.heapPtr;
   assert.throws(()=>test.instance.exports.__main(),WebAssembly.Exception);
-  assert.equal(test.calls,failAt);assert.equal(test.live.size,0);assert.equal(test.host.state.heapPtr,before);
+  assert.equal(test.calls,failAt);assert.equal(test.live.size,0);
+  failed??=test.host.state.heapPtr;assert.equal(test.host.state.heapPtr,failed);
   const bytes=new Uint8Array(test.instance.exports.memory.buffer),cmp=test.result.globals.get('cmp').addr;
   assert(bytes.slice(cmp,cmp+536).every(byte=>byte===0),'No staged table or scalar publishes on failure.');
   assert.equal(new DataView(bytes.buffer).getBigInt64(test.result.globals.get('started').addr,true),0n);
@@ -77,8 +86,9 @@ const fresh=load(faultSource,{exports:['Read']});
 try {fresh.instance.exports.__main();assert.equal(fresh.instance.exports.Read(),expected);assert.equal(fresh.calls,6);}
 finally {release(fresh);}
 const aliasesProof=recorded('CmpAliases'),aliases=load(aliasesProof.source);
-try {aliases.instance.exports.__main();assert.equal(aliases.output,aliasesProof.output);assert.equal(aliases.calls,6);}
-finally {release(aliases);}
+try {await aliases.host.run();assert.equal(aliases.output,aliasesProof.output);assert(aliases.calls>=6);}
+finally {await aliases.host.dispose();}
+assert.equal(aliases.live.size,0);
 const taskProof=recorded('CmpTableTask'),task=load(taskProof.source,{tasks:true});
 try {
   let heap,count;

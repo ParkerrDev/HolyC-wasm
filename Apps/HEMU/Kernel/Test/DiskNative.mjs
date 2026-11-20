@@ -4,7 +4,7 @@ import {readFileSync,writeFileSync} from "node:fs";
 import {createHash} from "node:crypto";
 import {pathToFileURL} from "node:url";
 import {compileHolyC} from "../../../../src/compiler.js";
-import {createHost} from "../../../../src/runtime/host.js";
+import {createTaskHost} from "../../../../src/runtime/tasks.js";
 
 const probe=readFileSync(new URL("DiskNative.HC",import.meta.url)),source=readFileSync(HemuPath("Kernel/Disk.HC")),
   hash=bytes=>createHash("sha256").update(bytes).digest("hex"),file=new URL("DiskNative.json",import.meta.url);
@@ -25,7 +25,9 @@ const compiled=compileHolyC(probe.toString("latin1"),{filename:"DiskNative.HC",l
   includeResolver:name=>name==="Disk"?source.toString("latin1"):null});
 assert.deepEqual(compiled.warnings,[]);
 let output="";
-const host=createHost({onText:text=>output+=text}),{instance}=await WebAssembly.instantiate(compiled.bytes,{env:host.env});
-host.attach(instance);instance.exports.__rt_init();instance.exports.__main();
+//Every program is a task (G5): its output reads kbd.scan_code, as V5.03's PutS.
+const host=createTaskHost({jit:compiled.jit,ansi:false,onText:text=>output+=text}),{instance}=await WebAssembly.instantiate(compiled.bytes,{env:host.env});
+host.attach(instance);
+try {await host.run();} finally {await host.dispose();}
 assert.equal(output,expected.out);
 console.log("Disk algorithms match native V5.03: qcow2 mappings, FAT32 long names, allocation, replacement, directory extension and every disk byte.");

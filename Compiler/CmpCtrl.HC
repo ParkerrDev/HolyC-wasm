@@ -1,11 +1,4 @@
 
-U32 char_bmp_alpha_numeric[16]=
-  {0,0x03FF0000,0x87FFFFFF,0x07FFFFFE,
-  0xFFFFFFFF,0xFFFFFFFF,0xFFFFFFFF,0xFFFFFFFF,0,0,0,0,0,0,0,0},
-  char_bmp_alpha_numeric_no_at[16]=
-  {0,0x03FF0000,0x87FFFFFE,0x07FFFFFE,
-  0xFFFFFFFF,0xFFFFFFFF,0xFFFFFFFF,0xFFFFFFFF,0,0,0,0,0,0,0,0};
-
 U0 LexFileHostChk(CLexFile *tmpf)
 {//Document streams need actual DolDoc lifetime support.
   while (tmpf) {
@@ -28,9 +21,13 @@ CLexFile *LexFilePop(CCmpCtrl *cc)
 {//#include file pop; outer borrowed buffers remain with their caller.
   CLexFile *tmpf;
   if (tmpf=cc->lex_include_stk) {
-    if (tmpf->flags&LFSF_DOC) throw('LexMode');
-    if ((cc->lex_include_stk=tmpf->next) || !(cc->flags&CCF_DONT_FREE_BUF))
-      Free(tmpf->buf);
+    if ((cc->lex_include_stk=tmpf->next) || !(cc->flags&CCF_DONT_FREE_BUF)) {
+      if (tmpf->flags & LFSF_DOC) {
+	if (tmpf->doc)
+	  DocDel(tmpf->doc);
+      } else
+	Free(tmpf->buf);
+    }
     Free(tmpf->full_name);
     Free(tmpf);
   }
@@ -39,7 +36,6 @@ CLexFile *LexFilePop(CCmpCtrl *cc)
 
 U0 CmpCtrlDel(CCmpCtrl *cc)
 {//Free compiler-control ownership, retaining borrowed hash tables.
-  LexFileHostChk(cc->lex_include_stk);
   while (LexFilePop(cc));
   LinkedLstDel(cc->lex_prs_stk);
   LinkedLstDel(cc->htc.next);
@@ -54,7 +50,6 @@ CCmpCtrl *CmpCtrlNew(U8 *buf=NULL,I64 flags=0,U8 *filename=NULL)
 {//Adopt buf only after construction succeeds, unless DONT_FREE_BUF borrows it.
   CCmpCtrl *cc=NULL;
   CLexFile *tmpf;
-  if (flags&CCF_PMT) throw('LexMode');
   try {
     cc=CAlloc(sizeof(CCmpCtrl));
     QueInit(cc);
@@ -73,6 +68,8 @@ CCmpCtrl *CmpCtrlNew(U8 *buf=NULL,I64 flags=0,U8 *filename=NULL)
       tmpf->full_name=FileNameAbs(filename);
     else
       tmpf->full_name=StrNew(blkdev.tmp_filename);
+    if (flags & CCF_PMT)
+      buf=CAlloc(8);
     tmpf->buf=tmpf->buf_ptr=tmpf->line_start=cc->cur_buf_ptr=buf;
     tmpf->line_num=1;
   } catch {
@@ -85,10 +82,14 @@ I64 CmpCtrlSize(CCmpCtrl *cc)
 {//Native counted fields using this backend's actual allocation spans.
   CLexFile *tmpf=cc->lex_include_stk;
   I64 res=0;
-  LexFileHostChk(tmpf);
   while (tmpf) {
-    if (tmpf->next || !(cc->flags&CCF_DONT_FREE_BUF))
-      res+=MSize2(tmpf->buf);
+    if (tmpf->next || !(cc->flags&CCF_DONT_FREE_BUF)) {
+      if (tmpf->flags & LFSF_DOC) {
+	if (tmpf->doc)
+	  res+=DocSize(tmpf->doc);
+      } else
+	res+=MSize2(tmpf->buf);
+    }
     res+=MSize2(tmpf->full_name);
     res+=MSize2(tmpf);
     tmpf=tmpf->next;

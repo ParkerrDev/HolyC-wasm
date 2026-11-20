@@ -21,8 +21,6 @@ CBlkDev dir_host_bds[DRVS_NUM];
 CDirHostNode *dir_host_nodes=NULL;
 I64 dir_host_node_cnt=0,dir_host_byte_cnt=0;
 Bool dir_host_ready=FALSE;
-U32 char_bmp_filename[16]={0,0x03FF73FB,0xEFFFFFFF,0x6FFFFFFF,
-  0xFFFFFFFF,0xFFFFFFFF,0xFFFFFFFF,0xFFFFFFFF,0,0,0,0,0,0,0,0};
 
 U8 *AStrNew(U8 *buf)
 {//Copy a string into the session kernel's heap.
@@ -79,8 +77,27 @@ CDirHostNode *DirHostNodeNew(CDirHostNode *parent,CDrv *dv,U8 *name,
   return res;
 }
 
+U0 DirHostNodeDel(CDirHostNode *node)
+{//Unlink a node, and a dir's sub tree, then free them.
+  CDirHostNode **_ptr;
+  while (node->child)
+    DirHostNodeDel(node->child);
+  _ptr=&node->parent->child;
+  while (*_ptr!=node)
+    _ptr=&(*_ptr)->next;
+  *_ptr=node->next;
+  _ptr=&dir_host_nodes;
+  while (*_ptr!=node)
+    _ptr=&(*_ptr)->all_next;
+  *_ptr=node->all_next;
+  dir_host_byte_cnt-=node->size;
+  dir_host_node_cnt--;
+  Free(node->data);
+  Free(node);
+}
+
 CDrv *DirHostVolume(U8 letter)
-{//Create an explicitly virtual volume, with no block-device emulation.
+{//A drive like any other; its blks and files are the host store's.
   I64 i;
   CDrv *dv;
   CBlkDev *bd;
@@ -93,11 +110,17 @@ CDrv *DirHostVolume(U8 letter)
   root=DirHostNodeNew(NULL,dv,"",TRUE);
   bd=&dir_host_bds[i];
   bd->bd_signature=BD_SIGNATURE_VAL;
-  bd->type=BDT_HOST;
+  if (letter=='B') //V5.03's B: is a RAM disk and C: a hard drive.
+    bd->type=BDT_RAM;
+  else
+    bd->type=BDT_ATA;
+  bd->flags=BDF_INITIALIZED;
+  bd->blk_size=BLK_SIZE;
   bd->first_drv_let=letter;
   dv->dv_signature=DRV_SIGNATURE_VAL;
   dv->drv_let=letter;
   dv->fs_type=FSt_HOST;
+  dv->spc=1; //As RedSea: a clus is a blk.
   dv->bd=bd;
   dv->root_clus=root;
   blkdev.let_to_drv[i]=dv;
@@ -534,6 +557,68 @@ Bool IsDir(U8 *dir_name)
   return res;
 }
 
+//V5.03 Kernel/BlkDev/DskDirB.HC Dir, with the defaults of KernelC.HH:283,
+//the prototype everything after the kernel sees.
+I64 Dir(U8 *files_find_mask="*",Bool full=FALSE)
+{//List directory.
+  CDirEntry *tmpde1=NULL,*tmpde2;
+  U8 *st;
+  CDateStruct ds;
+  I64 csize=0xFFFF,c=0xFFFF,res=0;
+  tmpde1=FilesFind(files_find_mask);
+  if (!(st=DirCur))
+    PrintErr("Invalid Drive\n");
+  else {
+    if (tmpde1) {
+      Free(st);
+      st=MAllocIdent(tmpde1->full_name);
+      StrLastRem(st,"/");
+      if (!st[2])
+	StrCpy(st+2,"/");
+//Find max columns
+      tmpde2=tmpde1;
+      while (tmpde2) {
+	if (tmpde2->size>csize)
+	  csize=tmpde2->size;
+	if (tmpde2->clus>c)
+	  c=tmpde2->clus;
+	tmpde2=tmpde2->next;
+      }
+      csize=Bsr(csize)/4+1;
+      c=Bsr(c)/4+1;
+
+      "$$MA,T=\"Directory\",LM=\"PopUpCd;Dir;\n\"$$ of %s\n",st;
+      if (full)
+	"__DATE__ __TIME__ %*ts %*ts\n",
+	      csize,"SIZE",c,"BLK";
+      else
+	"DATE_ TIME_ %*ts\n",csize,"SIZE";
+      while (tmpde1) {
+	tmpde2=tmpde1->next;
+	res++;
+	if (full)
+	  "%D %T %0*tX %0*tX ",tmpde1->datetime,tmpde1->datetime,
+		csize,tmpde1->size,c,tmpde1->clus;
+	else {
+	  Date2Struct(&ds,tmpde1->datetime+local_time_offset);
+	  "%02d/%02d %02d:%02d %0*tX ",ds.mon,ds.day_of_mon,ds.hour,ds.min,
+		csize,tmpde1->size;
+	}
+	if (tmpde1->attr & RS_ATTR_DIR)
+	  PutDirLink(tmpde1->name,tmpde1->full_name);
+	else
+	  PutFileLink(tmpde1->name,tmpde1->full_name);
+	'\n';
+	DirEntryDel(tmpde1);
+	tmpde1=tmpde2;
+      }
+    } else
+      "No matching entries\n";
+    Free(st);
+  }
+  return res;
+}
+
 Bool DirMk(U8 *filename,I64 entry_cnt=0)
 {//Make a directory in the session volume.
   U8 *name=NULL;
@@ -688,4 +773,257 @@ I64 DirHostMaxBytes()
 I64 DirHostMaxNodes()
 {
   return DIR_HOST_NODES_MAX;
+}
+
+//V5.03 Kernel/BlkDev/DskDirA.HC.
+U0 DirEntryDel(CDirEntry *tmpde)
+{//Free node returned from $LK,"FilesFind",A="MN:FilesFind"$().  Doesn't Free user_data.
+//Does not change the directory on disk.
+  if (tmpde) {
+    Free(tmpde->full_name);
+    Free(tmpde);
+  }
+}
+
+U0 DirEntryDel2(CDirEntry *tmpde)
+{//Free node returned from $LK,"FilesFind",A="MN:FilesFind"$().  Frees user_data
+//Does not change the directory on disk.
+  if (tmpde) {
+    Free(tmpde->full_name);
+    Free(tmpde->user_data);
+    Free(tmpde);
+  }
+}
+
+U0 DirTreeDel(CDirEntry *tmpde)
+{//Free tree returned from $LK,"FilesFind",A="MN:FilesFind"$().  Doesn't Free user_data.
+//Does not change the directory on disk.
+  CDirEntry *tmpde2;
+  while (tmpde) {
+    tmpde2=tmpde->next;
+    if (tmpde->sub)
+      DirTreeDel(tmpde->sub);
+    DirEntryDel(tmpde);
+    tmpde=tmpde2;
+  }
+}
+
+U0 DirTreeDel2(CDirEntry *tmpde)
+{//Free tree returned from $LK,"FilesFind",A="MN:FilesFind"$().  Frees user_data
+//Does not change the directory on disk.
+  CDirEntry *tmpde2;
+  while (tmpde) {
+    tmpde2=tmpde->next;
+    if (tmpde->sub)
+      DirTreeDel2(tmpde->sub);
+    DirEntryDel2(tmpde);
+    tmpde=tmpde2;
+  }
+}
+
+I64 DirEntryCompareName(CDirEntry *e1,CDirEntry *e2)
+{
+  U8 buf1[CDIR_FILENAME_LEN],buf2[CDIR_FILENAME_LEN],
+	buf3[CDIR_FILENAME_LEN],buf4[CDIR_FILENAME_LEN];
+  I64 d1=0,d2=0;
+  if (e1->attr & RS_ATTR_DIR)
+    d1=1;
+  if (e2->attr & RS_ATTR_DIR)
+    d2=1;
+  if (d1!=d2)
+    return d2-d1;
+  else {
+    StrCpy(buf1,e1->name);
+    StrCpy(buf2,e2->name);
+    FileExtRem(buf1,buf3);
+    FileExtRem(buf2,buf4);
+    if (d1=StrCmp(buf3,buf4))
+      return d1;
+    return StrCmp(buf1,buf2);
+  }
+}
+
+I64 DirEntryCompareClus(CDirEntry *e1,CDirEntry *e2)
+{
+  return e1->clus-e2->clus;
+}
+
+#define SK_NAME		0
+#define SK_CLUS	1
+
+U0 DirFilesSort(CDirEntry **_tmpde,I64 key)
+{
+  I64 i,cnt;
+  CDirEntry *tmpde=*_tmpde,*tmpde1,**sort_buf;
+  if (tmpde) {
+    cnt=LinkedLstCnt(tmpde);
+    if (cnt>1) {
+      sort_buf=MAlloc(cnt*sizeof(U8 *));
+      i=0;
+      tmpde1=tmpde;
+      while (tmpde1) {
+	sort_buf[i++]=tmpde1;
+	tmpde1=tmpde1->next;
+      }
+      switch [key] {
+	case SK_NAME:
+	  QSortI64(sort_buf,cnt,&DirEntryCompareName);
+	  break;
+	case SK_CLUS:
+	  QSortI64(sort_buf,cnt,&DirEntryCompareClus);
+	  break;
+      }
+      tmpde=sort_buf[0];
+      *_tmpde=tmpde;
+      for (i=0;i<cnt-1;i++) {
+	tmpde1=sort_buf[i];
+	tmpde1->next=sort_buf[i+1];
+      }
+      tmpde1=sort_buf[i];
+      tmpde1->next=NULL;
+      Free(sort_buf);
+
+      tmpde1=tmpde;
+      while (tmpde1) {
+	if (tmpde1->sub)
+	  DirFilesSort(&tmpde1->sub,key);
+	tmpde1=tmpde1->next;
+      }
+    } else
+      if (tmpde->sub)
+	DirFilesSort(&tmpde->sub,key);
+  }
+}
+
+CDirEntry *DirFilesFlatten(CDirEntry *tmpde,CDirEntry **_res,I64 fuf_flags)
+{//Returns last node
+  CDirEntry *tmpde1;
+  Bool del;
+  if (tmpde)
+    while (TRUE) {
+      tmpde1=tmpde->next;
+      if (!(tmpde->attr&RS_ATTR_DIR)||!(fuf_flags&FUF_JUST_FILES)) {
+	_res=*_res=tmpde;
+	del=FALSE;
+      } else
+	del=TRUE;
+      if (tmpde->sub) {
+	_res=DirFilesFlatten(tmpde->sub,_res,fuf_flags);
+	tmpde->sub=NULL;
+      }
+      if (del)
+	DirEntryDel(tmpde);
+      if (tmpde1)
+	tmpde=tmpde1;
+      else
+	break;
+    }
+  *_res=NULL;
+  return _res;
+}
+
+//V5.03 Kernel/BlkDev/DskDirA.HC PutFileLink and PutDirLink.
+U0 PutFileLink(U8 *filename,U8 *full_name=NULL,I64 line=0,Bool plain_text=FALSE)
+{//Put $LK,"DolDoc",A="FI:::/Doc/DolDocOverview.DD"$ file,line link to StdOut, $LK,"DocPut",A="MN:DocPut"$.
+  U8 *st;
+  if (!filename) return;
+  if (IsRaw) {
+    if (line)
+      "%s,%04d",filename,line;
+    else
+      "%s",filename;
+  } else {
+//LK_DOC,LK_DOC_ANCHOR,LK_DOC_FIND,LK_DOC_LINE
+    if (filename[0]=='A'&&filename[2]==':') {
+      if (line) //See $LK,"SpriteEdText",A="MN:SpriteEdText"$()
+	"$$LK,\"%s,%04d\",A=\"AL:%s,%d\"$$",filename+3,line,filename+3,line;
+      else
+	"$$LK,\"%s\",A=\"AI:%s\"$$",filename+3,filename+3;
+    } else {
+      if (!full_name)
+	full_name=st=FileNameAbs(filename);
+      else
+	st=NULL;
+      if (plain_text) {
+	if (line)
+	  "$$LK,\"%s,%04d\",A=\"PL:%s,%d\"$$",filename,line,full_name,line;
+	else
+	  "$$LK,\"%s\",A=\"PI:%s\"$$",filename,full_name;
+      } else {
+	if (line)
+	  "$$LK,\"%s,%04d\",A=\"FL:%s,%d\"$$",filename,line,full_name,line;
+	else
+	  "$$LK,\"%s\",A=\"FI:%s\"$$",filename,full_name;
+      }
+      Free(st);
+    }
+  }
+}
+
+U0 PutDirLink(U8 *dirname,U8 *full_name=NULL)
+{//Put $LK,"DolDoc",A="FI:::/Doc/DolDocOverview.DD"$ dir macro to StdOut, $LK,"DocPut",A="MN:DocPut"$.
+  U8 *st;
+  if (!dirname) return;
+  if (IsRaw)
+    "%s",dirname;
+  else {
+    if (!full_name)
+      full_name=st=DirNameAbs(dirname);
+    else
+      st=NULL;
+    "$$MA,T=\"%s\",LM=\"Cd(\\\"%s\\\");Dir;\n\"$$",dirname,full_name;
+    Free(st);
+  }
+}
+
+//V5.03 Kernel/BlkDev/DskStrA.HC DirFile.
+U8 *DirFile(U8 *dirname,U8 *name=NULL,U8 *_extension=NULL)
+{/*Strips file from dirname, scans for file upward until found or
+returns default.
+
+("/Kernel/KHashA.HC.Z",NULL,NULL)	returns "D:/Kernel"
+("/Kernel",NULL,"PRJ.Z")		returns "D:/Kernel/Kernel.PRJ.Z"
+("/Kernel/BlkDev",NULL,"PRJ.Z")		returns "D:/Kernel/Kernel.PRJ.Z"
+("/Apps/Psalmody","Load","HC.Z")	returns "D:/Apps/Psalmody/Load.HC.Z"
+*/
+  U8 *st=DirNameAbs(dirname),*st2,*st3,*res,*dft=NULL,*ext;
+  if (_extension && *_extension) {
+    if (*_extension=='.')
+      ext=StrNew(_extension);
+    else
+      ext=MStrPrint(".%s",_extension);
+  } else
+    ext=StrNew("");
+  while (StrOcc(st,'/')&&!IsDir(st))
+    StrLastRem(st,"/");
+  while (StrOcc(st,'/')) {
+    st2=StrNew(st);
+    st3=StrNew(st);
+    StrLastRem(st2,"/",st3);
+
+    if (name)
+      res=MStrPrint("%s/%s%s",st,name,ext);
+    else {
+      if (*ext)
+	res=MStrPrint("%s/%s%s",st,st3,ext);
+      else
+	res=StrNew(st);
+    }
+    if (!dft)
+      dft=StrNew(res);
+    if (!*ext && (!name||!*name) || FileFind(res)) {
+      Free(st3);
+      Free(st2);
+      Free(st);
+      Free(dft);
+      Free(ext);
+      return res;
+    }
+    Free(st);
+    st=st2;
+    Free(st3);
+  }
+  Free(st);
+  Free(ext);
+  return dft;
 }

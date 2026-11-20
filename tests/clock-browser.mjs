@@ -32,7 +32,7 @@ try {
     finally{globalThis.SharedArrayBuffer=original;}
   }),null,"Missing shared memory retains the generic fresh-clock provider");
   await page.evaluate(async()=>{
-    const {makeControlSAB,CTRL,KB_BASE}=await import("/src/runtime/protocol.js");
+    const {makeControlSAB,keyPacketPush}=await import("/src/runtime/protocol.js");
     window.start=function(source){
       window.messages=[];window.control=new Int32Array(makeControlSAB());
       window.work=new Worker("/src/runtime/worker.js",{type:"module"});
@@ -40,7 +40,8 @@ try {
       work.postMessage({type:"run",source,controlSAB:control.buffer,
         fbSAB:new SharedArrayBuffer(640*480),paletteSAB:new SharedArrayBuffer(256*4)});
     };
-    window.finish=function(){control[KB_BASE]=32;Atomics.store(control,CTRL.KB_HEAD,1);};
+    //Every program is a task, so a key is a set-1 packet: Space down and up.
+    window.finish=function(){for(const bytes of [[0x39],[0xB9]])keyPacketPush(control,bytes);work.postMessage({type:"input"});};
   });
   async function clocks(expected){
     const end=Date.now()+5000;
@@ -58,13 +59,15 @@ try {
     return page.evaluate(type=>messages.find(item=>item.type===type),type);
   }
   async function done(){await message("done");await clocks(0);await page.evaluate(()=>work.terminate());}
-  const wait='"READY\\n";while(!ScanChar) {}';
+  //V5.03 is non-preemptive (Doc/Welcome.DD) and a key reaches a task through
+  //WinMgr (WinMgr.HC:309), so a program waiting for one yields.
+  const wait='"READY\\n";while(!ScanChar) Yield;';
   await start(wait);await message("text");await clocks(0);
   await page.evaluate(()=>finish());await done();
 
   await start(`I64 a=GetTSC,last=a,b,n=0,back=0; F64 end=tS+0.06;
     while(tS<end) {b=GetTSC;if(b<last)back++;if(b!=last)n++;last=b;}
-    "%d %d\\n",n,back;while(!ScanChar) {}`);
+    "%d %d\\n",n,back;while(!ScanChar) Yield;`);
   const text=(await message("text")).text.trim().split(" ").map(Number);
   assert(text[0]>1,"Sampled time advances while WASM does not yield the worker event loop");
   assert.equal(text[1],0,"Sampled time is monotonic");await clocks(1);

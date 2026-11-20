@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {compileHolyC} from "../src/compiler.js";
 import {createHost} from "../src/runtime/host.js";
+import {createTaskHost} from "../src/runtime/tasks.js";
 
 const source=`U0 Show()
 {
@@ -14,9 +15,9 @@ assert.ok(imports.some(value=>value.name==="__puts"));
 assert.ok(!imports.some(value=>value.name==="__printf"));
 for (const ansi of [false,true]) {
   let out="";
-  const host=createHost({ansi,onText:s=>out+=s}),
+  const host=createTaskHost({ansi,onText:s=>out+=s}),
     {instance}=await WebAssembly.instantiate(result.bytes,{env:host.env});
-  host.attach(instance);instance.exports.__rt_init();instance.exports.Show();
+  host.attach(instance);await host.run();instance.exports.Show();
   assert.equal(out,ansi?"\x1b[31mhi\x1b[39m abc 0007\n\x1b[34mthere\x1b[39m":
     "hi abc 0007\nthere");
   const heap=host.state.heapPtr,stack=instance.exports.__sp.value;
@@ -35,12 +36,12 @@ const host=createHost(),{instance}=await WebAssembly.instantiate(explicit.bytes,
 fn=instance.exports;host.attach(instance);fn.__main();
 assert.deepEqual(seen,[1n,7n]);
 const silent=compileHolyC(readFileSync(new URL('v503/Silent.HC',import.meta.url)),{lenient:false});
-assert.deepEqual(silent.requiredCapabilities,[],'console silence does not require a scheduler');
+assert.deepEqual(silent.requiredCapabilities,['task-continuations'],'output goes through the task\'s key devices');
 assert(!WebAssembly.Module.imports(new WebAssembly.Module(silent.bytes)).some(entry=>entry.name==='__print_bytes'));
 let quiet='';
-const silenceHost=createHost({ansi:false,onText:value=>quiet+=value});
+const silenceHost=createTaskHost({ansi:false,onText:value=>quiet+=value});
 const silenceInstance=new WebAssembly.Instance(new WebAssembly.Module(silent.bytes),{env:silenceHost.env});
-silenceHost.attach(silenceInstance);silenceInstance.exports.__main();
+silenceHost.attach(silenceInstance);await silenceHost.run();
 assert.equal(quiet,readFileSync(new URL('v503/Silent.out',import.meta.url),'latin1'));
 assert.throws(()=>compileHolyC("'abc';",{noPrelude:true,lenient:false}),/explicit PutChars declaration/);
 let packed;
@@ -50,10 +51,10 @@ const charHost=createHost(),charInstance=new WebAssembly.Instance(new WebAssembl
 charHost.attach(charInstance);charInstance.exports.__main();assert.equal(packed,0x6867666564636261n);
 const expression=compileHolyC(readFileSync(new URL('v503/OutputExpr.HC',import.meta.url)),{lenient:false});
 let exprOut='';
-const exprHost=createHost({ansi:false,onText:text=>exprOut+=text});
+const exprHost=createTaskHost({ansi:false,onText:text=>exprOut+=text});
 const exprInstance=new WebAssembly.Instance(new WebAssembly.Module(expression.bytes),{env:exprHost.env});
-exprHost.attach(exprInstance);exprInstance.exports.__main();
+exprHost.attach(exprInstance);await exprHost.run();
 assert.equal(exprOut,readFileSync(new URL('v503/OutputExpr.out',import.meta.url),'latin1'));
 for (const source of ["'';",'"";',"'\\0';",'"\\0ignored";'])
   assert.throws(()=>compileHolyC(source,{lenient:false}),/unexpected token in expression/);
-console.log("Print shortcuts share native formatting, preserve terminal colors and release 1,000 repeated outputs; silent state and packed-character output match native without task requirements; dynamic format/character expressions, missing-expression rejection and explicit no-prelude imports work.");
+console.log("Print shortcuts share native formatting, preserve terminal colors and release 1,000 repeated outputs; silent state through the task's key devices and packed-character output match native; dynamic format/character expressions, missing-expression rejection and explicit no-prelude imports work.");

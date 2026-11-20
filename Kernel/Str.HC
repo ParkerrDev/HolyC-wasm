@@ -21,9 +21,6 @@ F64 Pow10I64(I64 i)
 #define PRTF_NEG_E		0x400
 #define PRTF_NEG_AUX_FMT_NUM	0x800
 
-U32 char_bmp_hex_numeric[16]=
-{0,0x03FF0000,0x7E,0x7E,0,0,0,0,0,0,0,0,0,0,0,0};
-
 U64 ModU64(U64 *_q,U64 d)
 {
   U64 res=*_q%d;
@@ -447,10 +444,21 @@ sp_arg:
 		throw('StrPrint');
 	      ptr=argv[cur_arg++];
 	      break;
+	    case 'S':
+	      if (cur_arg>=argc)
+		throw('StrPrint');
+	      ptr=Define(argv[cur_arg++]);
+	      break;
 	    case 'z':
 	      if (cur_arg+1>=argc)
 		throw('StrPrint');
 	      ptr=LstSub(argv[cur_arg],argv[cur_arg+1]);
+	      cur_arg=cur_arg+2;
+	      break;
+	    case 'Z':
+	      if (cur_arg+1>=argc)
+		throw('StrPrint');
+	      ptr=DefineSub(argv[cur_arg],argv[cur_arg+1]);
 	      cur_arg=cur_arg+2;
 	      break;
 	  end:
@@ -485,8 +493,6 @@ sp_arg:
 	  case 'F':
 	  case 'D':
 	  case 'T':
-	  case 'S':
-	  case 'Z':
 	  case 'p':
 	  case 'P':
 	    throw('FmtHost',TRUE);
@@ -969,6 +975,24 @@ U8 *MStrPrint(U8 *fmt,...)
   return res;
 }
 
+U0 PrintErr(U8 *fmt,...)
+{//Print "Err:" and msg in blinking red.
+  U8 *buf=StrPrintJoin(NULL,fmt,argc,argv);
+  GetOutOfDollar;
+  ST_ERR_ST "%s",buf; //Back with Caller (V5.03 KDbg.HC):
+//"%,p %,p %,p %,p " ST_ERR_ST "%s",Caller,Caller(2),Caller(3),Caller(4),buf;
+  Free(buf);
+}
+
+U0 PrintWarn(U8 *fmt,...)
+{//Print "Warn:" and msg in blinking red.
+  U8 *buf=StrPrintJoin(NULL,fmt,argc,argv);
+  GetOutOfDollar;
+  ST_WARN_ST "%s",buf; //Back with Caller (V5.03 KDbg.HC):
+//"%,p %,p %,p %,p " ST_WARN_ST "%s",Caller,Caller(2),Caller(3),Caller(4),buf;
+  Free(buf);
+}
+
 public I64 GrPrint(CDC *dc=gr.dc,I64 x,I64 y,U8 *fmt,...)
 {//2D. Clipping but not transformation.
   I64 res;
@@ -1002,12 +1026,6 @@ public I64 GrPrint3(CDC *dc=gr.dc,I64 x,I64 y,I64 z,U8 *fmt,...)
 #define SUF_T2S			0x100 //Only works with MStrUtil
 #define SUF_SCALE_INDENT	0x200
 #define SUF_SAFE_DOLLAR		0x400
-
-U32 char_bmp_white_space[16]=
-{0x80002600,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-  char_bmp_safe_dollar[16]=
-{0x80000000,0xFFFFFFEF,0xFFFFFFFF,0x7FFFFFFF,
-0xFFFFFFFF,0xFFFFFFFF,0xFFFFFFFF,0xFFFFFFFF,0,0,0,0,0,0,0,0};
 
 I64 Spaces2Tabs(U8 *dst,U8 *src)
 {//Src buf with spaces to dst buf without.
@@ -1244,4 +1262,71 @@ U8 *MStrUtil(U8 *src,I64 flags,F64 indent_scale_factor=0)
     Free(dst);
   Free(dst);
   return res;
+}
+
+//V5.03 Kernel/StrB.HC's GetOutOfDollar and ScanFlags.
+U0 GetOutOfDollar()
+{//If a $$ has been printed, print another $$ to exit mode.
+  CDoc *doc;
+  if (IsRaw) {
+    if (text.raw_flags&RWF_IN_DOLLAR)
+      '$$';
+  } else {
+    if (fp_doc_put && (doc=(*fp_doc_put)(Fs)) && doc->flags&DOCF_IN_DOLLAR)
+      '$$';
+  }
+}
+
+U0 ScanFlags(U8 *_dst_flags,U8 *lst,U8 *src)
+{/*More than 64 flags. Flags passed by ref.
+
+Examples:
+$LK,"ScanFlags",A="FF:::/Adam/Opt/Utils/Diff.HC,ScanFlags:2"$(&fuf_flags,Define("ST_FILE_UTIL_FLAGS"),fu_flags);
+
+I64 flags=0;
+ScanFlags(&flags,"R\0L\0Dump\0Scan\0","+Dump-R"); //Sets Bit#2, Clears Bit#0.
+*/
+  I64 i;
+  U8 *buf,*ptr;
+  if (src) {
+    buf=MAlloc(StrLen(src)+1);
+    while (*src) {
+      while (*src && *src!='+' && *src!='-')
+	src++;
+      if (*src=='+') {
+	src++;
+	if (*src) {
+	  ptr=buf;
+	  while (*src && *src!='+' && *src!='-' &&
+		*src!=CH_SPACE && *src!=CH_SHIFT_SPACE)
+	    *ptr++=*src++;
+	  *ptr=0;
+	  i=LstMatch(buf,lst);
+	  if (i>=0)
+	    LBts(_dst_flags,i);
+	  else {
+	    Free(buf);
+	    throw('ScanFlag');
+	  }
+	}
+      } else if (*src=='-') {
+	src++;
+	if (*src) {
+	  ptr=buf;
+	  while (*src && *src!='+' && *src!='-' &&
+		*src!=CH_SPACE && *src!=CH_SHIFT_SPACE)
+	    *ptr++=*src++;
+	  *ptr=0;
+	  i=LstMatch(buf,lst);
+	  if (i>=0)
+	    LBtr(_dst_flags,i);
+	  else {
+	    Free(buf);
+	    throw('ScanFlag');
+	  }
+	}
+      }
+    }
+    Free(buf);
+  }
 }

@@ -65,6 +65,8 @@ CTask *TaskHostNew(CTask *parent,U8 *name,I64 stk_size)
     task->next_child_task=task->last_child_task=
 	  (&task->next_child_task)(U8 *)-offset(CTask.next_sibling_task);
     JobCtrlInit(&task->srv_ctrl);
+    QueInit(&task->next_ctrl);
+    QueInit(&task->next_ode);
     task->text_attr=WHITE<<4+BLUE;
     task->win_inhibit=WIG_TASK_DFT;
     task->title_src=TTS_TASK_NAME;
@@ -102,6 +104,8 @@ U0 TaskHostDone(CTask *task)
   task->last_sibling_task->next_sibling_task=task->next_sibling_task;
   task->next_sibling_task->last_sibling_task=task->last_sibling_task;
   task->task_signature=0;
+  if (task==sys_winmgr_task)
+    sys_winmgr_task=adam_task;
 }
 
 U0 TaskHostMsg(CTask *task,I64 code,I64 arg1,I64 arg2)
@@ -176,6 +180,16 @@ CTask *Spawn(U0 (*fp_start_addr)(U8 *data),U8 *data=NULL,U8 *task_name=NULL,
 	parent,stk_size,flags);
 }
 
+U0 DeathWait(CTask **_task,Bool send_exit=FALSE)
+{//Wait for task death.
+  if (send_exit && TaskValidate(*_task)) {
+    TaskWait(*_task,TRUE);
+//    XTalk(*_task,"Exit;\n"); //Back with XTalk (V5.03 Job.HC).
+  }
+  while (TaskValidate(*_task))
+    Yield;
+}
+
 Bool Kill(CTask *task,Bool wait=TRUE,Bool just_break=FALSE)
 {
   return __task_kill(task,wait,just_break);
@@ -186,60 +200,30 @@ U0 Exit()
   __task_exit;
 }
 
-I64 GetMsg(I64 *_arg1=NULL,I64 *_arg2=NULL,I64 mask=~1,CTask *task=NULL)
-{//Wait for a matching message, discarding unmatched messages.
-  I64 res;
-  if (!task) task=Fs;
-  LBtr(&task->task_flags,TASKf_IDLE);
-  while (!(res=ScanMsg(_arg1,_arg2,mask,task))) {
-    LBts(&task->task_flags,TASKf_IDLE);
-    __task_wait(task);
-  }
-  LBtr(&task->task_flags,TASKf_IDLE);
-  return res;
-}
-
-Bool ScanKey(I64 *_ch=NULL,I64 *_scan_code=NULL,Bool echo=FALSE)
-{
-  I64 ch=0,sc=0;
-  if (ScanMsg(&ch,&sc,1<<MSG_KEY_DOWN)) {
-    if (_ch) *_ch=ch;
-    if (_scan_code) *_scan_code=sc;
-    if (echo) PutKey(ch,sc);
-    return TRUE;
-  }
-  if (_ch) *_ch=0;
-  if (_scan_code) *_scan_code=0;
-  return FALSE;
-}
-
-I64 GetKey(I64 *_scan_code=NULL,Bool echo=FALSE,Bool raw_cursor=FALSE)
-{
-  I64 ch,sc;
-  if (raw_cursor) throw('KeyHost',TRUE);
-  while (!ScanKey(&ch,&sc,FALSE)) {
-    LBts(&Fs->task_flags,TASKf_IDLE);
-    LBts(&Fs->task_flags,TASKf_AWAITING_MSG);
-    __task_wait(Fs);
-    LBtr(&Fs->task_flags,TASKf_IDLE);
-  }
-  if (echo) PutKey(ch,sc);
-  if (_scan_code) *_scan_code=sc;
-  return ch;
-}
-
-I64 GetChar(I64 *_scan_code=NULL,Bool echo=TRUE,Bool raw_cursor=FALSE)
-{//Wait for a non-zero ASCII key, preserving its native scan code.
+Bool YorN()
+{//Wait for user to answer Y or N.
   I64 ch;
-  do ch=GetKey(_scan_code,FALSE,raw_cursor);
-  while (!ch);
-  if (echo)
-    "$$PT$$%c$$FG$$",ch;
-  return ch;
+  "(y or n)? ";
+  while (TRUE) {
+    ch=ToUpper(GetChar(,FALSE));
+    if (ch=='Y') {
+      "$$PT$$YES$$FG$$\n";
+      return TRUE;
+    } else if (ch=='N') {
+      "$$PT$$NO$$FG$$\n";
+      return FALSE;
+    }
+  }
 }
 
 I64 PressAKey()
 {//Print a prompt and wait for a non-zero ASCII key.
   "$$BK,1$$PRESS A KEY$$BK,0$$\n";
   return GetChar(,FALSE);
+}
+
+Bool AreYouSure()
+{//Print "Are you sure" and waits for Y or N.
+  "ARE YOU SURE ";
+  return YorN;
 }

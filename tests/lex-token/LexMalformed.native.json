@@ -15,16 +15,16 @@
     "accelerator": "kvm",
     "version": "QEMU emulator version 11.1.2"
   },
-  "evidence": "tests/.oracle/qemu-l9bp8zz5",
+  "evidence": "tests/.oracle/qemu-zlr_ep2f",
   "sourceSha256": "648f37595a9684546efb509b4cea7eb38b847ce1fde078f0747fc292fa4fbfd6",
   "wrapper": "Raw(OFF);\n",
   "nativeBindings": "extern I64 LexInStr(CCmpCtrl *cc,U8 *buf,I64 size,Bool *done);\nextern U0 LexIncludeStr(CCmpCtrl *cc,U8 *filename,U8 *src,Bool actual);\n",
   "nativeDiagnostic": "U0 LexHostFail(CCmpCtrl *cc,U8 *reason,I64 code='Compiler')\n{//Use the original debugger diagnostic only in the native comparison.\n  if (code=='Compiler') LexExcept(cc,reason);\n  throw(code);\n}\n",
   "typesSha256": "d312a8b88245b812cd3e1a30c79bcfb67de2d36d8b003f904bf017e4e3848ea0",
-  "librarySha256": "4caf1d3c24806797d65ca5409572817f181cb5f66bc4dfa1a774143a7a77fb01",
+  "librarySha256": "43d02c5285cf8398af3f8b541f4af258af52c432d517203379c7c73a1aaaf32c",
   "inputSha256": [
     "153940d9f7310559305230892121b9968fe81393e6e966a1fb16c83bbc491c21",
-    "62ed327aa0b584f8847b641c86bdf8c3899df145a2065331a941b4012baf028c"
+    "29bcf1735c93339a28745cfa9bc136ccecc28aa3b2356f59ec8c67c3e29861a5"
   ],
   "captureSha256": "baa39e21c404a0da05762f7630e2c10b3c52e7e16d305546b306254c35056317",
   "results": [

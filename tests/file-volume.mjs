@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {compileHolyC} from '../src/compiler.js';
 import {createHost} from '../src/runtime/host.js';
+import {createTaskHost} from '../src/runtime/tasks.js';
 const source=String.raw`
 I64 WriteTry(U8 *name,I64 size) {
   I64 res=0;
@@ -25,17 +26,38 @@ I64 Info(U8 *name,I64 field) {
 const compiled=compileHolyC(source,{lenient:false,exports:['WriteTry','Info','Cd','DirHostClear']});
 assert.deepEqual(compiled.warnings,[]);const module=new WebAssembly.Module(compiled.bytes);
 const tag=text=>[...Buffer.from(text)].reduce((v,ch,i)=>v|BigInt(ch)<<BigInt(i*8),0n);
+//Cd prints, so this is a task program: its boot (V5.03's Adam) belongs to the
+//instance, and the empty heap comes back when the host is disposed. boot keeps
+//the live allocations the boot leaves.
+const tasks=compiled.requiredCapabilities.includes('task-continuations');assert(tasks);
 function load(files=[]) {
-  const host=createHost({files,onText:()=>{}}),instance=new WebAssembly.Instance(module,{env:host.env});host.attach(instance);
+  const host=(tasks?createTaskHost:createHost)({files,jit:compiled.jit,onText:()=>{}});
+  const live=new Set();let boot=null;
+  for(const name of ['__malloc','__malloc_kernel','__malloc_for']) {
+    const alloc=host.env[name];host.env[name]=(...args)=>{const ptr=alloc(...args);if(ptr>0n)live.add(ptr);return ptr;};
+  }
+  const free=host.env.__free,booted=host.env.__rt_booted;
+  host.env.__free=ptr=>{free(ptr);live.delete(ptr);boot?.delete(ptr);};
+  host.env.__rt_booted=()=>{booted();boot=new Set(live);};
+  const instance=new WebAssembly.Instance(module,{env:host.env});host.attach(instance);
   const fn=instance.exports;
   function path(value,call) {
     const bytes=Buffer.from(value,'latin1'),ptr=fn.MAlloc(BigInt(bytes.length+1),0n);
     new Uint8Array(fn.memory.buffer).set(bytes,Number(ptr));new Uint8Array(fn.memory.buffer)[Number(ptr)+bytes.length]=0;
     try{return call(ptr);}finally{fn.Free(ptr);}
   }
-  return {host,fn,path};
+  return {host,fn,path,main:()=>tasks?host.run():fn.__main(),
+    //Clearing the volume leaves only the boot's allocations and the heap the
+    //boot left, unless the volume's data was the top of that heap: then at
+    //least those bytes come back. Disposing the instance empties the heap.
+    async clear(top=0) {
+      fn.DirHostClear();assert.equal(live.size-boot.size,0);
+      if(top) assert(host.state.boot.heapPtr-host.state.heapPtr>=top);
+      else assert.equal(host.state.heapPtr,host.state.boot.heapPtr);
+      await host.dispose();assert.equal(live.size,0);assert.equal(host.state.heapPtr,16777248);
+    }};
 }
-const seeded=load([{path:'C:/Keep',bytes:Uint8Array.of(7)}]);seeded.fn.__main();
+const seeded=load([{path:'C:/Keep',bytes:Uint8Array.of(7)}]);await seeded.main();
 const nodes=Number(seeded.fn.DirHostMaxNodes()),bytes=Number(seeded.fn.DirHostMaxBytes()),limit=Number(seeded.fn.DirHostMaxPath());
 assert.equal(seeded.path('C:/Saved.BIN',p=>seeded.fn.WriteTry(p,3n)),1n);
 const image=new Uint8Array(seeded.fn.memory.buffer).slice(),cursor=seeded.host.state.heapPtr,entries=seeded.host.files();
@@ -45,27 +67,28 @@ new Uint8Array(restored.fn.memory.buffer).set(image);restored.host.state.heapPtr
 assert.deepEqual(restored.host.files(),entries);
 for(const [field,value] of [3n,2n,0xB2D3D12345678n].entries())
   assert.equal(restored.path('C:/Saved.BIN',p=>restored.fn.Info(p,BigInt(field))),value);
-restored.fn.DirHostClear();assert.equal(restored.host.state.heapPtr,16777248);
-const initial=seeded.host.files().length-2;seeded.fn.DirHostClear();
+//The image holds seeded's boot, so its clear leaves the heap seeded's boot left.
+restored.fn.DirHostClear();assert.equal(restored.host.state.heapPtr,seeded.host.state.boot.heapPtr);
+const initial=seeded.host.files().length-2;await seeded.clear();
 
 const full=load(Array.from({length:nodes-initial},(_,i)=>({path:'C:/Q'+i,bytes:new Uint8Array()})));
-full.fn.__main();assert.equal(full.host.files().length,nodes);
+await full.main();assert.equal(full.host.files().length,nodes);
 assert.equal(full.path('C:/New',p=>full.fn.WriteTry(p,3n)),-tag('FsQuota'));
 assert.equal(full.path('C:/Q0',p=>full.fn.WriteTry(p,3n)),1n);
-assert.equal(full.host.files().length,nodes);full.fn.DirHostClear();assert.equal(full.host.state.heapPtr,16777248);
+assert.equal(full.host.files().length,nodes);await full.clear();
 
 const exact=load([{path:'C:/Big',bytes:new Uint8Array(bytes-3)},{path:'C:/Small',bytes:Uint8Array.of(9,8,7)}]);
-exact.fn.__main();assert.equal(exact.path('C:/Small',p=>exact.fn.WriteTry(p,3n)),1n);
+await exact.main();assert.equal(exact.path('C:/Small',p=>exact.fn.WriteTry(p,3n)),1n);
 assert.equal(exact.path('C:/New',p=>exact.fn.WriteTry(p,1n)),-tag('FsQuota'));
 assert.equal(exact.path('C:/Small',p=>exact.fn.WriteTry(p,0n)),1n);
 assert.equal(exact.path('C:/New',p=>exact.fn.WriteTry(p,3n)),1n);
 assert.equal(exact.path('C:/Small',p=>exact.fn.Info(p,0n)),0n);
 const data=exact.host.files();assert.equal(data.reduce((n,f)=>n+(f.bytes?.length??0),0),bytes);
 assert.deepEqual(data.find(f=>Buffer.from(f.path).toString()==='C:/New').bytes,Uint8Array.of(97,98,99));
-exact.fn.DirHostClear();assert.equal(exact.host.state.heapPtr,16777248);
+await exact.clear(bytes-3);
 
 const part='x'.repeat(36),count=Math.floor((limit-3)/37),deep='C:/'+Array(count).fill(part).join('/');
-const paths=load([{path:deep,directory:true}]);paths.fn.__main();assert.equal(paths.path(deep,p=>paths.fn.Cd(p,0n)),1n);
+const paths=load([{path:deep,directory:true}]);await paths.main();assert.equal(paths.path(deep,p=>paths.fn.Cd(p,0n)),1n);
 assert.equal(paths.path('A'.repeat(37),p=>paths.fn.WriteTry(p,1n)),-tag('FsPath'));
-assert(paths.host.files().every(f=>f.path.length<=limit));paths.fn.DirHostClear();assert.equal(paths.host.state.heapPtr,16777248);
+assert(paths.host.files().every(f=>f.path.length<=limit));await paths.clear();
 console.log('File volume: exact node/data quotas, replacement/truncation accounting, composed-path limits and full-memory byte/attribute/date restore pass.');

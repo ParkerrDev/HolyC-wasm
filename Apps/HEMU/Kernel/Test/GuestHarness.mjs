@@ -18,6 +18,11 @@ export async function GuestHarness(opt={})
     diskWrite:(...args)=>disk?.writeInto(...args),
     onText(s){if (s.includes("BADOP")) badops.push(s);}
   });
+  let allocs=0;
+  for (const name of ["__malloc","__malloc_kernel"]) {
+    const malloc=host.env[name];
+    host.env[name]=size=>{allocs++;return malloc(size);};
+  }
   if (opt.sharedMemory)
     host.env.mem=new WebAssembly.Memory({initial:8192,maximum:8192,shared:true});
   Object.assign(host.env,{
@@ -77,6 +82,7 @@ export async function GuestHarness(opt={})
   }
   return {ex,gx,base,disk,compiled,Run,Exec,Name,Key:keys.Push,
     Call:(fn,args,budget)=>Settle(gx.call(fn,args,budget)),
-    TimeSet(value){ns=value;}
+    TimeSet(value){ns=value;},
+    Allocs:()=>allocs //The engine's own heap allocations so far.
   };
 }

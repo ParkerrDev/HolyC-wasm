@@ -4,6 +4,9 @@ export function createHemuHost(opts = {}) {
   const host = createHost(opts);
   const u8 = () => new Uint8Array(host.state.mem.buffer);
   Object.assign(host.env, {
+    //HEMU is the machine TempleOS runs on, not a program on Adam: one thread
+    //that prints but never spawns, waits or kills (those still throw).
+    __task_require() {},
     __host_snd(hz,ns) { host.state.snd?.tone(hz,BigInt.asUintN(64,ns)); },
     __snap_load(base) { opts.snapLoad?.(Number(base), u8()); },
     __present(addr, w, h) { opts.present?.(Number(addr), Number(w), Number(h), u8()); },

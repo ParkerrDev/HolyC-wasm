@@ -13,13 +13,14 @@ const bytes=native.match(/U8 key_packets\[\d+\]=\{([^}]+)\}/)[1].split(',').filt
 const packets=[];for(let i=0;i<bytes.length;) {const length=bytes[i++];packets.push(bytes.slice(i,i+=length));}
 const dump=native.slice(native.indexOf('    "%X %X %d '),native.indexOf("    '\\n';")+10).replace(/,task\)/g,')');
 const source=`
-I64 step=0,stop=0;
+I64 step=0,stop=0,ready=0;
 I64 ForceTasks() {return GetKey;}
 I64 Clear() {I64 i;for(i=0;i<8;i++) if(kbd.down_bitmap[i] || kbd.down_bitmap2[i]) return FALSE;return TRUE;}
 I64 Flags() {return kbd.scan_code;}
 I64 Count() {return kbd.cnt;}
 U0 Input() {
   I64 j,code,ch,sc;
+  ready=1;
   while(!stop) {
     while(!step && !stop) Sleep(1);
     if(stop) break;
@@ -41,7 +42,8 @@ const get=name=>memory.getBigInt64(address(name),true);
 const deadline=setTimeout(()=>{throw new Error('Keyboard checks did not settle');},15000);
 const wait=async predicate=>{for(let i=0;!predicate();i++) {assert(i<5000,'keyboard task made no progress');await new Promise(resolve=>setTimeout(resolve,1));}};
 const running=host.run('Input');
-await wait(()=>host.state.tasks[0].status==='waiting');
+//The boot (__rt_init) runs on the root first and Yields, so the keys wait for Input.
+await wait(()=>get('ready')===1n && host.state.tasks[0].status==='waiting');
 for(const packet of packets) {
   assert(host.keyBytes(packet));set('step',1);await wait(()=>get('step')===0n);
 }
@@ -64,7 +66,8 @@ let fail=false;
 const broken=createTaskHost({onText:()=>{}}),original=broken.env.__malloc_kernel;
 broken.env.__malloc_kernel=size=>fail?0n:original(size);
 const second=new WebAssembly.Instance(module,{env:broken.env});broken.attach(second);
-const active=broken.run('Input');await wait(()=>broken.state.tasks[0].status==='waiting');
+const active=broken.run('Input');
+await wait(()=>new DataView(second.exports.memory.buffer).getBigInt64(address('ready'),true)===1n && broken.state.tasks[0].status==='waiting');
 const initial=second.exports.__sp.value;fail=true;
 for(let i=0;i<100;i++) assert.throws(()=>broken.postMessage(2,1,2),WebAssembly.Exception);
 assert.equal(second.exports.__sp.value,initial);

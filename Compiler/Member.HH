@@ -1,6 +1,7 @@
 
 extern class CHashClass;
 extern class CHashFun;
+extern class CAOTHeapGlbl;
 #define PTR_STARS_NUM	4
 
 //Member Lst Flags
@@ -87,3 +88,25 @@ public class CHashFun:CHashClass
   U8	*exe_addr;
   CExternUsage *ext_lst;
 };
+
+//Glbl Var Flags
+#define GVF_FUN		1
+#define GVF_IMPORT	2
+#define GVF_EXTERN	4
+#define GVF_DATA_HEAP	8
+#define GVF_ALIAS	16
+#define GVF_ARRAY	32
+
+public class CHashGlblVar:CHashSrcSym
+{
+  I64	size,flags;
+  CHashClass *var_class;
+  CHashFun *fun_ptr;
+  CArrayDim dim;
+  U8	*data_addr;
+  union {
+    I64	data_addr_rip;
+    CAOTHeapGlbl *heap_glbl;
+  }
+};
+#assert offset(CHashClass.size)==offset(CHashGlblVar.size)

@@ -131,20 +131,7 @@ U64 __sys_font_cyrillic[256]= {
 };
 I64 sys_font_cyrillic;
 //V5.03 Kernel/Display raw graphics mode. Text-mode VGA is not provided.
-#define RWF_IN_DOLLAR 1
-#define RWF_LAST_DOLLAR 2
-#define RWF_SHOW_DOLLAR 4
-#define RWF_SCROLL 8
-
-public class CTextGlbls
-{
-  I64 raw_col,raw_flags;
-  U8 *raw_scrn_image;
-  I64 rows,cols;
-  U64 *font,*aux_font;
-  U8 *vga_alias,*vga_text_alias;
-  U8 border_chars[16];
-} text;
+//CTextGlbls text is in RuntimeA.HC, before the TextBase Layer uses it.
 
 import U0 __gr_update_mono(U8 *src,I64 stride,I64 x,I64 y,
   I64 width,I64 height);

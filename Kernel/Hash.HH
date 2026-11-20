@@ -79,13 +79,19 @@ public class CHashTable
 			HTT_EXPORT_SYS_SYM|HTT_HELP_FILE)
 #define HTG_ALL 		-1
 
+#define KERNEL_MODULE_NAME	"/Kernel/Kernel"
+
 public class CHashGeneric:CHash
 {
   I64 user_data0,user_data1,user_data2;
 };
 
 extern class CAOTImportExport;
-extern class CDbgInfo;
+class CDbgInfo
+{
+  U32	min_line,max_line;
+  U32	body[1]; //Code heap is 32-bit value
+};
 
 public class CHashSrcSym:CHash
 {
@@ -93,6 +99,12 @@ public class CHashSrcSym:CHash
   CDbgInfo *dbg_info;
   U8 *import_name;
   CAOTImportExport *ie_lst;
+};
+
+public class CHashAC:CHash
+{
+  I32	num;
+  U32	hits;
 };
 
 public class CHashExport:CHashSrcSym

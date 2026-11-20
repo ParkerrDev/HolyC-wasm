@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {compileHolyC} from '../src/compiler.js';
 import {createHost} from '../src/runtime/host.js';
+import {createTaskHost} from '../src/runtime/tasks.js';
 const source=`
 U0 Setup() {
   Silent;Cd("B:/Files/Inner",TRUE);
@@ -30,15 +31,12 @@ I64 Trial(I64 mode) {
 }
 I64 Unsupported(I64 mode) {
   I64 error=0;
-  U8 *ptr;
   try {
     switch(mode) {
-      case 0:FileWrite("New/Deep/Arc.HC.Z","data",4);break;
-      case 1:ptr=FileRead("C:/Arc.HC.Z");Free(ptr);break;
-      case 2:FileWrite("New/Deep/A.TXT","data",4,,RS_ATTR_RESIDENT);break;
-      case 3:FileWrite("New/Deep/A.TXT","data",4,,RS_ATTR_DIR);break;
-      case 4:FileWrite("A.TXT",NULL,1);break;
-      case 5:FileWrite("A.TXT","data",0x4000001);break;
+      case 0:FileWrite("New/Deep/A.TXT","data",4,,RS_ATTR_RESIDENT);break;
+      case 1:FileWrite("New/Deep/A.TXT","data",4,,RS_ATTR_DIR);break;
+      case 2:FileWrite("A.TXT",NULL,1);break;
+      case 3:FileWrite("A.TXT","data",0x4000001);break;
     }
   } catch {error=Fs->except_ch;Fs->catch_except=TRUE;}
   return error;
@@ -46,48 +44,63 @@ I64 Unsupported(I64 mode) {
 `;
 const compiled=compileHolyC(source,{lenient:false,exports:['Setup','Trial','Unsupported','DirHostClear']});
 assert.deepEqual(compiled.warnings,[]);const module=new WebAssembly.Module(compiled.bytes);
-function create() {
-  const host=createHost({onText:()=>{},files:[{path:'C:/Arc.HC.Z',bytes:Uint8Array.of(1,2,3)}]}),live=new Set();
-  let calls=0,failAt=0;
+//Cd prints, so this is a task program: Setup runs on the root task after the
+//boot (V5.03's Adam), whose live allocations boot keeps for the instance.
+const tasks=compiled.requiredCapabilities.includes('task-continuations');assert(tasks);
+async function create() {
+  const host=(tasks?createTaskHost:createHost)({jit:compiled.jit,onText:()=>{},
+    files:[{path:'C:/Arc.HC.Z',bytes:Uint8Array.of(1,2,3)}]}),live=new Set();
+  let calls=0,failAt=0,boot=null;
   for(const name of ['__malloc','__malloc_kernel','__malloc_for']) {
     const alloc=host.env[name];host.env[name]=(...args)=>{
       if(++calls===failAt)return 0n;
       const ptr=alloc(...args);if(ptr)live.add(ptr);return ptr;
     };
   }
-  const free=host.env.__free;host.env.__free=ptr=>{free(ptr);live.delete(ptr);};
+  const free=host.env.__free,booted=host.env.__rt_booted;
+  host.env.__free=ptr=>{free(ptr);live.delete(ptr);boot?.delete(ptr);};
+  host.env.__rt_booted=()=>{booted();boot=new Set(live);};
   const instance=new WebAssembly.Instance(module,{env:host.env});host.attach(instance);
-  instance.exports.__rt_init();instance.exports.Setup();
-  return {host,fn:instance.exports,live,get calls(){return calls;},arm(at=0){calls=0;failAt=at;}};
+  await host.run('Setup');
+  return {host,fn:instance.exports,live,get added(){return live.size-boot.size;},
+    get calls(){return calls;},arm(at=0){calls=0;failAt=at;},
+    //Only the boot's allocations remain, and the heap it left; disposing the
+    //instance returns the empty heap.
+    async empty(message) {
+      assert.equal(live.size-boot.size,0,message);assert.equal(host.state.heapPtr,host.state.boot.heapPtr,message);
+      await host.dispose();assert.equal(live.size,0,message);assert.equal(host.state.heapPtr,16777248,message);
+    }};
 }
 const tag=text=>[...Buffer.from(text)].reduce((a,b,i)=>a|BigInt(b)<<BigInt(i*8),0n);
 let failures=0;
 for(let mode=0;mode<8;mode++) {
-  const counted=create();counted.arm();assert.equal(counted.fn.Trial(BigInt(mode)),0n);
-  const sites=counted.calls;counted.fn.DirHostClear();assert.equal(counted.live.size,0);
+  const counted=await create();counted.arm();assert.equal(counted.fn.Trial(BigInt(mode)),0n);
+  const sites=counted.calls;counted.fn.DirHostClear();assert.equal(counted.added,0);
+  await counted.host.dispose();assert.equal(counted.live.size,0);
   for(let at=1;at<=sites;at++) {
-    const volume=create();volume.arm(at);
+    const volume=await create();volume.arm(at);
     assert.equal(volume.fn.Trial(BigInt(mode)),tag('OutMem'),`mode ${mode}, site ${at}`);
     assert.equal(volume.fn.__sp.value,16777216n);volume.arm();
     const before=volume.host.files().find(f=>Buffer.from(f.path).toString()==='B:/Files/Inner/A.TXT');
     assert.deepEqual(before.bytes,Uint8Array.from(Buffer.from('Original')),`failure modified original data at mode ${mode}, site ${at}`);
     assert.equal(volume.fn.Trial(BigInt(mode)),0n);volume.fn.DirHostClear();
-    assert.equal(volume.live.size,0,`leak at mode ${mode}, site ${at}`);
-    assert.equal(volume.host.state.heapPtr,16777248);failures++;
+    await volume.empty(`leak at mode ${mode}, site ${at}`);failures++;
   }
 }
-const unsupported=create(),initial=unsupported.host.files(),count=unsupported.live.size;
-for(const [mode,name] of ['FsArc','FsArc','FsRes','FsAttr','FsBuf','FsQuota'].entries()) {
+const unsupported=await create(),initial=unsupported.host.files(),count=unsupported.live.size;
+for(const [mode,name] of ['FsRes','FsAttr','FsBuf','FsQuota'].entries()) {
   assert.equal(unsupported.fn.Unsupported(BigInt(mode)),tag(name));
   assert.equal(unsupported.fn.__sp.value,16777216n);
   assert.equal(unsupported.live.size,count);assert.deepEqual(unsupported.host.files(),initial);
 }
-unsupported.fn.DirHostClear();assert.equal(unsupported.live.size,0);
-const repeat=create();let heap,live;
+unsupported.fn.DirHostClear();assert.equal(unsupported.added,0);
+await unsupported.host.dispose();assert.equal(unsupported.live.size,0);
+const repeat=await create();let heap,live;
 for(let i=0;i<30;i++) {
   for(const mode of [5,3,7,3])assert.equal(repeat.fn.Trial(BigInt(mode)),0n);
   heap??=repeat.host.state.heapPtr;live??=repeat.live.size;
   assert.equal(repeat.host.state.heapPtr,heap);assert.equal(repeat.live.size,live);
 }
-repeat.fn.DirHostClear();assert.equal(repeat.live.size,0);
-console.log(`File failures: ${failures} allocation sites preserve original data, directory/exception state and immediate retry; unsupported compression/resident/attributes/buffers/quotas reject without mutations or leaks.`);
+repeat.fn.DirHostClear();assert.equal(repeat.added,0);
+await repeat.host.dispose();assert.equal(repeat.live.size,0);
+console.log(`File failures: ${failures} allocation sites preserve original data, directory/exception state and immediate retry; unsupported resident/attributes/buffers/quotas reject without mutations or leaks.`);

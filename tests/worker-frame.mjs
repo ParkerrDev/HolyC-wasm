@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {Worker,isMainThread,parentPort,workerData} from "node:worker_threads";
-import {CTRL,KB_BASE,makeControlSAB} from "../src/runtime/protocol.js";
+import {CTRL,makeControlSAB,keyPacketPush} from "../src/runtime/protocol.js";
 import {Framebuffer} from "../src/runtime/graphics.js";
 
 if (!isMainThread) {
@@ -17,7 +17,8 @@ if (!isMainThread) {
     source:`gr.dc->color=RED;GrRect(gr.dc,0,0,640,480);Refresh;
       gr.dc->color=BLUE;GrRect(gr.dc,0,0,640,240);
       GrPaletteColorSet(RED,0xFFFF00000000);
-      "HALF\\n";while (!ScanChar) {}
+      "HALF\\n";Busy(1000000); //No yield, so no window update, while this is checked.
+      while (!ScanChar) Yield; //V5.03's ScanChar reads the task's messages.
       GrRect(gr.dc,0,240,640,240);`,
   }});
   let timeout,observed=false;
@@ -32,7 +33,7 @@ if (!isMainThread) {
             assert(pixels.every(color=>color===4),"Drawing the next frame must not overwrite the published one");
             assert.equal(palette[4],0xff0000aa,"Palette changes publish with their pixels");
             assert.equal(Atomics.load(ctrl,CTRL.FRAME)&1,0);
-            observed=true;ctrl[KB_BASE]=32;Atomics.store(ctrl,CTRL.KB_HEAD,1);
+            observed=true;keyPacketPush(ctrl,[0x39]);keyPacketPush(ctrl,[0xB9]); //Space down, up.
           }
         }catch(error){reject(error);}
       });
