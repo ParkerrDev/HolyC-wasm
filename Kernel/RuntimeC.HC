@@ -42,12 +42,6 @@ public U32 *MemSetU32(U32 *dst,I64 val,I64 cnt)
   return res;
 }
 
-Bool IsPixCovered0(CTask *task,I64,I64)
-{//The host supplies one window; other task windows need a compositor.
-  if (task!=Fs) throw('Graphics',TRUE);
-  return FALSE;
-}
-
 U0 __gr_sync(CDC *dc,I64 x,I64 y,I64 w,I64 h)
 {//Publish a changed part of the screen bitmap to the host display.
   if (dc->body!=gr.dc->body || dc->flags&DCF_DONT_DRAW) return;
@@ -137,37 +131,71 @@ U0 GrUpdateVGAGraphics()
 	gr.dc2->width,gr.dc2->height);
   __gr_flip;
 }
-U0 Free(U8 *p) { __free(p); }
-I64 MSize(U8 *p) { return __msize(p); }
-I64 MSize2(U8 *p) { return __msize2(p); }
+
+CBlkPool *sys_code_bp,*sys_data_bp;
+
+U0 HeapHostInit()
+{//The host's pool. Data shares it, as V5.03 with no sys_data_bp.
+  sys_code_bp=__heap_bp;
+  sys_data_bp=NULL;
+}
+
+U0 Free(U8 *addr)
+{//Free $LK,"MAlloc",A="MN:MAlloc"$()ed memory chunk.
+  __free(addr);
+}
+
+I64 MSize(U8 *src)
+{//Size of heap object.
+  return __msize(src);
+}
+
+I64 MSize2(U8 *src)
+{//Internal size of heap object.
+  return __msize2(src);
+}
+
+CHeapCtrl *MHeapCtrl(U8 *src)
+{//$LK,"CHeapCtrl",A="MN:CHeapCtrl"$ of object.
+  if (!src) return NULL;
+  return (src-sizeof(CHeapBlk))(CHeapBlk *)->hc;
+}
+
 U8 *MAlloc(I64 size,CTask *mem_task=NULL)
-{
+{//Accepts a $LK,"CTask",A="MN:CTask"$ or $LK,"CHeapCtrl",A="MN:CHeapCtrl"$. NULL allocs off current task's heap.
   U8 *res;
-  if (mem_task && mem_task!=Fs) {
-    res=__malloc_for(size,mem_task);
-    if (res==-1) throw('HeapTask',TRUE);
-  } else
-    res=__malloc(size);
-  if (!res) throw('OutMem',TRUE);
+  CHeapCtrl *hc=mem_task;
+  if (!hc) hc=Fs;
+  if (hc) {//No Fs before a plain host's boot, and no task heaps after it.
+    if (hc(CTask *)->task_signature==TASK_SIGNATURE_VAL)
+      hc=hc(CTask *)->data_heap;
+    else if (hc->hc_signature!=HEAP_CTRL_SIGNATURE_VAL)
+      throw('BadHeap',TRUE);
+  }
+  if (!(res=__malloc(size,hc)))
+    throw('OutMem',TRUE);
   return res;
 }
 
+U8 *AMAlloc(I64 size)
+{//Alloc memory in Adam's heap.
+  return MAlloc(size,adam_task);
+}
+
 U8 *CAlloc(I64 size,CTask *mem_task=NULL)
-{
+{//Accepts a $LK,"CTask",A="MN:CTask"$ or $LK,"CHeapCtrl",A="MN:CHeapCtrl"$.  NULL allocs off current task's heap.
   U8 *res=MAlloc(size,mem_task);
   MemSet(res,0,size);
   return res;
 }
 
-U8 *AMAlloc(I64 size)
-{//Allocate storage whose lifetime is independent of the caller task.
-  U8 *res=__malloc_kernel(size);
-  if (!res) throw('OutMem',TRUE);
-  return res;
+U8 *ACAlloc(I64 size)
+{//Alloc and set to zero memory in Adam's heap.
+  return CAlloc(size,adam_task);
 }
 
 U8 *MAllocIdent(U8 *src,CTask *mem_task=NULL)
-{//Copy the complete usable contents of a heap node.
+{//Accepts a $LK,"CTask",A="MN:CTask"$ or $LK,"CHeapCtrl",A="MN:CHeapCtrl"$.  NULL allocs off current task's heap.
   U8 *res;
   I64 size;
   if (!src) return NULL;
@@ -178,21 +206,8 @@ U8 *MAllocIdent(U8 *src,CTask *mem_task=NULL)
 }
 
 U8 *AMAllocIdent(U8 *src)
-{//Copy a heap node into the session kernel's heap.
-  U8 *res;
-  I64 size;
-  if (!src) return NULL;
-  size=MSize(src);
-  res=AMAlloc(size);
-  MemCpy(res,src,size);
-  return res;
-}
-
-U8 *ACAlloc(I64 size)
-{
-  U8 *res=AMAlloc(size);
-  MemSet(res,0,size);
-  return res;
+{//Alloc in Adam's heap, ident copy of heap node.
+  return MAllocIdent(src,adam_task);
 }
 
 //==================== runtime init (called by __rt_init) ====================
@@ -201,6 +216,7 @@ U0 __hcrt_init()
   Fs=&fs_storage;
   Fs->addr=Fs;
   Fs->task_signature=TASK_SIGNATURE_VAL;
+  Fs->rflags=RFLAGG_NORMAL;
   Fs->pix_width=__gr_width;
   Fs->pix_height=__gr_height;
   Fs->pix_right=Fs->pix_width-1;
@@ -251,6 +267,8 @@ U0 TaskHostUser()
 	-WIF_SELF_GRAB_SCROLL-WIF_SELF_CTRLS;
   LBts(&Fs->display_flags,DISPLAYf_CHILDREN_NOT_ON_TOP);
   LBts(&Fs->display_flags,DISPLAYf_SHOW);
+  while (!Bt(&sys_run_level,RLf_WINMGR)) //V5.03's RegInit reads the disk
+    Yield; //here, as long as the Window Mgr takes to start.
   WallPaperInit;
   __task_user(Spawn(&TaskHostUserCmdLine,NULL,"Term"));
   SrvTaskCont;
@@ -275,8 +293,11 @@ U0 __hgr_init()
   gr.dc2->r=gr_scrn_r2;
   gr.dc2->win_task=gr.dc2->mem_task=Fs;
   gr.dc2->dc_signature=DCS_SIGNATURE_VAL;
-  gr.dc2->flags=DCF_SCRN_BITMAP|DCF_ON_TOP; //As gr.dc: no z buf covers a win.
+  gr.dc2->flags=DCF_SCRN_BITMAP;
   gr.text_base=gr_text_base;
+  gr.win_uncovered_bitmap=gr_win_uncovered_bitmap;
+  gr.highest_uncovered=0;
+  gr.win_z_buf=gr_win_z_buf;
   gr.scrn_zoom=1;
   gr.to_8_bits=gr_to_8_bits;
   gr.to_8_colors=gr_to_8_colors;

@@ -1,3 +1,4 @@
+import {heapUsed} from './heap-used.mjs';
 import assert from "node:assert/strict";
 import {compileHolyC} from "../src/compiler.js";
 import {createTaskHost} from "../src/runtime/tasks.js";
@@ -83,17 +84,16 @@ gfx.flip=()=>gfx.present();
 const {instance}=await WebAssembly.instantiate(result.bytes,{env:host.env});
 host.attach(instance);await host.run();
 gfx.indices.fill(17);
-let cursor;
+const used=heapUsed(host);
 for (let i=0;i<1000;i++) {
   instance.exports.Offscreen();
-  cursor??=host.state.heapPtr;
-  assert.equal(host.state.heapPtr,cursor,"device-context deletion must release its allocations");
+  assert.equal(heapUsed(host),used,"device-context deletion must release its allocations");
 }
 const initialBytes=instance.exports.memory.buffer.byteLength;
 let floodBytes;
 for (let i=0;i<100;i++) {
   assert.equal(instance.exports.Flooded(),468n,"flood fill must stop inside its inclusive border");
-  assert.equal(host.state.heapPtr,cursor,"flood fill must release its scratch rays and context");
+  assert.equal(heapUsed(host),used,"flood fill must release its scratch rays and context");
   floodBytes??=instance.exports.memory.buffer.byteLength;
   assert.equal(instance.exports.memory.buffer.byteLength,floodBytes,"repeated fills must reuse scratch storage");
 }

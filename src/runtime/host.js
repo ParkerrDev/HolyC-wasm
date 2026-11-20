@@ -128,9 +128,9 @@ export function createHost(opts = {}) {
     },
     __kbd_leds:sc=>opts.onKeyboardLeds?.(sc),
 
-    __malloc:size=>heap.malloc(size),
-    __malloc_kernel:size=>heap.malloc(size),
-    __malloc_for:()=>-1n,
+    __malloc:(size,hc=0n)=>heap.malloc(size,hc),
+    __malloc_kernel:size=>heap.malloc(size), //The host's own, on Adam's heap (tasks.js).
+    __heap_bp:()=>heap.pool(),
     __free:ptr=>heap.free(ptr),
     __msize:ptr=>heap.size(ptr),
     __msize2:ptr=>heap.size(ptr,true),

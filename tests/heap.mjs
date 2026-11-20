@@ -54,6 +54,32 @@ if (!isMainThread) {
   free(b);free(a);free(c);
   const empty=host.state.heapPtr;
   assert.ok(empty>HEAP_BASE && empty<HEAP_BASE+256);
+  //A task heap (Kernel/Heap.HH CHeapCtrl): each block's header names it, it
+  //counts its spans, and retains small free blocks for that heap and size.
+  {
+  const heap=host.heap,view=()=>new DataView(memory.buffer),u64=at=>view().getBigUint64(Number(at),true);
+  const hc=heap.ctrlNew(),p1=heap.malloc(40n,hc),p2=heap.malloc(300n,hc),p3=malloc(8);
+  assert.equal(view().getUint32(Number(hc)+8,true),0x56536348,"hc_signature 'HcSV'");
+  assert.equal(BigInt(view().getUint32(Number(p1)-20,true)),hc,"the header's hc");
+  assert.equal(view().getUint32(Number(p3)-20,true),0,"no heap");
+  assert.equal(heap.ctrlCount(hc),2);
+  assert.equal(u64(hc+32n),heap.size(p1,true)+heap.size(p2,true),"used_u8s");
+  assert.equal(u64(hc+24n),u64(hc+32n),"alloced_u8s");
+  heap.own(p3,hc);assert.equal(heap.ctrlCount(hc),3);
+  heap.own(p3,0n);assert.equal(heap.ctrlCount(hc),2);
+  const bp=heap.pool();assert.ok(u64(bp)>=u64(bp+8n) && u64(bp+8n)>0n,"pool alloced>=used");
+  free(p2);assert.equal(heap.ctrlCount(hc),1);assert.equal(u64(hc+32n),heap.size(p1,true));
+  const smaller=heap.malloc(16n,hc),other=malloc(300);
+  assert.notEqual(smaller,p2);assert.notEqual(other,p2);
+  assert.equal(heap.malloc(300n,hc),p2,"a small block stays on its heap's exact size list");
+  free(smaller);free(other);free(p2);
+  for (let ptr;(ptr=heap.ctrlFirst(hc));) host.env.__free(ptr);
+  assert.equal(heap.ctrlCount(hc),0);assert.equal(u64(hc+32n),0n);
+  assert.throws(()=>free(p1),/already freed/);
+  assert.throws(()=>free(p2),/already freed/);
+  heap.ctrlDel(hc);free(p3);
+  assert.equal(host.state.heapPtr,empty,"the heap empties again");
+  }
 
   let seed=0x38517;
   const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed;};
@@ -118,15 +144,17 @@ if (!isMainThread) {
   assert.throws(()=>oldHost.env.__msize(BigInt(HEAP_BASE+128)),/legacy bump-heap/);
   assert.throws(()=>createHost({heapAbi:2}),/Unsupported HolyC heap ABI/);
 
-  const fixture=JSON.parse(readFileSync(new URL("heap-abi1.json",import.meta.url)));
-  const priorMemory=new WebAssembly.Memory({initial:257,maximum:512});
-  new Uint8Array(priorMemory.buffer,HEAP_BASE).set(Buffer.from(fixture.bytes,"base64"));
-  const prior=attach(priorMemory),[p1,p2,p3]=fixture.allocations.map(BigInt);
-  prior.state.heapPtr=fixture.cursor;
-  assert.equal(prior.env.__malloc(160n),p2,"reuse free block saved by the previous JS allocator");
-  filled(priorMemory,p1,80,17);filled(priorMemory,p3,80,51);
-  for (const ptr of [p1,p2,p3]) prior.env.__free(ptr);
-  assert.equal(prior.state.heapPtr,empty);
+  for (const file of ["heap-abi1.json","heap-hcp2.json"]) {
+    const fixture=JSON.parse(readFileSync(new URL(file,import.meta.url)));
+    const priorMemory=new WebAssembly.Memory({initial:257,maximum:512});
+    new Uint8Array(priorMemory.buffer,HEAP_BASE).set(Buffer.from(fixture.bytes,"base64"));
+    const prior=attach(priorMemory),[p1,p2,p3]=fixture.allocations.map(BigInt);
+    prior.state.heapPtr=fixture.cursor;
+    assert.equal(prior.env.__malloc(160n),p2,"reuse free block saved by the previous JS allocator");
+    filled(priorMemory,p1,80,17);filled(priorMemory,p3,80,51);
+    for (const ptr of [p1,p2,p3]) prior.env.__free(ptr);
+    assert.equal(prior.state.heapPtr,empty);
+  }
 
   const limited=attach(new WebAssembly.Memory({initial:257,maximum:257}));
   const held=limited.env.__malloc(32n),before=limited.state.heapPtr;
@@ -195,5 +223,5 @@ I64 Oom()
     clearTimeout(timeout);
     await Promise.all(workers.map(worker=>worker.terminate()));
   }
-  console.log("Heap: caller memory isolation, prior ABI1 fixture, reuse/coalescing, 4,000 allocation operations, 1,000 cleared reuses, OOM, full RAM restore and four contending workers pass.");
+  console.log("Heap: caller memory isolation, prior ABI1 fixture, reuse/coalescing, task heaps, 4,000 allocation operations, 1,000 cleared reuses, OOM, full RAM restore and four contending workers pass.");
 }

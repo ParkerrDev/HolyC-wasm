@@ -15,8 +15,12 @@ export const USER_EXPORTS=['TaskHostUser'];
 
 export function createTaskHost(opts={}) {
   const wasm=opts.webAssembly??WebAssembly,host=createHost(opts);
-  const tasks=new Map(),heap=host.heap;
-  let instance=null,current=null,root=null,timer=null,disposed=false,round=0;
+  const tasks=new Map(),dying=[],heap=host.heap;
+  let instance=null,current=null,root=null,timer=null,disposed=false;
+  //V5.03 Kernel/Sched.HC's Yield looks for the next task from the next_task of
+  //the one that gave up the CPU, round the queue TaskHostNew keeps as TaskQueIns
+  //does; TaskEnd goes on from the dead task's next, and an idle CPU from Adam.
+  let cursor=null,inclusive=true;
   const now=()=>performance.now();
   function required() {
     if(!taskSupport(wasm)) throw new Error('HolyC task continuations require WebAssembly JSPI (Suspending and promising); run this program in TempleOS through HEMU on this host');
@@ -24,34 +28,42 @@ export function createTaskHost(opts={}) {
     if(host.state.heapAbi!==1) throw new Error('HolyC task ownership requires heap ABI 1');
   }
   function fn() {return instance.exports;}
-  //A task's allocations are a list in RAM (heap.js owners), as V5.03's
-  //CMemUsed.hc names the task heap a block came from; Free takes it off.
-  function ownerNew() {
-    const owner=heap.ownerNew();
-    if(!owner) throw new RangeError('Out of memory for a HolyC task');
-    return owner;
+  //A task's heap is a CHeapCtrl in RAM (Kernel/Heap.HH), as V5.03's: each
+  //used block's header names it, its list holds them, and HolyC's MAlloc
+  //allocs off Fs->data_heap. A task's death frees its list, then its heap.
+  function ctrlNew() {
+    const hc=heap.ctrlNew();
+    if(!hc) throw new RangeError('Out of memory for a HolyC task');
+    return hc;
   }
   function disown(task) {
     if(!task.owner) return;
     //Through the free import, so what wraps it sees each one go.
-    heap.dying=true;
-    try {for(let ptr;(ptr=heap.ownerFirst(task.owner));) host.env.__free(ptr);}
-    finally {heap.dying=false;}
-    heap.free(task.owner);task.owner=0n;
+    for(let ptr;(ptr=heap.ctrlFirst(task.owner));) host.env.__free(ptr);
+    heap.ctrlDel(task.owner);task.owner=0n;
   }
-  const count=task=>task.owner?heap.ownerCount(task.owner):0;
+  //V5.03 TaskEnd unlinks immediately. TaskKillDying releases the task's
+  //storage after DYING_JIFFIES (one fifth of a second).
+  function reap(time) {
+    while(dying.length && dying[0].releaseAt<=time) disown(dying.shift());
+  }
+  const count=task=>task.owner?heap.ctrlCount(task.owner):0;
   //What the prelude's boot in __rt_init allocates (V5.03's Adam makes it) lives
   //as long as the instance, not as long as a session's root task.
   const kernel={owner:0n};let booting=false,booted=false;
   const owner=task=>(booting && task===root?kernel:task)?.owner??0n;
-  host.env.__rt_booted=()=>{booting=false;booted=true;kernel.heapPtr=host.state.heapPtr;};
-  host.env.__malloc=size=>heap.malloc(size,owner(current));
-  host.env.__malloc_kernel=size=>heap.malloc(size,owner(root));
-  host.env.__malloc_for=(size,owner)=>{
-    const task=tasks.get(owner);
-    if(!task || task.status==='dead' || task.killed) return -1n;
-    return heap.malloc(size,task.owner);
+  host.env.__rt_booted=()=>{
+    booting=false;booted=true;kernel.heapPtr=host.state.heapPtr;
+    fn().TaskHostHeap(root.ptr,root.owner);
   };
+  host.env.__malloc_kernel=size=>heap.malloc(size,owner(root));
+  let idleSince=null;
+  function endIdle() {
+    if(idleSince===null) return;
+    const jiffies=Math.floor(Number(host.state.timeMs()))-idleSince;
+    if(jiffies>0) fn().TaskHostIdle(BigInt(jiffies));
+    idleSince=null;
+  }
   function schedule(delay=0) {
     if(timer!==null || disposed) return;
     timer=setTimeout(()=>{timer=null;pump();},delay);
@@ -104,9 +116,14 @@ export function createTaskHost(opts={}) {
     if(task!==root) {
       //The user task's end is the run's: Adam (the root) stops serving.
       if(task===root.user) mark(root);
+      if(cursor===task.ptr) {cursor=fn().TaskHostNext(task.ptr);inclusive=true;}
       try {fn().TaskHostDone(task.ptr);} catch(e) {error??=e;}
-      disown(task);
+      task.releaseAt=now()+200;dying.push(task);
       tasks.delete(task.ptr);task.parent.children.delete(task);
+      fn().TaskHostEnter(root.ptr); //Fs is not left on a freed task.
+    }
+    if(task===root) {
+      reap(Infinity);heap.ctrlTrim(task.owner);heap.ctrlTrim(kernel.owner);
     }
     task.status='dead';current=null;
     if(error && !(error instanceof TaskExit)) {
@@ -118,8 +135,25 @@ export function createTaskHost(opts={}) {
       }
     } else task.resolveDone(task.result);
   }
+  //The tasks in the order Yield tries them: from the cursor (or the task after
+  //it) round the next_task ring, the cursor's own task last. A task the ring
+  //does not reach (none should) comes after, in the order it was made.
+  function queue() {
+    const order=[],seen=new Set();
+    let ptr=cursor!==null && tasks.has(cursor)?cursor:root.ptr;
+    if(!inclusive && ptr===cursor) ptr=fn().TaskHostNext(ptr);
+    for(let i=0;i<=tasks.size*2 && !seen.has(ptr);i++) {
+      seen.add(ptr);
+      const task=tasks.get(ptr);
+      if(task) order.push(task);
+      ptr=fn().TaskHostNext(ptr);
+    }
+    for(const task of tasks.values()) if(!order.includes(task)) order.push(task);
+    return order;
+  }
   function pump() {
     if(current || disposed) return;
+    reap(now());
     let collected;
     do {
       collected=false;
@@ -128,14 +162,14 @@ export function createTaskHost(opts={}) {
           collect(task);collected=true;
         }
     } while(collected);
-    const list=[...tasks.values()].filter(task=>task.status==='new' || task.status==='waiting');
+    const list=queue().filter(task=>task.status==='new' || task.status==='waiting');
     if(!list.length) return;
     const clock=now();
     for(let i=0;i<list.length;i++) {
-      const task=list[(round+i)%list.length];
+      const task=list[i];
       if(!task.killed && (fn().TaskHostFlags(task.ptr)&(SUSPENDED|AWAITING_MSG) || !task.breakWake && (task.at>clock || task.condition && !task.condition()))) continue;
-      round=(round+i+1)%list.length;
-      enter(task);task.status='running';
+      cursor=task.ptr;inclusive=false;
+      endIdle();enter(task);task.status='running';
       let interrupted=null;
       if(task.interrupt && !task.killed) {
         task.interrupt=false;task.breakWake=false;
@@ -161,6 +195,8 @@ export function createTaskHost(opts={}) {
       }
       return;
     }
+    cursor=root.ptr;inclusive=true; //Idle: V5.03's RESTORE_SETH_TASK_IF_READY.
+    idleSince??=Math.floor(Number(host.state.timeMs()));
     const due=Math.min(...list.filter(task=>task.status==='waiting' && task.at>clock).map(task=>task.at-clock));
     schedule(Math.min(10,Number.isFinite(due)?due:10));
   }
@@ -198,12 +234,13 @@ export function createTaskHost(opts={}) {
     stackSize=stackSize||1048576n;
     if(stackSize<4096n || stackSize>67108864n) throw new Error('HolyC task stack must be between 4 KiB and 64 MiB');
     stackSize=(stackSize+15n)&~15n;
-    const list=ownerNew();let ptr;
+    const hc=ctrlNew();let ptr;
     try {ptr=fn().TaskHostNew(parent,name,stackSize);}
-    catch(error) {heap.free(list);throw error;}
+    catch(error) {heap.ctrlDel(hc);throw error;}
     const top=fn().TaskHostStkTop(ptr);
     const task=record(ptr,owner,start,[data],top,top-stackSize);
-    task.owner=list;heap.own(ptr,list);heap.own(fn().TaskHostStk(ptr),list);
+    task.owner=hc;heap.own(ptr,hc);heap.own(fn().TaskHostStk(ptr),hc);
+    fn().TaskHostHeap(ptr,hc);
     const saved=fn().__sp.value;
     try {
       fn().DirHostTaskInit?.(ptr);
@@ -344,11 +381,11 @@ export function createTaskHost(opts={}) {
       root.entry=[fn()[entry],args];
     } else steps.push([fn()[entry],args]);
     [root.start,root.args]=steps.shift();root.steps=steps;
-    kernel.owner||=ownerNew();
+    kernel.owner||=ctrlNew();
     if(previous) {root.owner=previous.owner;previous.owner=0n;}
-    else root.owner=ownerNew();
+    else root.owner=ctrlNew();
     //__rt_init runs once an instance, on the first root, before its entry.
-    booting=!booted;pump();return root.done;
+    booting=!booted;fn().TaskHostHeap(root.ptr,owner(root));pump();return root.done;
   };
   host.postMessage=(code,arg1=0n,arg2=0n,target=root?.ptr)=>{
     if(!root || root.status==='dead') return false;

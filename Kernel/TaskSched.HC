@@ -16,6 +16,11 @@ I64 TaskHostFlags(CTask *task)
   return task->task_flags;
 }
 
+CTask *TaskHostNext(CTask *task)
+{//The scheduler's queue, as V5.03's Yield goes round it.
+  return task->next_task;
+}
+
 U0 TaskHostKill(CTask *task)
 {
   Bts(&task->task_flags,TASKf_KILL_TASK);
@@ -29,6 +34,19 @@ CTaskStk *TaskHostStk(CTask *task)
 U8 *TaskHostStkTop(CTask *task)
 {
   return (&task->stk->stk_base)(U8 *)+task->stk->stk_size;
+}
+
+U0 TaskHostHeap(CTask *task,CHeapCtrl *hc)
+{//The host gives task its heap, as V5.03's Spawn does by HeapCtrlInit.
+//The root gets it before the boot's first MAlloc, as KStart64 does Adam.
+  task->task_signature=TASK_SIGNATURE_VAL;
+  task->code_heap=task->data_heap=hc;
+  if (hc) hc->mem_task=task;
+}
+
+U0 TaskHostIdle(I64 jiffies)
+{//Jiffies no task could run, V5.03's timer IRQ on the idle task.
+  cpu_structs->idle_pt_hits+=jiffies;
 }
 
 I64 TaskHostEnd(CTask *task)
@@ -60,6 +78,7 @@ CTask *TaskHostNew(CTask *parent,U8 *name,I64 stk_size)
     task->addr=task;
     task->task_signature=TASK_SIGNATURE_VAL;
     task->task_num=__hctask_num++;
+    task->rflags=RFLAGG_NORMAL;
     task->parent_task=parent;
     task->next_input_filter_task=task->last_input_filter_task=task;
     task->next_child_task=task->last_child_task=
@@ -97,8 +116,19 @@ CTask *TaskHostNew(CTask *parent,U8 *name,I64 stk_size)
 
 U0 TaskHostDone(CTask *task)
 {
+  if (LBtr(&task->display_flags,DISPLAYf_SHOW))
+    LBts(&sys_semas[SEMA_UPDATE_WIN_Z_BUF],0);
   JobQueDel(&task->srv_ctrl.next_waiting);
   JobQueDel(&task->srv_ctrl.next_done);
+
+  if (sys_focus_task==task) {
+//    if (!Gs->num)
+//      SingleUser(OFF); //Back with SingleUser (Kernel/MultiProc.HC).
+    sys_focus_task=NULL;
+    if (fp_set_std_palette)
+      (*fp_set_std_palette)();
+  }
+
   task->last_task->next_task=task->next_task;
   task->next_task->last_task=task->last_task;
   task->last_sibling_task->next_sibling_task=task->next_sibling_task;

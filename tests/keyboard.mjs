@@ -63,8 +63,8 @@ host.resetInput();assert.equal(fn.Clear(),1n);
 // Imports are captured at instantiation; use a second host for allocation faults.
 set('stop',1);await running;await host.dispose();assert.equal(host.state.heapPtr,16777248);
 let fail=false;
-const broken=createTaskHost({onText:()=>{}}),original=broken.env.__malloc_kernel;
-broken.env.__malloc_kernel=size=>fail?0n:original(size);
+const broken=createTaskHost({onText:()=>{}}),original=broken.env.__malloc;
+broken.env.__malloc=(size,hc)=>fail?0n:original(size,hc);
 const second=new WebAssembly.Instance(module,{env:broken.env});broken.attach(second);
 const active=broken.run('Input');
 await wait(()=>new DataView(second.exports.memory.buffer).getBigInt64(address('ready'),true)===1n && broken.state.tasks[0].status==='waiting');
@@ -90,5 +90,9 @@ const polling=pollHost.run('Poll');await wait(()=>pollHost.state.tasks[0].status
 assert(pollHost.keyBytes([0xE0,0x4B]));assert.equal((await polling)&255n,0x4Bn);await pollHost.dispose();
 const unused=compileHolyC('I64 Unused() {return kbd.scan_code;}',{lenient:false});
 assert.deepEqual(unused.requiredCapabilities,[],'unreachable keyboard access adds no task requirement');
+const offline=compileHolyC('U0 Format(U8 *buf,I64 n) {StrPrint(buf,"%d",n);}',{lenient:false,exports:['Format'],keyboard:false});
+assert.deepEqual(offline.requiredCapabilities,[],'a synchronous formatting library has no keyboard device');
+const explicit=compileHolyC('U0 Child() {} Spawn(&Child);',{lenient:false,keyboard:false});
+assert.deepEqual(explicit.requiredCapabilities,['task-continuations'],'explicit task operations still need the scheduler');
 clearTimeout(deadline);
 console.log(`Keyboard: ${packets.length} original handler packets, full bitmaps/messages, device effects, reset and injected allocation failure recovery pass.`);

@@ -1,3 +1,4 @@
+import {heapUsed} from './heap-used.mjs';
 import assert from 'node:assert/strict';
 import {compileHolyC} from '../src/compiler.js';
 import {createHost} from '../src/runtime/host.js';
@@ -16,7 +17,7 @@ I64 Trial(I64 wide) {
 assert.deepEqual(trial.warnings,[]);assert.deepEqual(trial.requiredCapabilities,[]);
 const host=createHost(),original=host.env.__malloc;
 let at=0,failAt=0;
-host.env.__malloc=size=>++at===failAt?0n:original(size);
+host.env.__malloc=(size,hc)=>++at===failAt?0n:original(size,hc);
 const instance=new WebAssembly.Instance(new WebAssembly.Module(trial.bytes),{env:host.env});host.attach(instance);instance.exports.__rt_init();
 instance.exports.Trial(0n);
 const baseline=host.state.heapPtr,stack=instance.exports.__sp.value;
@@ -35,18 +36,19 @@ U0 Wait() {while(TRUE)Sleep(1);}
 `,{lenient:false,exports:['QueueCount','KeyCount','Focus','Drain','Read','Wait']});
 const runtime=createTaskHost(),alloc=runtime.env.__malloc;
 let attempts=0,broken=0;
-runtime.env.__malloc=size=>++attempts===broken?0n:alloc(size);
+runtime.env.__malloc=(size,hc)=>++attempts===broken?0n:alloc(size,hc);
 const target=new WebAssembly.Instance(new WebAssembly.Module(bridge.bytes),{env:runtime.env});runtime.attach(target);
 const running=runtime.run('Wait');
 const deadline=setTimeout(()=>{throw new Error('FIFO keyboard test did not settle');},15000);
 //The boot (AutoComplete's DrvUnlock) Yields too: wait for Wait's own wait.
 while(runtime.state.boot.heapPtr===null || runtime.state.tasks[0].status!=='waiting') await new Promise(resolve=>setTimeout(resolve,1));
 const seed=runtime.env.__malloc(1n);runtime.env.__free(seed);
+const beforeKeys=heapUsed(runtime);
 for(const fail of [1,2]) {
   attempts=0;broken=fail;
   assert.throws(()=>runtime.keyBytes([0x1E]),WebAssembly.Exception);
   assert.equal(target.exports.KeyCount(),0n,'failed lazy construction precedes key state changes');
-  assert.equal(runtime.state.heapPtr,runtime.state.boot.heapPtr);assert.equal(runtime.state.tasks[0].allocations,0);
+  assert.equal(heapUsed(runtime),beforeKeys);assert.equal(runtime.state.tasks[0].allocations,0);
 }
 broken=0;target.exports.Focus(0n);
 runtime.keyBytes([0x1E]);runtime.keyBytes([0x9E]);

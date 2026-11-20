@@ -1,8 +1,12 @@
 //V5.03 Adam/Gr/GrScrn.HC. Its catches have no Dbg: there is no debugger.
 //GrUpdateTextBG's asm and the asm GrRopEquU8NoClipping (GrAsm.HC) are HolyC
-//here, as is DCBlotColor4's. There is no z buffer yet, so every shown window
-//is drawn. The host shows gr.dc2; gr.dc1 and gr.scrn_image are kept for
-//$LK,"DCScrnCapture",A="MN:DCScrnCapture"$.
+//here, as are DCBlotColor4's and _IS_PIX_COVERED0's. The host shows gr.dc2;
+//gr.dc1 and gr.scrn_image are kept for $LK,"DCScrnCapture",A="MN:DCScrnCapture"$.
+
+public Bool IsPixCovered0(CTask *task,I64 x,I64 y)
+{//No clipping. Covered by a win above task's? FONT_WIDTH==FONT_HEIGHT==8
+  return task->win_z_num<gr.win_z_buf[y>>3*TEXT_COLS+x>>3];
+}
 
 U0 GrUpdateTaskODEs(CTask *task)
 {
@@ -70,7 +74,8 @@ U0 GrUpdateTasks()
     task1=task=sys_winmgr_task;
     do { //Loop through Core0 tasks.
       if (!TaskValidate(task)) break;
-      if (Bt(&task->display_flags,DISPLAYf_SHOW))
+      if (Bt(&task->display_flags,DISPLAYf_SHOW) &&
+	    Bt(gr.win_uncovered_bitmap,task->win_z_num))
 	GrUpdateTaskWin(task);
       if (!TaskValidate(task)) break;
       task=task->next_task;

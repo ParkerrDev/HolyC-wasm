@@ -19,6 +19,8 @@ export class LegacyHeap
 
   free() {}
 
+  pool() {return 0n;}
+
   size(ptr) {
     if (ptr===0n) return 0n;
     throw new Error("Allocation sizes are unavailable in legacy bump-heap snapshots");
@@ -61,23 +63,35 @@ export class Heap
       throw new Error("Heap cursor does not match restored linear memory");
   }
 
-  malloc(size,owner=0n) {
+  //hc is a heap (CHeapCtrl) the allocation goes on, or 0 for none.
+  malloc(size,hc=0n) {
     size=Number(size);
     if (!Number.isSafeInteger(size) || size<0 || size>2**32-32) return 0n;
-    return this.call("HeapAlloc",BigInt(size),owner);
+    return this.call("HeapAlloc",BigInt(size),BigInt(hc));
   }
 
-  //An owner is a list in RAM of the allocations given to it (a task's).
-  ownerNew() {return this.call("HeapOwnerNew");}
+  //A task's heap: a CHeapCtrl in RAM listing the allocations on it.
+  ctrlNew() {return this.call("HeapCtrlNew");}
 
-  own(ptr,owner=0n) {
-    if (this.call("HeapOwn",BigInt(ptr),owner)<0n)
+  //Free an emptied heap (its allocations freed first, see tasks.js).
+  ctrlDel(hc) {
+    if (this.call("HeapCtrlDel",hc)<0n)
       throw new Error("Invalid or already freed HolyC allocation");
   }
 
-  ownerCount(owner) {return Number(this.call("HeapOwnerCnt",owner));}
+  own(ptr,hc=0n) {
+    if (this.call("HeapOwn",BigInt(ptr),hc)<0n)
+      throw new Error("Invalid or already freed HolyC allocation");
+  }
 
-  ownerFirst(owner) {return this.call("HeapOwnerFirst",owner);}
+  ctrlTrim(hc) {this.call("HeapCtrlTrim",hc);}
+
+  ctrlCount(hc) {return Number(this.call("HeapCtrlCnt",hc));}
+
+  ctrlFirst(hc) {return this.call("HeapCtrlFirst",hc);}
+
+  //The pool (CBlkPool), V5.03's sys_code_bp.
+  pool() {return this.call("HeapBP");}
 
   allocation(name,ptr) {
     ptr=Number(ptr);
@@ -89,9 +103,7 @@ export class Heap
     return result;
   }
 
-  //While dying is set, a task's heap goes: a later free of one of its blocks
-  //is then a no-op, as V5.03's Free into a dead heap has no effect.
-  free(ptr) {this.allocation(this.dying?"HeapFreeDead":"HeapFree",ptr);}
+  free(ptr) {this.allocation("HeapFree",ptr);}
 
   size(ptr,internal=false) {
     const span=this.allocation("HeapSize",ptr);

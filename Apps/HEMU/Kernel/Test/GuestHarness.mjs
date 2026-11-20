@@ -21,7 +21,7 @@ export async function GuestHarness(opt={})
   let allocs=0;
   for (const name of ["__malloc","__malloc_kernel"]) {
     const malloc=host.env[name];
-    host.env[name]=size=>{allocs++;return malloc(size);};
+    host.env[name]=(...args)=>{allocs++;return malloc(...args);};
   }
   if (opt.sharedMemory)
     host.env.mem=new WebAssembly.Memory({initial:8192,maximum:8192,shared:true});

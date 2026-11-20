@@ -69,7 +69,7 @@ assert.deepEqual(failure.warnings,[]);
 for(const fail of [true,false]) {
  let out='',calls=[];
  const host=createTaskHost({onText:s=>out+=s}),malloc=host.env.__malloc;
- host.env.__malloc=size=>{calls.push(Number(size));if(fail && Number(size)===64)return 0n;return malloc(size);};
+ host.env.__malloc=(size,hc)=>{calls.push(Number(size));if(fail && Number(size)===64)return 0n;return malloc(size,hc);};
  const instance=new WebAssembly.Instance(new WebAssembly.Module(failure.bytes),{env:host.env});host.attach(instance);
  if(fail) {
   await assert.rejects(host.run(),WebAssembly.Exception);assert.equal(out,'');

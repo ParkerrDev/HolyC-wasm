@@ -55,7 +55,7 @@ class Codegen {
     const bind=api=>({...api,name:functionBinding(api.name),check:functionBinding(api.check),
       exports:api.exports?.map(name=>{
         const bound=functionBinding(name);this.runtimeExportNames.set(bound,name);return bound;
-      }),globals:api.globals?.map(binding),
+      }),globals:[...(api.globals??[]),...(opts.keyboard===false?[]:api.keyboardGlobals??[])].map(binding),
       writeOnlyGlobals:api.writeOnlyGlobals?.map(binding),
       fields:api.fields?.map(name=>{const [root,...path]=name.split(".");return [binding(root),...path].join(".");})});
     this.opts={...opts,runtimeInitializers:opts.runtimeInitializers?.map(bind),
@@ -69,6 +69,7 @@ class Codegen {
     this.functions = new Map(); // name -> fn record
     this.globals = new Map();   // name -> {addr, type}
     this.globalInitializers=new Map();
+    this.globalSymbols=new Map();
     this.declarationInitializers=new Map();
     this.defaultValues=new WeakMap();
     this.staticLocals=new WeakMap();
@@ -178,17 +179,20 @@ class Codegen {
     const own=this.reachable({own:true});
     const later=this.opts.jitMain,compiles=["__jit_exe","__jit_expr","__jit_rest","__call_ext"]
       .some(name=>own.functions.has(this.imports[name]?.index));
-    let linked=this.reachable();
+    const hashUsed=compiles || own.fields.has("CTask.hash_table") ||
+      own.functions.has(this.functions.get("HashFind")?.index);
+    let linked=this.reachable({hashUsed});
     if (compiles) {
       const user=this.program.items.filter(item=>item.filename!=="<prelude>");
-      //FileRead is how V5.03's Lex reads an #include (Compiler/Lex.HC:707).
+      //FileRead is how V5.03's Lex reads an #include (Compiler/Lex.HC:707),
+      //GlblVarHashAdd how a glbl the text makes gets its hash entry.
       const words=new Set([...later?.names??[],...StrWords(user),
-        "Print","PutChars","FileRead",FLOAT_MUL_I64]);
+        "Print","PutChars","FileRead","GlblVarHashAdd",FLOAT_MUL_I64]);
       for (const fn of this.functions.values())
         if (fn.node?.filename && fn.node.filename!=="<prelude>") words.add(fn.name);
       this.jitExports=[...words].filter(name=>this.functions.get(name)?.slot &&
         !this.unresolved.has(this.functions.get(name).index));
-      linked=this.reachable({strings:true});
+      linked=this.reachable({strings:true,hashUsed});
       this.jitExports.push(...linked.named);
     }
     for (const [key,error] of this.unresolved)
@@ -398,8 +402,18 @@ class Codegen {
     }
     this.m.linkFunctions(live);
     const classes=this.program.decls.filter(d=>d.kind==="ClassDecl");
+    //V5.03 PrsGlblVarLst HashAdds each glbl the text makes (Jit.glblHashAdd).
+    const declared=[];
+    for (const d of this.program.decls.filter(d=>d.filename!=="<adam>"))
+      for (const v of d.kind==="VarDecl"?[d]:d.kind==="ClassDecl"?d.vars??[]:[]) {
+        const g=this.globals.get(v.name);
+        if (g?.node!==v || v.internal || v.storage?.some(s=>s==="extern" || s==="_extern")) continue;
+        let cnt=1;
+        for (let t=g.type;t.kind==="array";t=t.of) cnt*=Number.isFinite(t.count)?t.count:1;
+        declared.push({name:v.name,addr:g.addr,size:this.typeSize(g.type),cnt,array:g.type.kind==="array"});
+      }
     return {bytes:this.m.emit(),type:this.exprType,warnings:this.warnings,
-      symbols:{globals:this.globals,constEnv:this.constEnv,functions,classes}};
+      symbols:{globals:this.globals,constEnv:this.constEnv,functions,classes,declared}};
   }
 
   exceptionTag() {
@@ -902,13 +916,33 @@ class Codegen {
     const ctx=new FnCtx(this,{name:"__rt_init",params:[],retType:T.U0,node:{body:null}});
     for (const names of this.declarationInitializers.values())
       for (const name of names) {
-        const g=this.globals.get(name);
+        const g=this.globals.get(name),hash=this.glblHashAdd(g,name);
+        if (hash) {
+          ctx.f=new Func();
+          ctx.genStmt(hash);
+          this.globalSymbols.set(name,ctx.f);
+        }
         if (g.init==null || g.deferred) continue;
         ctx.f=new Func();
         this.adam(g.node,name,()=>ctx.genGlobalInit(g),()=>ctx.f=new Func().unreachable());
         this.globalInitializers.set(name,ctx.f);
       }
     return ctx;
+  }
+  //V5.03 PrsGlblVarLst HashAdds each glbl of the program as it compiles it,
+  //before its initializer; the jit's own glbls are Jit.glblHashAdd's.
+  glblHashAdd(g,name) {
+    const d=g.node;
+    if (this.jit || !d || d.internal || ["<prelude>","<compiler>"].includes(d.filename) ||
+        g.kind==="exportedAddress" || d.storage?.some(s=>s==="extern" || s==="_extern") ||
+        !this.functions.has("GlblVarHashAdd")) return null;
+    let cnt=1;
+    for (let t=g.type;t.kind==="array";t=t.of) cnt*=Number.isFinite(t.count)?t.count:1;
+    const at={line:d.line,filename:d.filename},num=value=>({kind:"IntLit",value:BigInt(value),...at});
+    const st=[...(d.sourceName??name)].map(c=>c.charCodeAt(0)&255);
+    return {kind:"ExprStmt",...at,expr:{kind:"Call",...at,callee:{kind:"Ident",name:"GlblVarHashAdd",...at},
+      args:[{kind:"StrLit",bytes:st,...at},{kind:"Unary",op:"&",operand:{kind:"Ident",name,...at},...at},
+        num(this.typeSize(g.type)),num(cnt),num(g.type.kind==="array"?1:0)]}};
   }
 
   //V5.03 compiles Adam once, in order, so every name in it is defined by then.
@@ -934,7 +968,7 @@ class Codegen {
     return lo;
   }
 
-  reachable({own=false,strings=false}={}) {
+  reachable({own=false,strings=false,hashUsed=false}={}) {
     const functions=new Set(),globals=new Set(),fields=new Set(),bodies=new Set(),hooks=new Set();
     const interfaces=new Set(),exports=new Set(),named=new Set(),scanned=new Set(),words=new Set();
     const writeOnly=new Map(),byIndex=new Map([...this.functions.values()].map(fn=>[fn.index,fn]));
@@ -974,6 +1008,7 @@ class Codegen {
       files.add(fileOf(this.globals.get(name)?.node));
       const storage=this.globals.get(name)?.storage;
       if (storage) visitGlobal(storage);
+      if (hashUsed) visitBody(this.globalSymbols.get(name));
       visitBody(this.globalInitializers.get(name));
     };
     visitFunction(this.mainFn.index);
@@ -1071,7 +1106,8 @@ class Codegen {
     const f=ctx.f=new Func();
     const initializers=[...this.globalInitializers].filter(([name])=>linked.globals.has(name));
     const boot=this.boot.filter(stmt=>linked.functions.has(stmt.index));
-    if (linked.hooks.size || initializers.length || boot.length || linked.interfaces.size || this.rtGuard!==undefined) {
+    const symbols=[...this.globalSymbols.values()].filter(body=>linked.bodies.has(body));
+    if (linked.hooks.size || symbols.length || initializers.length || boot.length || linked.interfaces.size || this.rtGuard!==undefined) {
       const guard=this.rtGuard??=this.alloc(8,8),fault=this.imports.__rt_init_failed.index;
       const state=()=>f.i64_const(guard).op("i32_wrap_i64");
       state().load("i64_load",0,3).i64_const(2).op("i64_ne").if_();
@@ -1087,6 +1123,8 @@ class Codegen {
         if (linked.hooks.has(hook.name)) f.call(this.functions.get(hook.name).index);
       //The prelude's statements this program reaches, as V5.03 runs them at boot.
       for (const stmt of boot) f.call(stmt.index);
+      //The compiled module's symbols live as long as its code and static data.
+      for (const body of symbols) f.append(body);
       //A task host owns what the boot made to the instance, not to a session.
       if (linked.interfaces.size) {
         f.call(this.imports.__rt_booted.index);linked.functions.add(this.imports.__rt_booted.index);
@@ -1374,6 +1412,7 @@ class FnCtx {
     switch (s.kind) {
       case "Block": for (const st of s.stmts) this.genStmt(st); return;
       case "Empty": return;
+      case "FlagOps": this.genFlagOps(s); return;
       case "DeclStmt": this.genDeclStmt(s); return;
       case "Result": {
         const t=this.cg.resolveType(this.genExpr(s.expr));
@@ -1422,6 +1461,31 @@ class FnCtx {
     }
   }
 
+  genFlagOps(s) {
+    const f=this.f,sp=this.cg.spGlobal;
+    const call=name=>{
+      const bound=this.cg.program.runtimeFunctionBindings?.[name]??name;
+      const fn=this.cg.functions.get(bound);
+      if (!fn) this.err(s,"Flag instructions require "+name);
+      f.call(fn.index);
+    };
+    for (const op of s.ops) {
+      if (op==="PAUSE") continue; //A spin hint on a cooperative core.
+      if (op==="PUSHFD") {
+        f.stackCheck(8).global_get(sp).i64_const(8).op("i64_sub").global_set(sp);
+        f.global_get(sp).op("i32_wrap_i64");call("GetRFlags");f.store("i64_store",0,3);
+      } else if (op==="POPFD") {
+        f.global_get(sp).op("i32_wrap_i64").load("i64_load",0,3);call("SetRFlags");
+        f.global_get(sp).i64_const(8).op("i64_add").global_set(sp);
+      } else {
+        call("GetRFlags");
+        if (op==="CLI") f.i64_const(~512n).op("i64_and");
+        else f.i64_const(512).op("i64_or");
+        call("SetRFlags");
+      }
+    }
+  }
+
   loopJump(cfg, to) { if (cfg) this.gotos.jump(to); else this.f.br(this.rel(to)); }
 
   warnOnce(msg) { if (!this._warned) this._warned = new Set(); if (!this._warned.has(msg)) { this._warned.add(msg); this.cg.warn(msg); } }
@@ -1454,25 +1518,40 @@ class FnCtx {
       return;
     }
     if (init.kind === "InitList") {
-      if (isArray(type)) {
-        const et = type.of, esz = this.cg.typeSize(et);
-        init.elements.forEach((el, i) => {
-          this.storeInitInto(() => { pushAddr(); this.f.i64_const(i * esz).op("i64_add"); }, et, el);
-        });
-      } else if (isClass(type)) {
-        const layout = this.cg.layoutClass(type.name);
-        const fieldArr = [...layout.fields.values()];
-        init.elements.forEach((el, i) => {
-          const fi = fieldArr[i]; if (!fi) return;
-          this.storeInitInto(() => { pushAddr(); this.f.i64_const(fi.offset).op("i64_add"); }, fi.type, el);
-        });
-      }
+      this.storeInitFrom(pushAddr, type, {elements: [init], i: 0});
       return;
     }
     // scalar
     pushAddr(); this.f.op("i32_wrap_i64");
     this.genExprCoerce(init, type);
     this.emitStore(type);
+  }
+
+  //V5.03 PrsVarInit2 (Compiler/PrsVar.HC:123-204): an array takes its own
+  //braces if they come, else its elements go on from the enclosing list, so
+  //{1,2,3,4} fills a [2][2] in order. A class takes braces, its member arrays
+  //the same flat elements.
+  storeInitFrom(pushAddr, type, list) {
+    type = this.cg.resolveType(type);
+    const el = list.elements[list.i];
+    const at = off => () => { pushAddr(); this.f.i64_const(off).op("i64_add"); };
+    if (!el) return;
+    if (isArray(type) && !(el.kind === "StrLit" && this.cg.typeSize(type.of) === 1)) {
+      let sub = list;
+      if (el.kind === "InitList") { sub = {elements: el.elements, i: 0}; list.i++; }
+      const esz = this.cg.typeSize(type.of), n = Number.isFinite(type.count) ? type.count : Infinity;
+      for (let k = 0; k < n && sub.i < sub.elements.length; k++) this.storeInitFrom(at(k * esz), type.of, sub);
+    } else if (isClass(type) && el.kind === "InitList") {
+      const sub = {elements: el.elements, i: 0};
+      list.i++;
+      for (const fi of this.cg.layoutClass(type.name).fields.values()) {
+        if (sub.i >= sub.elements.length) break;
+        this.storeInitFrom(at(fi.offset), fi.type, sub);
+      }
+    } else {
+      list.i++;
+      if (el.kind !== "InitList") this.storeInitInto(pushAddr, type, el);
+    }
   }
 
   genGlobalInit(g) {

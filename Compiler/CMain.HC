@@ -71,6 +71,21 @@ I64 ExeFile2(U8 *name,I64 ccf_flags=0)
   return res;
 }
 
+CHashGlblVar *GlblVarHashAdd(U8 *st,U8 *data_addr,I64 size,I64 cnt,
+	Bool is_array)
+{//V5.03 PrsGlblVarLst's HashAdd of a glbl the host compiled at data_addr.
+  CHashGlblVar *tmpg=CAlloc(sizeof(CHashGlblVar),Fs->code_heap);
+  tmpg->data_addr=data_addr;
+  tmpg->type=HTT_GLBL_VAR;
+  tmpg->str=StrNew(st,Fs->code_heap);
+  tmpg->size=size;
+  tmpg->dim.total_cnt=cnt;
+  if (is_array)
+    tmpg->flags|=GVF_ARRAY;
+  HashAdd(tmpg,Fs->hash_table);
+  return tmpg;
+}
+
 //V5.03 Compiler/PrsLib.HC PrsKeyWord.
 I64 PrsKeyWord(CCmpCtrl *cc)
 {//Cvt cur token to $LK,"KEYWORD",A="FF:::/Compiler/OpCodes.DD,KEYWORD"$ or -1.

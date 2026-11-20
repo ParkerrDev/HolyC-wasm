@@ -9,7 +9,7 @@ for(const name of cases) {
   assert.deepEqual(result.warnings,[]);
   let output='',heap,count;const live=new Set();
   const host=createTaskHost({gfx:new Framebuffer(null),ansi:false,onText:s=>output+=s});
-  for(const name of ['__malloc','__malloc_for','__malloc_kernel']) {
+  for(const name of ['__malloc','__malloc_kernel']) {
     const alloc=host.env[name];host.env[name]=(...args)=>{const p=alloc(...args);if(p>0n)live.add(p);return p;};
   }
   const free=host.env.__free;host.env.__free=p=>{free(p);live.delete(p);};

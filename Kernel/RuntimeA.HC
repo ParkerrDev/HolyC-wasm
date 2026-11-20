@@ -9,6 +9,7 @@ U8 *mem_mapped_space=8192*0x10000; //Top of WASM memory, abi.js MEM_MAX_PAGES.
 CSema sys_semas[SEMA_SEMAS_NUM];
 CTask *sys_winmgr_task,*sys_task_being_scrn_updated;
 CTask *sys_focus_task;
+U0 (*fp_set_std_palette)();
 CJob sys_macro_head; //V5.03 Kernel/KGlbls.HC.
 CTask *sys_macro_task;
 CDoc *sys_clip_doc;
@@ -521,6 +522,7 @@ U0 CntsUpdate()
     }
   }
   cnts.jiffies=jiffies;
+  c->total_jiffies=jiffies;
   cnts.timer=jiffies*(SYS_TIMER0_PERIOD+1);
   LBtr(&sys_semas[SEMA_SYS_TIMER],0);
 }

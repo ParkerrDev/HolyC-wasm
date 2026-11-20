@@ -25,7 +25,7 @@ function load(result,options={}) {
   const tasks=result.requiredCapabilities.includes('task-continuations');
   let output='',calls=0,failAt=0,boot=null;
   const host=(tasks?createTaskHost:createHost)({...options,jit:result.jit,onText:s=>output+=s}),live=new Set();
-  for(const name of ['__malloc','__malloc_kernel','__malloc_for']) {
+  for(const name of ['__malloc','__malloc_kernel']) {
     const alloc=host.env[name];host.env[name]=(...args)=>{
       if(++calls===failAt)return 0n;
       const ptr=alloc(...args);if(ptr)live.add(ptr);return ptr;

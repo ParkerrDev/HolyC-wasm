@@ -91,37 +91,46 @@ U0 DrawWinGrid(CDC *dc)
 
 //Browser tasks share one cooperative CPU and one native window stack.
 
-Bool win_host_z_dirty=TRUE;
 U0 (*fp_update_ctrls)(CTask *task)=NULL;
 
 U0 TaskQueIns(CTask *task,CTask *pred=NULL)
 {//Insert a task in the scheduler running task queue.
+//You have no business with this, probably.
   CTask *last;
+  PUSHFD
+  CLI
   if (!pred) pred=Fs;
   last=pred->last_task;
   last->next_task=pred->last_task=task;
   task->last_task=last;
   task->next_task=pred;
+  POPFD
 }
 
 U0 TaskQueRem(CTask *task)
 {//Remove a task from the scheduler running task queue.
 //Use $LK,"Suspend",A="MN:Suspend"$().
   CTask *next,*last;
+  PUSHFD
+  CLI
   next=task->next_task;
   last=task->last_task;
   last->next_task=next;
   next->last_task=last;
+  POPFD
 }
 
 I64 WinOnTopWindows()
 {
   CTask *task,*task1,*first_moved_fwd=NULL;
   I64 res=0;
+  PUSHFD
+  CLI //TODO Multiprocessor safe
   task=sys_winmgr_task->next_task;
   while (task!=sys_winmgr_task && task!=first_moved_fwd) {
     task1=task->next_task;
     if (!TaskValidate(task)) {
+      POPFD
       return res;
     }
     if (Bt(&task->display_flags,DISPLAYf_WIN_ON_TOP) &&
@@ -134,6 +143,7 @@ I64 WinOnTopWindows()
     }
     task=task1;
   }
+  POPFD
   return res;
 }
 
@@ -147,7 +157,10 @@ public I64 WinToTop(CTask *task=NULL,Bool update_z_buf=TRUE)
   TaskDerivedValsUpdate(task,FALSE);
   if (!sys_winmgr_task || task==sys_winmgr_task)
     return 0;
+  PUSHFD
+  CLI
   if (!TaskValidate(task)) {
+    POPFD
     return 0;
   }
   if (task!=sys_winmgr_task->last_task) {
@@ -169,6 +182,7 @@ public I64 WinToTop(CTask *task=NULL,Bool update_z_buf=TRUE)
 	  task->popup_task->parent_task==task)
       res+=WinToTop(task->popup_task,FALSE);
   }
+  POPFD
   res+=WinOnTopWindows;
   if (res && update_z_buf)
     WinZBufUpdate;
@@ -176,8 +190,8 @@ public I64 WinToTop(CTask *task=NULL,Bool update_z_buf=TRUE)
 }
 
 U0 WinZBufFill(CTask *task)
-{//Fill the text-cell occlusion map.
-  I64 x,y,t,b,l,r;
+{//Not public
+  I64 y,t,b,l,r,w;
   if (!Bt(&task->display_flags,DISPLAYf_NO_BORDER)) {
     if (task->win_top-1>0)
       t=task->win_top-1;
@@ -217,9 +231,10 @@ U0 WinZBufFill(CTask *task)
   b=ClampI64(b,t,TEXT_ROWS-1);
   l=ClampI64(l,0,TEXT_COLS-1);
   r=ClampI64(r,l,TEXT_COLS-1);
-  for (y=t;y<=b;y++)
-    for (x=l;x<=r;x++)
-      gr.win_z_buf[y*TEXT_COLS+x]=task->win_z_num;
+  if (w=r-l+1)
+    for (y=t;y<=b;y++)
+      MemSetU16(gr.win_z_buf(U8 *)+(y*TEXT_COLS+l)*sizeof(U16),
+	    task->win_z_num,w);
 }
 
 public U0 WinZBufUpdate()
@@ -230,7 +245,7 @@ public U0 WinZBufUpdate()
   U16 *ptr;
   CTask *task,*task1;
   if (gr.win_z_buf) {
-    win_host_z_dirty=FALSE;
+    LBtr(&sys_semas[SEMA_UPDATE_WIN_Z_BUF],0);
     task1=task=sys_winmgr_task;
     do {
       if (!TaskValidate(task)) break;
@@ -253,6 +268,8 @@ U0 WinDerivedValsUpdate(CTask *task)
 {//Those things calculated from other variables.
   if (!task) task=Fs;
   //Assert: This is called with TASKf_TASK_LOCK set
+  PUSHFD
+  CLI
   task->win_width =task->win_right-task->win_left+1;
   task->win_height=task->win_bottom-task->win_top+1;
   task->pix_left	=FONT_WIDTH*task->win_left;
@@ -261,18 +278,23 @@ U0 WinDerivedValsUpdate(CTask *task)
   task->pix_top		=FONT_HEIGHT*task->win_top;
   task->pix_bottom	=FONT_HEIGHT*(task->win_bottom+1)-1;
   task->pix_height	=task->pix_bottom-task->pix_top+1;
+  POPFD
 }
 
 U0 TaskDerivedValsUpdate(CTask *task=NULL,Bool update_z_buf=TRUE)
-{//The browser scheduler switches tasks only at explicit yield points.
+{//Those things calculated from other variables.
   if (!task) task=Fs;
-  Bts(&task->task_flags,TASKf_TASK_LOCK);
+  PUSHFD
+  CLI
+  while (LBts(&task->task_flags,TASKf_TASK_LOCK))
+    PAUSE
   WinDerivedValsUpdate(task);
   if (fp_update_ctrls)
     (*fp_update_ctrls)(task);
   if (update_z_buf && Bt(&task->display_flags,DISPLAYf_SHOW))
-    win_host_z_dirty=TRUE;
-  Btr(&task->task_flags,TASKf_TASK_LOCK);
+    LBts(&sys_semas[SEMA_UPDATE_WIN_Z_BUF],0);
+  LBtr(&task->task_flags,TASKf_TASK_LOCK);
+  POPFD
 }
 
 public Bool WinHorz(I64 left,I64 right,CTask *task=NULL)
@@ -295,12 +317,16 @@ public Bool WinHorz(I64 left,I64 right,CTask *task=NULL)
     else
       left=right;
   }
+  PUSHFD
+  CLI //TODO Multiprocessor safe
   if (task->win_left!=left || task->win_right!=right) {
     task->win_left=left;
     task->win_right=right;
     TaskDerivedValsUpdate(task);
+    POPFD
     return TRUE;
   } else {
+    POPFD
     return FALSE;
   }
 }
@@ -325,12 +351,16 @@ public Bool WinVert(I64 top,I64 bottom,CTask *task=NULL)
     else
       top=bottom;
   }
+  PUSHFD
+  CLI //TODO Multiprocessor safe
   if (task->win_top!=top || task->win_bottom!=bottom) {
     task->win_top=top;
     task->win_bottom=bottom;
     TaskDerivedValsUpdate(task);
+    POPFD
     return TRUE;
   } else {
+    POPFD
     return FALSE;
   }
 }
@@ -378,6 +408,8 @@ public Bool WinBorder(Bool val=OFF,CTask *task=NULL)
   Bool old_has_border;
   if (!task) task=Fs;
   if (!TaskValidate(task)) return FALSE;
+  PUSHFD
+  CLI //TODO Multiprocessor safe
   old_has_border=!Bt(&task->display_flags,DISPLAYf_NO_BORDER);
   if (val) {
     if (!old_has_border) {
@@ -394,6 +426,7 @@ public Bool WinBorder(Bool val=OFF,CTask *task=NULL)
       TaskDerivedValsUpdate(task,FALSE);
     }
   }
+  POPFD
   return old_has_border;
 }
 
@@ -402,10 +435,13 @@ public U0 WinMax(CTask *task=NULL)
   I64 no_border;
   if (!task) task=Fs;
   if (!TaskValidate(task)) return;
+  PUSHFD
+  CLI //TODO Multiprocessor safe
   no_border=Bt(&task->display_flags,DISPLAYf_NO_BORDER);
   WinHorz(1-no_border,TEXT_COLS-2+no_border,task);
   WinVert(2-no_border,TEXT_ROWS-2+no_border,task);
   WinToTop(task);
+  POPFD
 }
 
 public U0 WinScrollNull(CTask *task,CD3I64 *s)
@@ -425,12 +461,14 @@ public U0 WinScrollRestore(CTask *task,CD3I64 *s)
   task->scroll_z=s->z;
 }
 
-//V5.03 Adam/Win.HC DrawMs, without its PUSHFD/CLI/POPFD (one core).
 U0 DrawMs(CDC *dc)
 {
   I64 x,y;
+  PUSHFD
+  CLI
   x=ms.pos.x;
   y=ms.pos.y;
+  POPFD
   if (ms.show && ms_hard.installed) {
     if (!Bt(&sys_run_level,RLf_VGA)) //if text mode
       gr.text_base[ms.pos_text.x+ms.pos_text.y*TEXT_COLS]^=0x7F00;
@@ -503,9 +541,10 @@ U0 WinMsUpdate()
     ms.speed*=0.95;
 }
 
-//V5.03 Adam/Win.HC WinRefocus, without its PUSHFD/CLI/POPFD (one core).
 public CTask *WinRefocus(CTask *task=NULL)
 {//Reset the focus task if NULL.
+  PUSHFD
+  CLI
   if (!task) {
     task=sys_winmgr_task->last_task;
     while (TaskValidate(task) && task!=sys_winmgr_task) {
@@ -516,5 +555,6 @@ public CTask *WinRefocus(CTask *task=NULL)
       task=task->last_task;
     }
   }
+  POPFD
   return sys_focus_task;
 }

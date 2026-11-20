@@ -1,3 +1,4 @@
+import {heapUsed} from './heap-used.mjs';
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {compileHolyC} from "../src/compiler.js";
@@ -99,55 +100,55 @@ U0 Done() {DCDel(dc);}`;
 const result=compileHolyC(source,{lenient:false,exports:["Init","Prepare","Draw","Create","Release","Done","CurveCancel","Corrupt"]});
 let calls=0,failAt=0;
 const host=createTaskHost(),malloc=host.env.__malloc;
-host.env.__malloc=size=>++calls===failAt?0n:malloc(size);
+host.env.__malloc=(size,hc)=>++calls===failAt?0n:malloc(size,hc);
 const {instance}=await WebAssembly.instantiate(result.bytes,{env:host.env});
 const fn=instance.exports;host.attach(instance);await host.run();
-fn.Init();fn.Done();const empty=host.state.heapPtr;
-fn.Init();const heap=host.state.heapPtr,stack=fn.__sp.value;
+fn.Init();fn.Done();const empty=heapUsed(host);
+fn.Init();const heap=heapUsed(host),stack=fn.__sp.value;
 let total=0;
 function fails(run,label) {
   calls=0;assert.equal(run(),0n,label);
-  const count=calls,baseline=host.state.heapPtr;total+=count;
+  const count=calls,baseline=heapUsed(host);total+=count;
   for(let i=1;i<=count;i++) {
     calls=0;failAt=i;
     assert.equal(run(),0x6D654D74754Fn,`${label}, allocation ${i}`);
-    assert.equal(host.state.heapPtr,baseline,`${label}, allocation ${i} must free its buffers`);
+    assert.equal(heapUsed(host),baseline,`${label}, allocation ${i} must free its buffers`);
     assert.equal(fn.__sp.value,stack);
     failAt=0;assert.equal(run(),0n,`${label} retry`);
-    assert.equal(host.state.heapPtr,baseline);
+    assert.equal(heapUsed(host),baseline);
   }
 }
 for(let type=1;type<30;type++) {
   fn.Prepare(BigInt(type));
   fails(()=>fn.Draw(0n,0n),`sprite type ${type}`);
-  fn.Release();assert.equal(host.state.heapPtr,heap);
+  fn.Release();assert.equal(heapUsed(host),heap);
 }
 for(const type of [13,17,18,19,20,23,24,25,29]) {
   fn.Prepare(BigInt(type));
-  const prepared=host.state.heapPtr;
+  const prepared=heapUsed(host);
   for(const mode of [0n,1n,2n]) {
     assert.equal(fn.Draw(mode,1n),0x6C69614677617244n,`transform ${type}/${mode}`);
-    assert.equal(host.state.heapPtr,prepared);
+    assert.equal(heapUsed(host),prepared);
     assert.equal(fn.__sp.value,stack);
     assert.equal(fn.Draw(mode,0n),0n);
   }
   if(type===24 || type===25) {
     assert.equal(fn.Draw(0n,2n),0x6C69614677617244n,`lighting ${type}`);
-    assert.equal(host.state.heapPtr,prepared);
+    assert.equal(heapUsed(host),prepared);
   }
-  fn.Release();assert.equal(host.state.heapPtr,heap);
+  fn.Release();assert.equal(heapUsed(host),heap);
 }
 fn.Prepare(8n);fn.Corrupt();
 assert.equal(fn.Draw(0n,0n),Buffer.from("Graphics").readBigInt64LE());
-fn.Release();assert.equal(host.state.heapPtr,heap);
+fn.Release();assert.equal(heapUsed(host),heap);
 fn.Prepare(23n);
 for(const mode of [0n,1n,2n,3n]) fails(()=>fn.Create(mode),`context mode ${mode}`);
 fn.Release();
 for(let i=0;i<50;i++) for(const order of [2n,3n]) {
   assert.equal(fn.CurveCancel(order,0n),0n);
   assert.equal(fn.CurveCancel(order,1n),0x6C69614677617244n);
-  assert.equal(host.state.heapPtr,heap,"cancelled/throwing spline callbacks must release scratch");
+  assert.equal(heapUsed(host),heap,"cancelled/throwing spline callbacks must release scratch");
   assert.equal(fn.__sp.value,stack);
 }
-fn.Done();assert.equal(host.state.heapPtr,empty);
+fn.Done();assert.equal(heapUsed(host),empty);
 console.log(`Sprites: ${total} allocation failures, nested transform/lighting errors and retries restore context and free temporary buffers.`);

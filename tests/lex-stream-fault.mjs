@@ -9,7 +9,7 @@ assert.deepEqual(result.warnings,[]);
 //CmpCtrlNew links the task runtime in the one Adam, so it is a task program.
 assert.deepEqual(result.requiredCapabilities,['task-continuations']);
 const host=createTaskHost({ansi:false,onText:()=>{},jit:result.jit}),live=new Set();let calls=0,failAt=0,count=0;
-for(const name of ['__malloc','__malloc_for','__malloc_kernel']) {
+for(const name of ['__malloc','__malloc_kernel']) {
   const alloc=host.env[name];host.env[name]=(...args)=>{
     if(++calls===failAt)return 0n;
     const ptr=alloc(...args);if(ptr>0n)live.add(ptr);return ptr;

@@ -1,3 +1,4 @@
+import {heapUsed} from './heap-used.mjs';
 import assert from "node:assert/strict";
 import {compileHolyC} from "../src/compiler.js";
 import {createTaskHost} from "../src/runtime/tasks.js";
@@ -51,30 +52,30 @@ const compiled=compileHolyC(source,{lenient:false,
   exports:["Build","Error","Unsupported","DrawFail","Free","MAlloc","MSize","StrLen"]});
 let calls=0,failAt=0;
 const host=createTaskHost({onText:()=>{}}),malloc=host.env.__malloc;
-host.env.__malloc=size=>++calls===failAt?0n:malloc(size);
+host.env.__malloc=(size,hc)=>++calls===failAt?0n:malloc(size,hc);
 const {instance}=await WebAssembly.instantiate(compiled.bytes,{env:host.env});
 const fn=instance.exports;host.attach(instance);await host.run();calls=0;
 let ptr=fn.Build();assert.notEqual(ptr,0n);assert.equal(fn.StrLen(ptr),9007n);
 const allocations=calls;fn.Free(ptr);
-const heap=host.state.heapPtr,stack=fn.__sp.value;
+const heap=heapUsed(host),stack=fn.__sp.value;
 assert.ok(allocations>4,"exercise temporary growth, quoted strings and final copy");
 for (let i=1;i<=allocations;i++) {
   calls=0;failAt=i;
   assert.equal(fn.Build(),0n,`allocation ${i} should fail`);
   assert.equal(fn.Error(),0x6D654D74754Fn);
-  assert.equal(host.state.heapPtr,heap,`allocation ${i} must release every owned buffer`);
+  assert.equal(heapUsed(host),heap,`allocation ${i} must release every owned buffer`);
   assert.equal(fn.__sp.value,stack);
   failAt=0;ptr=fn.Build();assert.notEqual(ptr,0n);fn.Free(ptr);
-  assert.equal(host.state.heapPtr,heap,"a retry must succeed without leaking");
+  assert.equal(heapUsed(host),heap,"a retry must succeed without leaking");
 }
 assert.equal(fn.DrawFail(),0x6C69614677617244n);
-assert.equal(host.state.heapPtr,heap,"failed drawing must free its formatted text");
+assert.equal(heapUsed(host),heap,"failed drawing must free its formatted text");
 assert.equal(fn.__sp.value,stack);
 for (const format of ["%F","%D","%T","%p","%P"]) {
   ptr=fn.MAlloc(8n,0n);
   new Uint8Array(fn.memory.buffer,Number(ptr),3).set([37,format.charCodeAt(1),0]);
   assert.equal(fn.Unsupported(ptr),0x74736F48746D46n,`${format} must report missing OS services`);
-  fn.Free(ptr);assert.equal(host.state.heapPtr,heap);
+  fn.Free(ptr);assert.equal(heapUsed(host),heap);
 }
 assert.equal(fn.MSize(0n),0n);
 for (const size of [0,1,15,16,17,257,65539]) {

@@ -9,7 +9,7 @@ for(const name of cases) {
   assert.deepEqual(result.warnings,[]);
   const tasks=result.requiredCapabilities.includes('task-continuations');
   let output='',heap,count;const live=new Set(),host=(tasks?createTaskHost:createHost)({gfx:new Framebuffer(null),ansi:false,onText:s=>output+=s});
-  for(const name of ['__malloc','__malloc_for','__malloc_kernel']) {
+  for(const name of ['__malloc','__malloc_kernel']) {
     const alloc=host.env[name];host.env[name]=(...args)=>{const ptr=alloc(...args);if(ptr)live.add(ptr);return ptr;};
   }
   const free=host.env.__free;host.env.__free=ptr=>{free(ptr);live.delete(ptr);};
@@ -29,7 +29,7 @@ for(const name of cases) {
 const line=compileHolyC('LexPutLine(NULL,NULL);',{lenient:false,exports:['LexPutLine']});
 assert.deepEqual(line.requiredCapabilities,['task-continuations']);
 let attempts=0,armed=false,output='';const lineHost=createTaskHost({jit:line.jit,ansi:false,onText:s=>output+=s});
-for(const name of ['__malloc','__malloc_for','__malloc_kernel']) {
+for(const name of ['__malloc','__malloc_kernel']) {
   const alloc=lineHost.env[name];
   lineHost.env[name]=(...args)=>{if(armed){attempts++;throw new Error('Unexpected line allocation');}return alloc(...args);};
 }

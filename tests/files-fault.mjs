@@ -42,7 +42,7 @@ function create(child=false) {
   const tasks=result.requiredCapabilities.includes('task-continuations');
   const host=(tasks?createTaskHost:createHost)({jit:result.jit,onText:()=>{}}),live=new Set();
   let calls=0,failAt=0,boot=null;
-  for(const name of ['__malloc','__malloc_kernel','__malloc_for']) {
+  for(const name of ['__malloc','__malloc_kernel']) {
     const alloc=host.env[name];host.env[name]=(...args)=>{
       if(++calls===failAt)return 0n;
       const ptr=alloc(...args);if(ptr>0n)live.add(ptr);return ptr;
@@ -68,7 +68,7 @@ for(let mode=0;mode<7;mode++) {
     assert.equal(volume.live.size,baseline);failures++;
   }
 }
-volume.fn.DirHostClear();assert.equal(volume.added,0);assert.equal(volume.host.state.heapPtr,volume.host.state.boot.heapPtr);
+volume.fn.DirHostClear();assert.equal(volume.added,0);
 await volume.host.dispose();assert.equal(volume.live.size,0);assert.equal(volume.host.state.heapPtr,16777248);
 const child=create(true);assert(child.tasks);await child.host.run('Setup');const count=child.live.size;
 child.arm();assert.equal(await child.host.run('ChildTrial'),0n);const childSites=child.calls;

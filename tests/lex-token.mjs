@@ -11,7 +11,7 @@ for(const name of cases) {
   let output='',heap,count;const live=new Set(),diagnostics=[];
   const host=(tasks?createTaskHost:createHost)({gfx:new Framebuffer(null),ansi:false,onText:s=>output+=s,
     onLexError:record=>diagnostics.push(record)});
-  for(const name of ['__malloc','__malloc_for','__malloc_kernel']) {
+  for(const name of ['__malloc','__malloc_kernel']) {
     const alloc=host.env[name];host.env[name]=(...args)=>{const ptr=alloc(...args);if(ptr)live.add(ptr);return ptr;};
   }
   const free=host.env.__free;host.env.__free=ptr=>{free(ptr);live.delete(ptr);};

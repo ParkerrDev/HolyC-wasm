@@ -7,7 +7,7 @@ const result=compileHolyC(read('ExtFault.HC'),{lenient:false,exports:['ExtFaultS
 assert.deepEqual(result.warnings,[]);
 const diagnostics=[],host=createTaskHost({gfx:new Framebuffer(null),onText:()=>{},onLexError:r=>diagnostics.push(r)}),live=new Set();
 let armed=false,calls=0,failAt=0,failures=0,callbacks=0;
-for(const name of ['__malloc','__malloc_for','__malloc_kernel']){
+for(const name of ['__malloc','__malloc_kernel']){
  const alloc=host.env[name];host.env[name]=(...args)=>{
   if(armed && ++calls===failAt)return 0n;
   const ptr=alloc(...args);if(ptr>0n)live.add(ptr);return ptr;

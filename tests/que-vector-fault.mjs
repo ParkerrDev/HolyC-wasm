@@ -1,3 +1,4 @@
+import {heapUsed} from './heap-used.mjs';
 import assert from 'node:assert/strict';
 import {compileHolyC} from '../src/compiler.js';
 import {createTaskHost} from '../src/runtime/tasks.js';
@@ -6,7 +7,7 @@ const exports=['QvNewTrial','QvFaultSetup','QvGrowTrial','QvFaultDone','RemFault
 const result=compileHolyC(read('QueVectorFault.HC'),{lenient:false,exports});
 assert.deepEqual(result.warnings,[]);assert.deepEqual(result.requiredCapabilities,['task-continuations']);
 const host=createTaskHost({jit:result.jit,ansi:false,onText:()=>{}}),live=new Set();let calls=0,failAt=0,total=0;
-for(const name of ['__malloc','__malloc_for','__malloc_kernel']) {
+for(const name of ['__malloc','__malloc_kernel']) {
   const alloc=host.env[name];host.env[name]=(...args)=>{
     if(++calls===failAt)return 0n;
     const ptr=alloc(...args);if(ptr>0n)live.add(ptr);return ptr;
@@ -14,7 +15,7 @@ for(const name of ['__malloc','__malloc_for','__malloc_kernel']) {
 }
 const free=host.env.__free;host.env.__free=ptr=>{free(ptr);live.delete(ptr);};
 const instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});host.attach(instance);
-const state=()=>[live.size,host.state.heapPtr,instance.exports.__sp.value];
+const state=()=>[live.size,heapUsed(host),instance.exports.__sp.value];
 const run=(name,...args)=>instance.exports[name](...args);
 const outMem=0x6D654D74754Fn;
 try {

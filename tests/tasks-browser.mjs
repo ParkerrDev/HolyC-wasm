@@ -18,7 +18,6 @@ const server=createServer(async(request,response)=>{
   try {
     const path=new URL(request.url,'http://localhost').pathname;
     if(path==='/') {response.setHeader('Content-Type','text/html');response.end('<!doctype html><title>HolyC task check</title>');return;}
-    if(path==='/site/Keyboard.js') {response.setHeader('Content-Type','text/javascript');response.end(await readFile(web+'/Keyboard.js'));return;}
     const file=resolve(root,'.'+path);
     if(!file.startsWith(root+'src/')) throw new Error('Unserved path');
     response.setHeader('Content-Type','text/javascript');response.end(await readFile(file));
@@ -126,7 +125,7 @@ try {
     const {compileHolyC}=await import('/src/compiler.js');
     const {createTaskHost}=await import('/src/runtime/tasks.js');
     const {Framebuffer}=await import('/src/runtime/graphics.js');
-    const {KEY,KeyBytes}=await import('/site/Keyboard.js');
+    const {KEY,KeyBytes}=await import('/src/runtime/keyboard.js');
     const canvas=document.createElement('canvas');canvas.width=640;canvas.height=480;
     document.body.append(canvas);const gfx=new Framebuffer(canvas.getContext('2d'));
     const result=compileHolyC('I64 stage=0; I64 Stage(){return stage;} RawPrint(8,"A"); stage=1; GetKey; Raw(OFF); "DONE";',
@@ -150,7 +149,7 @@ try {
   await page.evaluate(async()=>{
     const {compileHolyC}=await import('/src/compiler.js');
     const {createTaskHost}=await import('/src/runtime/tasks.js');
-    const {KEY,KeyBytes}=await import('/site/Keyboard.js');
+    const {KEY,KeyBytes}=await import('/src/runtime/keyboard.js');
     const result=compileHolyC('while(TRUE) {I64 ch=GetKey; "%d\\n",ch;}',{lenient:false});
     window.keyOutput='';
     const host=createTaskHost({jit:result.jit,ansi:false,onText:text=>window.keyOutput+=text});

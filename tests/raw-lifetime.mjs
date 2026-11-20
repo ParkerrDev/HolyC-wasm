@@ -29,8 +29,8 @@ assert.equal(host.state.tasks[0].allocations,0,'Session cache is released on dis
 const simple=compileHolyC('I64 cols=text.cols; "READY:%d\\n",cols;',{lenient:false});
 let output='',fail=true;
 //It prints, so it is a task program.
-const retry=createTaskHost({ansi:false,onText:s=>output+=s,jit:simple.jit}),alloc=retry.env.__malloc_kernel;
-retry.env.__malloc_kernel=size=>{if(size===38400n && fail){fail=false;return 0n;}return alloc(size);};
+const retry=createTaskHost({ansi:false,onText:s=>output+=s,jit:simple.jit}),alloc=retry.env.__malloc;
+retry.env.__malloc=(size,hc)=>{if(size===38400n && fail){fail=false;return 0n;}return alloc(size,hc);};
 const inst=new WebAssembly.Instance(new WebAssembly.Module(simple.bytes),{env:retry.env});retry.attach(inst);
 await assert.rejects(retry.run());assert.equal(output,'');
 await assert.rejects(retry.run(),/fresh.*instance/);assert.equal(output,'');

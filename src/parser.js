@@ -593,17 +593,17 @@ export class Parser {
           this.eatP(";");return mk("Empty",{},t);
         }
         case "lock": { this.next(); return this.parseStatement(); }
-        case "PUSHFD": case "POPFD": case "CLI": case "STI":
-//V5.03 PrsStmt: an opcode in a fun is one asm instruction (CMPF_ONE_ASM_INS),
-//and the ones after it on the next lines join it. IF gates only preemption,
-//which a cooperative single core has not, so these emit nothing.
+        case "PUSHFD": case "POPFD": case "CLI": case "STI": case "PAUSE":
+          //V5.03 PrsStmt groups consecutive single assembler instructions.
           if (this.localNames && !this.localNames.has(t.value)) {
+            const ops=[];
             while (this.cur().type==="ident" &&
-                ["PUSHFD","POPFD","CLI","STI"].includes(this.cur().value)) {
-              this.next();
+                ["PUSHFD","POPFD","CLI","STI","PAUSE"].includes(this.cur().value) &&
+                !this.localNames.has(this.cur().value)) {
+              ops.push(this.next().value);
               this.optP(";");
             }
-            return mk("Empty",{},t);
+            return mk("FlagOps",{ops},t);
           }
       }
       // label:  (ident followed by ':' but not '::')

@@ -10,7 +10,7 @@ function build(source,exports=[]) {
 function tracked(module,options={}) {
   let calls=0,failAt=0;
   const host=createTaskHost({gfx:new Framebuffer(null),onText:()=>{},...options}),live=new Set();
-  for(const name of ['__malloc','__malloc_kernel','__malloc_for']) {
+  for(const name of ['__malloc','__malloc_kernel']) {
     const alloc=host.env[name];host.env[name]=(...args)=>{
       if(++calls===failAt)return 0n;
       const ptr=alloc(...args);if(ptr>0n)live.add(ptr);return ptr;

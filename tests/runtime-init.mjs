@@ -38,7 +38,7 @@ let fail=true,calls=0,effects=0;
 const hookSource='import I64 Effect(); I64 width=gr.pen_brushes[3]->width; I64 seen=Effect; Effect;';
 const hook=load(hookSource,host=>{
   const malloc=host.env.__malloc;
-  host.env.__malloc=size=>{calls++;return fail?0n:malloc(size);};
+  host.env.__malloc=(size,hc)=>{calls++;return fail?0n:malloc(size,hc);};
   host.env.Effect=()=>{effects++;return 1n;};
 });
 assert.throws(()=>hook.fn.__main(),WebAssembly.Exception);
@@ -118,10 +118,13 @@ let taskEffects=0;
 const taskResult=compileHolyC(hookSource+' I64 Waiter(){return GetKey;}',{lenient:false,exports:['Waiter']});
 const taskHost=createTaskHost(),taskMalloc=taskHost.env.__malloc;
 let taskFail=true;
-taskHost.env.__malloc=size=>taskFail?0n:taskMalloc(size);
-//Startup frees what it took before the failure.
-const taskLive=new Set(),taskKernel=taskHost.env.__malloc_kernel,taskFree=taskHost.env.__free;
-taskHost.env.__malloc_kernel=size=>{const ptr=taskKernel(size);if(ptr)taskLive.add(ptr);return ptr;};
+//Startup frees what it took before the failure: the boot's first blocks (on
+//Adam's heap, AMAlloc) are taken, then an allocation fails.
+const taskLive=new Set(),taskFree=taskHost.env.__free;let taskCalls=0;
+taskHost.env.__malloc=(size,hc)=>{
+  if(taskFail && ++taskCalls>2) return 0n;
+  const ptr=taskMalloc(size,hc);if(ptr)taskLive.add(ptr);return ptr;
+};
 taskHost.env.__free=ptr=>{taskLive.delete(ptr);return taskFree(ptr);};
 taskHost.env.Effect=()=>{taskEffects++;return 1n;};
 const taskInstance=new WebAssembly.Instance(new WebAssembly.Module(taskResult.bytes),{env:taskHost.env});taskHost.attach(taskInstance);

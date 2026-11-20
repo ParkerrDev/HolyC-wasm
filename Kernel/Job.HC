@@ -1,7 +1,5 @@
 //V5.03 Kernel/Job.HC TaskExe, TaskText, JobResScan, JobResGet, TaskWait,
-//JobRunOne, JobsHndlr, Adam, InStr, InFile and In. The browser has one core
-//and no interrupts: no PUSHFD/CLI and no RFLAGS, and a held job lock is
-//waited on with Yield.
+//JobRunOne, JobsHndlr, Adam, InStr, InFile and In.
 
 CJob *TaskExe(CTask *srv,CTask *master,U8 *data,I64 flags)
 {//Queues a request to compile and execute src code text.
@@ -16,10 +14,13 @@ CJob *TaskExe(CTask *srv,CTask *master,U8 *data,I64 flags)
   res->aux_str=AStrNew(data);
   res->ctrl=&srv->srv_ctrl;
 
+  PUSHFD
+  CLI
   while (LBts(&srv->srv_ctrl.flags,JOBCf_LOCKED))
-    Yield;
+    PAUSE
   if (!TaskValidate(srv)) {
     LBtr(&srv->srv_ctrl.flags,JOBCf_LOCKED);
+    POPFD
     JobDel(res);
     return NULL;
   } else {
@@ -32,6 +33,7 @@ CJob *TaskExe(CTask *srv,CTask *master,U8 *data,I64 flags)
       Yield;
     }
   }
+  POPFD
   return res;
 }
 
@@ -50,21 +52,24 @@ CJob *TaskText(CTask *srv,CTask *master,U8 *data,I64 flags)
   res->flags=flags;
   res->aux_str=AStrNew(data);
 
+  PUSHFD
   task=srv->last_input_filter_task;
   if (Bt(&flags,JOBf_HIGHEST_PRIORITY) || task==srv) {
     if (task!=srv)
       TaskWait(srv);
     task=Spawn(&InputFilterTask,NULL,"Input Filter",,srv);
+    CLI
     task->next_input_filter_task=srv->next_input_filter_task;
     task->last_input_filter_task=srv;
     srv->next_input_filter_task=task;
     task->next_input_filter_task->last_input_filter_task=task;
   } else {
+    CLI
     task=srv->next_input_filter_task;
   }
   res->ctrl=&task->srv_ctrl;
   while (LBts(&task->srv_ctrl.flags,JOBCf_LOCKED))
-    Yield;
+    PAUSE
   if (!TaskValidate(task)) {
     JobDel(res);
     res=NULL;
@@ -74,6 +79,7 @@ CJob *TaskText(CTask *srv,CTask *master,U8 *data,I64 flags)
     QueIns(res,task->srv_ctrl.last_waiting);
     LBtr(&task->srv_ctrl.flags,JOBCf_LOCKED);
   }
+  POPFD
   return res;
 }
 
@@ -86,14 +92,17 @@ Bool JobResScan(CJob *rqst=NULL,I64 *_res=NULL)
       ctrl=&Fs->srv_ctrl;
     else
       ctrl=rqst->ctrl;
+    PUSHFD
+    CLI
     while (LBts(&ctrl->flags,JOBCf_LOCKED))
-      Yield;
+      PAUSE
     tmpc1=&ctrl->next_done;
     tmpc=tmpc1->next;
     while (tmpc!=tmpc1) {
       if (!rqst || rqst==tmpc) {
 	QueRem(tmpc);
 	LBtr(&ctrl->flags,JOBCf_LOCKED);
+	POPFD
 	if (_res)
 	  *_res=tmpc->res;
 	JobDel(tmpc);
@@ -102,6 +111,7 @@ Bool JobResScan(CJob *rqst=NULL,I64 *_res=NULL)
       tmpc=tmpc->next;
     }
     LBtr(&ctrl->flags,JOBCf_LOCKED);
+    POPFD
   }
   if (_res)
     *_res=0;
@@ -136,6 +146,8 @@ U0 TaskWait(CTask *task=NULL,Bool cmd_line_pmt=FALSE)
   CJob *tmpc1;
   if (!task) task=Fs;
   if (TaskValidate(task)) {
+    PUSHFD
+    CLI
     while (TRUE) {
       task1=task->last_input_filter_task;
       tmpc1=&task1->srv_ctrl.next_waiting;
@@ -145,6 +157,7 @@ U0 TaskWait(CTask *task=NULL,Bool cmd_line_pmt=FALSE)
 	break;
       Yield;
     }
+    POPFD
   }
 }
 
@@ -156,7 +169,7 @@ I64 JobRunOne(I64 run_flags,CJobCtrl *ctrl)
 {//Called with ctrl->flags,JOBCf_LOCKED.
   CJob *tmpc=ctrl->next_waiting;
   CTask   *master;
-  I64 res,flags=tmpc->flags;
+  I64 res,flags=tmpc->flags,old_flags=GetRFlags;
   if (Bt(&flags,JOBf_EXIT_ON_COMPLETE))
     res=JOB_EXIT;
   else
@@ -177,21 +190,25 @@ I64 JobRunOne(I64 run_flags,CJobCtrl *ctrl)
       QueRem(tmpc);
       LBts(&tmpc->flags,JOBf_DISPATCHED);
       LBtr(&ctrl->flags,JOBCf_LOCKED);
+      SetRFlags(run_flags);
       LBtr(&Fs->task_flags,TASKf_IDLE);
       try
 	      tmpc->res=(*tmpc->addr)(tmpc->fun_arg);
       catch
 	Fs->catch_except=TRUE;
+      SetRFlags(old_flags);
       break;
     case JOBT_EXE_STR:
       QueRem(tmpc);
       LBts(&tmpc->flags,JOBf_DISPATCHED);
       LBtr(&ctrl->flags,JOBCf_LOCKED);
+      SetRFlags(run_flags);
       LBtr(&Fs->task_flags,TASKf_IDLE);
       try
 	      tmpc->res=ExePrint("%s",tmpc->aux_str);
       catch
 	Fs->catch_except=TRUE;
+      SetRFlags(old_flags);
       break;
     default:
       res=JOB_DONE;
@@ -199,11 +216,13 @@ I64 JobRunOne(I64 run_flags,CJobCtrl *ctrl)
   if (res) {
     if (master=tmpc->master_task) {
       if (!Bt(&flags,JOBf_FREE_ON_COMPLETE)) {
+	CLI
 	while (LBts(&master->srv_ctrl.flags,JOBCf_LOCKED))
-	  Yield;
+	  PAUSE
 	QueIns(tmpc,master->srv_ctrl.last_done);
 	LBts(&tmpc->flags,JOBf_DONE);
 	LBtr(&master->srv_ctrl.flags,JOBCf_LOCKED);
+	SetRFlags(old_flags);
       }
       if (Bt(&flags,JOBf_FOCUS_MASTER) &&
 	    !Bt(&master->win_inhibit,WIf_SELF_FOCUS))
@@ -214,11 +233,13 @@ I64 JobRunOne(I64 run_flags,CJobCtrl *ctrl)
     if (Bt(&flags,JOBf_FREE_ON_COMPLETE))
       JobDel(tmpc);
     else if (!master) {
+      CLI
       while (LBts(&ctrl->flags,JOBCf_LOCKED))
 	Yield;
       QueIns(tmpc,ctrl->last_done);
       LBts(&tmpc->flags,JOBf_DONE);
       LBtr(&ctrl->flags,JOBCf_LOCKED);
+      SetRFlags(old_flags);
     }
   }
   return res;
@@ -226,11 +247,12 @@ I64 JobRunOne(I64 run_flags,CJobCtrl *ctrl)
 
 I64 JobsHndlr(I64 run_flags,CTask *task=NULL)
 {//Handle all waiting cmds and return.
-  I64 cnt=0;
+  I64 cnt=0,old_flags=GetRFlags;
   if (!task) task=Fs;
   while (TRUE) {
+    CLI
     while (LBts(&task->srv_ctrl.flags,JOBCf_LOCKED))
-      Yield;
+      PAUSE
     if (task->srv_ctrl.next_waiting!=&task->srv_ctrl)
       switch (JobRunOne(run_flags,&task->srv_ctrl)) {
 	case JOB_CONT:
@@ -246,6 +268,7 @@ I64 JobsHndlr(I64 run_flags,CTask *task=NULL)
   }
 jh_done:
   LBtr(&task->srv_ctrl.flags,JOBCf_LOCKED);
+  SetRFlags(old_flags);
   return cnt;
 }
 
@@ -256,7 +279,7 @@ I64 Adam(U8 *fmt,...)
   CJob *tmpc;
   if (Fs==adam_task) {
     tmpc=TaskExe(adam_task,Fs,buf,0);
-    JobsHndlr(0);
+    JobsHndlr(GetRFlags);
   } else {
     TaskWait(adam_task);
     tmpc=TaskExe(adam_task,Fs,buf,1<<JOBf_WAKE_MASTER);

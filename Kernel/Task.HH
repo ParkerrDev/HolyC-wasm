@@ -99,6 +99,9 @@ public class CQue
 #define TTS_TASK_NAME		2
 #define TTS_ED_FILENAME		3
 #define TTS_CUR_LEX		4
+#define RFLAGf_INT		9
+#define RFLAGG_START		0x0000
+#define RFLAGG_NORMAL		(1<<RFLAGf_INT)
 #define TASKf_TASK_LOCK		0
 #define TASKf_KILL_TASK		1
 #define TASKf_SUSPENDED		2

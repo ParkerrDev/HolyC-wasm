@@ -4,7 +4,7 @@ import {
   LEX_TOKEN_DIAG_SRC,LEX_TOKEN_SRC,LEX_EXT_SRC,LEX_REPORT_SRC,LEX_REM_SRC,
   LEX_STRING_SRC,LEX_TYPES_SRC,LEX_GLOBALS_SRC,LEX_SRC,
   CMP_TABLE_TYPES_SRC,CMP_TABLE_SRC,MEMBER_TYPES_SRC,MEMBER_SRC,CHASH_SRC,CMP_TYPES_SRC,
-  CMP_SRC,DEFINE_SRC,TASK_TYPES_SRC,TASK_SRC,TASK_SETTINGS_SRC,
+  CMP_SRC,DEFINE_SRC,HEAP_TYPES_SRC,TASK_TYPES_SRC,TASK_SRC,AMEM_SRC,TASK_SETTINGS_SRC,
   TASK_MESSAGE_SRC,DIR_TYPES_SRC,DIR_SRC,DSK_DRV_SRC,FILE_SRC,DSK_COPY_SRC,TASK_SCHEDULE_SRC,
   DOC_TYPES_SRC,WINDOW_SRC,CTRLS_A_SRC,CTRLS_BTTN_SRC,DOC_INIT_TYPES_SRC,DOC_INIT_SRC,
   FIFO_TYPES_SRC,FIFO_SRC,KBD_SRC,MOUSE_SRC,RAW_SRC,KEYDEV_SRC,
@@ -23,6 +23,7 @@ import {
 // compiler uses the same reachability graph for these hooks and ordinary calls.
 export const RUNTIME_INITIALIZERS=[
   {name:"__hcrt_init",always:true},
+  {name:"HeapHostInit",globals:["sys_code_bp","sys_data_bp"]},
   {name:"DirHostInit",globals:["blkdev","dir_host_ready","dir_host_nodes",
       "dir_host_node_cnt","dir_host_byte_cnt","dir_host_drvs","dir_host_bds"],
     fields:["CTask.cur_dir","CTask.cur_dv"],
@@ -59,11 +60,11 @@ export const RUNTIME_INITIALIZERS=[
 ];
 export const RUNTIME_INTERFACES=[{
   name:"task-continuations",
-  globals:["kbd"],
+  keyboardGlobals:["kbd"],
   imports:["__task_spawn","__task_kill","__task_wait","__task_exit","__task_break","__task_user"],
   check:"__task_require",
   exports:["TaskHostRoot","TaskHostEnter","TaskHostNew","TaskHostDone",
-    "TaskHostFlags","TaskHostStk","TaskHostStkTop","TaskHostKill","TaskHostMsg","TaskHostEnd","TaskHostReady",
+    "TaskHostFlags","TaskHostNext","TaskHostStk","TaskHostStkTop","TaskHostHeap","TaskHostIdle","TaskHostKill","TaskHostMsg","TaskHostEnd","TaskHostReady",
     "KbdHostByte","KbdHostReset","Break","TaskHostBreak"],
 }];
 // Live V5.03 exports these storage addresses as untyped, nonassignable symbols.
@@ -88,12 +89,12 @@ function Adam(...parts)
   return {src,starts};
 }
 const ADAM=Adam(RUNTIME_TYPES_SRC,[GR_TYPES_SRC,SPRITE_TYPES_SRC],
-    GR_STORAGE_SRC,[FIFO_TYPES_SRC,HASH_TYPES_SRC,TASK_TYPES_SRC,DIR_TYPES_SRC,
+    GR_STORAGE_SRC,[FIFO_TYPES_SRC,HASH_TYPES_SRC,HEAP_TYPES_SRC,TASK_TYPES_SRC,DIR_TYPES_SRC,
       DOC_TYPES_SRC,DOC_INIT_TYPES_SRC,CMP_TYPES_SRC,
       CMP_TABLE_TYPES_SRC,LEX_TYPES_SRC,QUE_VECT_TYPES_SRC,MEMBER_TYPES_SRC],
     RUNTIME_BASE_SRC,KEYDEV_SRC,RUNTIME_OUTPUT_SRC,[
       KMATH_A_SRC,KMISC_SRC,DISPLAY_SRC,KUTILS_SRC,COMPRESS_SRC,MULTI_PROC_SRC,AMATH_SRC,GR_TEXT_BASE_SRC,GR_MATH_SRC,GR_SRC,GR_PALETTE_SRC,GR_PRIMITIVES_SRC,STR_A_SRC,STR_SRC,
-      GR_COMPOSITES_SRC,SPRITE_SRC,SPRITE_ED_SRC,TASK_SRC,TASK_MESSAGE_SRC,TASK_SCHEDULE_SRC,
+      GR_COMPOSITES_SRC,SPRITE_SRC,SPRITE_ED_SRC,TASK_SRC,AMEM_SRC,TASK_MESSAGE_SRC,TASK_SCHEDULE_SRC,
       FIFO_SRC,KBD_SRC,MOUSE_SRC,WINDOW_SRC,CTRLS_A_SRC,CTRLS_BTTN_SRC,TASK_SETTINGS_SRC,AMATH_ODE_SRC,GR_SCRN_SRC,DIR_SRC,DSK_DRV_SRC,FILE_SRC,DSK_COPY_SRC,HASH_SRC,
       DEFINE_SRC,STR_SCAN_SRC,CMP_SRC,MEMBER_SRC,CHASH_SRC,LEX_GLOBALS_SRC,CMP_TABLE_SRC,
       LEX_SRC,LEX_STRING_SRC,QUE_VECT_SRC,LEX_REM_SRC,LEX_REPORT_SRC,

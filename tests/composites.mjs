@@ -1,3 +1,4 @@
+import {heapUsed} from './heap-used.mjs';
 import assert from "node:assert/strict";
 import {compileHolyC} from "../src/compiler.js";
 import {createTaskHost} from "../src/runtime/tasks.js";
@@ -47,12 +48,12 @@ U0 Done() {DCDel(dc);}`;
 const result=compileHolyC(source,{lenient:false,exports:["Init","Draw","Done"]});
 let calls=0,failAt=0;
 const host=createTaskHost(),malloc=host.env.__malloc;
-host.env.__malloc=size=>++calls===failAt?0n:malloc(size);
+host.env.__malloc=(size,hc)=>++calls===failAt?0n:malloc(size,hc);
 const {instance}=await WebAssembly.instantiate(result.bytes,{env:host.env});
 const fn=instance.exports;host.attach(instance);await host.run();
 fn.Init();fn.Done();
-const empty=host.state.heapPtr;
-fn.Init();const heap=host.state.heapPtr,stack=fn.__sp.value;
+const empty=heapUsed(host);
+fn.Init();const heap=heapUsed(host),stack=fn.__sp.value;
 let total=0;
 for(const mode of [0n,1n]) {
   calls=0;assert.equal(fn.Draw(mode,0n),0n);
@@ -61,17 +62,17 @@ for(const mode of [0n,1n]) {
   for(let i=1;i<=allocations;i++) {
     calls=0;failAt=i;
     assert.equal(fn.Draw(mode,0n),0x6D654D74754Fn,`mode ${mode}, allocation ${i}`);
-    assert.equal(host.state.heapPtr,heap,"every temporary allocation must be released");
+    assert.equal(heapUsed(host),heap,"every temporary allocation must be released");
     assert.equal(fn.__sp.value,stack);
     failAt=0;assert.equal(fn.Draw(mode,0n),0n);
-    assert.equal(host.state.heapPtr,heap,"drawing must recover after allocation failure");
+    assert.equal(heapUsed(host),heap,"drawing must recover after allocation failure");
   }
 }
 for(const failure of [1n,2n]) {
   assert.equal(fn.Draw(1n,failure),0x6C69614677617244n);
-  assert.equal(host.state.heapPtr,heap,"failed transform/lighting must free mesh buffers");
+  assert.equal(heapUsed(host),heap,"failed transform/lighting must free mesh buffers");
   assert.equal(fn.__sp.value,stack);
   assert.equal(fn.Draw(1n,0n),0n);
 }
-fn.Done();assert.equal(host.state.heapPtr,empty);
+fn.Done();assert.equal(heapUsed(host),empty);
 console.log(`Composite drawing: ${total} allocation failures, transform/lighting exceptions and retries release temporary buffers and restore state.`);

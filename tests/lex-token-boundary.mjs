@@ -8,7 +8,7 @@ const result=compileHolyC(source,{lenient:false,exports:['TokenBoundaryNew','Tok
 //CmpCtrlNew links the task runtime in the one Adam, so it is a task program.
 assert.deepEqual(result.warnings,[]);assert.deepEqual(result.requiredCapabilities,['task-continuations']);
 const host=createTaskHost({onText:()=>{},jit:result.jit}),live=new Set();let calls=0;
-for(const name of ['__malloc','__malloc_for','__malloc_kernel']) {
+for(const name of ['__malloc','__malloc_kernel']) {
   const alloc=host.env[name];host.env[name]=(...args)=>{calls++;const ptr=alloc(...args);if(ptr)live.add(ptr);return ptr;};
 }
 const free=host.env.__free;host.env.__free=ptr=>{free(ptr);live.delete(ptr);};

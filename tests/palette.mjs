@@ -42,4 +42,12 @@ for(let i=0;i<256;i++) {
  assert.deepEqual(shown.slice(i*4,i*4+4),[color&255,(color>>>8)&255,(color>>>16)&255,255]);
 }
 assert.equal(output,expected);
+const focused=nativeFixture('FocusPalette');
+const resultFocus=compileHolyC(focused.source,{lenient:false});
+let focusText='';
+const focusHost=createTaskHost({ansi:false,onText:s=>focusText+=s,gfx:{palette:()=>{}}});
+focusHost.attach(new WebAssembly.Instance(new WebAssembly.Module(resultFocus.bytes),{env:focusHost.env}));
+await focusHost.run();
+assert.equal(focusText,focused.output,'the death of the focused task restores the standard palette');
+await focusHost.dispose();
 console.log(output.trim(),'native DAC get/set, all 256 shared entries, original low-nibble screen conversion and missing-device rejection pass');

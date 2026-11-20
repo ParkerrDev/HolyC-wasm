@@ -1,16 +1,17 @@
-//V5.03 Kernel/SerialDev/Message.HC. The browser has one core and no
-//interrupts: no CLI and no RFLAGS, as in Job.HC. There is no debugger, so
-//GetKey has no polled branch.
+//V5.03 Kernel/SerialDev/Message.HC. There is no debugger, so GetKey has no
+//polled branch.
 U0 InputFilterTask()
 {
   CJob *tmpc,*tmpc1;
   Bool old_filter;
+  I64 old_flags=GetRFlags;
   Fs->win_inhibit=WIG_USER_TASK_DFT;
   LBts(&Fs->task_flags,TASKf_INPUT_FILTER_TASK);
   old_filter=LBts(&Fs->last_input_filter_task->task_flags,TASKf_FILTER_INPUT);
   LBEqu(&Fs->task_flags,TASKf_FILTER_INPUT,old_filter);
   while (TRUE) {
-    JobsHndlr(0);
+    CLI
+    JobsHndlr(old_flags);
     tmpc1=&Fs->srv_ctrl.next_waiting;
     tmpc=tmpc1->next;
     if (tmpc==tmpc1)
@@ -18,6 +19,7 @@ U0 InputFilterTask()
     else {
       if (tmpc->job_code==JOBT_TEXT_INPUT) {
 	QueRem(tmpc);
+	SetRFlags(old_flags);
 	try
 		ExePrint("%s",tmpc->aux_str);
 	catch
@@ -31,6 +33,7 @@ U0 InputFilterTask()
   Fs->last_input_filter_task->next_input_filter_task=Fs->next_input_filter_task;
   if (!old_filter)
     LBtr(&Fs->last_input_filter_task->task_flags,TASKf_FILTER_INPUT);
+  SetRFlags(old_flags);
 }
 
 I64 ScanMsg(I64 *_arg1=NULL,I64 *_arg2=NULL,I64 mask=~1,CTask *task=NULL)
@@ -40,19 +43,22 @@ If no message fit mask, return NULL immediately.
 Remove desired message, return $LK,"msg_code",A="MN:MSG_CMD"$.
 Note: This delivers messages from parent down to pop-up.
 */
-  I64 res;
+  I64 res,old_flags;
   CJob *tmpc,*tmpc1;
   if (!task) task=Fs;
+  old_flags=GetRFlags;
   tmpc1=&task->srv_ctrl.next_waiting;
   while (TRUE) {
+    CLI
     if (task==Fs)
-      JobsHndlr(0);
+      JobsHndlr(old_flags);
     tmpc=tmpc1->next;
     if (tmpc==tmpc1)
       break;
     else {
       if (tmpc->job_code==JOBT_MSG) {
 	QueRem(tmpc);
+	SetRFlags(old_flags);
 	res=tmpc->msg_code;
 	if (_arg1)
 	  *_arg1=tmpc->aux1;
@@ -64,15 +70,19 @@ Note: This delivers messages from parent down to pop-up.
 	  goto sm_done;
       }
     }
+    SetRFlags(old_flags);
   }
   res=MSG_NULL;
   if (_arg1)
     *_arg1=0;
   if (_arg2)
     *_arg2=0;
-  if (task->parent_task&&task->parent_task->popup_task==task)
+  if (task->parent_task&&task->parent_task->popup_task==task) {
+    SetRFlags(old_flags);
     return ScanMsg(_arg1,_arg2,mask,task->parent_task);
+  }
 sm_done:
+  SetRFlags(old_flags);
   return res;
 }
 

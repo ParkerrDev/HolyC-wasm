@@ -255,10 +255,42 @@ I64 WinQueIPMsgs(Bool que)
   return msg_code;
 }
 
+U0 WinCalcIdles()
+{
+  F64 calc_idle_time;
+  I64 i,k,total_jiffies,total_jiffies_delta,idle_pt_hits[MP_PROCESSORS_NUM];
+  CCPU *c;
+  CWinMgrTimingGlbls *t=winmgr.t;
+
+  if ((t->calc_idle_delta_time=
+	(calc_idle_time=tS)-t->last_calc_idle_time)>.25) {
+    PUSHFD
+    CLI
+    total_jiffies=cpu_structs[0].total_jiffies;
+    for (i=0;i<mp_cnt;i++)
+      idle_pt_hits[i]=cpu_structs[i].idle_pt_hits;
+    POPFD
+
+    total_jiffies_delta=total_jiffies-t->last_total_jiffies;
+    for (i=0;i<mp_cnt;i++) {
+      c=&cpu_structs[i];
+      if (total_jiffies_delta && (k=idle_pt_hits[i]-t->last_idle_pt_hits[i])>=0)
+	c->idle_factor=Clamp(ToF64(k)/total_jiffies_delta,0.01,0.99);
+      else
+	c->idle_factor=0.01;
+      t->last_idle_pt_hits[i]=idle_pt_hits[i];
+    }
+    t->last_total_jiffies=total_jiffies;
+    t->last_calc_idle_time=calc_idle_time;
+    t->calc_idle_cnt++;
+  }
+}
+
 U0 WinMgrSleep()
 {//One frame of $LK,"WinMgrTask",A="MN:WinMgrTask"$, timed as V5.03's WinMgrSleep.
-//The host queues key msgs as they come (KbdHostByte); here are the ms msgs,
-//held back while the ms is over one of the focus task's ctrls.
+//The host queues key msgs as they come (KbdHostByte), and here as V5.03 for the
+//keys that came while no task had the focus; then the ms msgs, held back while
+//the ms is over one of the focus task's ctrls.
   I64 timeout_val;
   F64 t,t_delta;
   CCtrl *c;
@@ -268,9 +300,14 @@ U0 WinMgrSleep()
   else
     winmgr.fps=99;
   winmgr.last_refresh_tS=t;
+  WinCalcIdles;
+
   if (TaskValidate(sys_focus_task)) {
+    KbdMsgsQue;
+
     que=TRUE;
-    if (!Bt(&sys_focus_task->win_inhibit,WIf_FOCUS_TASK_CTRLS)) {
+    if (TaskValidate(sys_focus_task) &&
+	  !Bt(&sys_focus_task->win_inhibit,WIf_FOCUS_TASK_CTRLS)) {
       c=sys_focus_task->next_ctrl;
       while (c!=&sys_focus_task->next_ctrl) {
 	if (CtrlInside(c,ms.pos.x,ms.pos.y)) {
@@ -281,6 +318,10 @@ U0 WinMgrSleep()
       }
     }
     WinQueIPMsgs(que);
+  } else {
+    WinRefocus(sys_focus_task);
+    if (!TaskValidate(sys_focus_task) && kbd.scan_code_fifo) //Made at the first key.
+      FifoI64Flush(kbd.scan_code_fifo);
   }
   WinMsUpdate;
   if (!LBtr(&sys_semas[SEMA_JUST_PUMP_MSGS],0)) {
@@ -301,7 +342,7 @@ U0 WinMgrTask(I64)
 //V5.03's WinMgrTask with its ctrl part. It is sys_winmgr_task, the bottom of
 //the win stack, under the other tasks' wins.
   CTask *task;
-  I64 my_ms_z=0,left,top;
+  I64 my_ms_z=0,left,top,old_flags=GetRFlags;
   CCtrl *c;
   WinHorz(0,TEXT_COLS-1);
   WinVert(0,TEXT_ROWS-1);
@@ -310,16 +351,21 @@ U0 WinMgrTask(I64)
   gr.dc->win_task=Fs;
   Fs->win_inhibit&=~WIF_SELF_CTRLS;
   WinZBufUpdate;
+  LBts(&sys_run_level,RLf_WINMGR);
   while (TRUE) {
 wmt_start:
     WinMgrSleep;
 
     task=sys_winmgr_task->last_task;
     while (TRUE) {
-      if (!TaskValidate(task))
+      CLI
+      if (!TaskValidate(task)) {
+	SetRFlags(old_flags);
 	goto wmt_start;
+      }
       TaskDerivedValsUpdate(task,FALSE);
       task=task->last_task;
+      SetRFlags(old_flags);
       if (task==sys_winmgr_task)
 	break;
     }
@@ -327,13 +373,21 @@ wmt_start:
 
     task=sys_winmgr_task->last_task;
     while (TRUE) {
-      if (!TaskValidate(task))
+      CLI
+      if (!TaskValidate(task)) {
+	SetRFlags(old_flags);
 	goto wmt_start;
-      if (WinInside(ms.pos.x,ms.pos.y,task,FONT_WIDTH))
+      }
+      if (WinInside(ms.pos.x,ms.pos.y,task,FONT_WIDTH)) {
+	SetRFlags(old_flags);
 	break;
-      if (task==sys_winmgr_task)
+      }
+      if (task==sys_winmgr_task) {	//Shouldn't happen
+	SetRFlags(old_flags);
 	goto wmt_start;
+      }
       task=task->last_task;
+      SetRFlags(old_flags);
     }
 
     if (!Bt(&task->win_inhibit,WIf_SELF_CTRLS) &&

@@ -74,14 +74,17 @@ U0 JobCtrlInit(CJobCtrl *ctrl)
 }
 
 U0 TaskRstAwaitingMsg(CTask *task=NULL)
-{//Pop-ups get parent messages, so wake our pop-ups too.
+{//Pop-ups get parent messages so wake-up our pop-ups if we got a msg.
   if (!task) task=Fs;
+  PUSHFD
+  CLI
   do {
     if (TaskValidate(task))
       LBtr(&task->task_flags,TASKf_AWAITING_MSG);
     else
       break;
   } while (task=task->popup_task);
+  POPFD
 }
 
 CJob *TaskMsg(CTask *_srv,CTask *master,
@@ -129,11 +132,17 @@ U0 Msg(I64 msg_code,I64 arg1,I64 arg2,I64 flags=0)
 }
 
 Bool Suspend(CTask *task=NULL,Bool state=TRUE)
-{//Tell scheduler to skip task; return prior state.
+{//Tell scheduler to skip task.
+  Bool res;
   if (!task) task=Fs;
+  PUSHFD
+  CLI
   if (TaskValidate(task))
-    return LBEqu(&task->task_flags,TASKf_SUSPENDED,state);
-  return FALSE;
+    res=LBEqu(&task->task_flags,TASKf_SUSPENDED,state);
+  else
+    res=FALSE;
+  POPFD
+  return res;
 }
 
 Bool IsSuspended(CTask *task=NULL)

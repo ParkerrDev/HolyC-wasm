@@ -25,7 +25,7 @@ I64 PathTrial(I64 mode) {
 const result=compileHolyC(source,{lenient:false,exports:['PathTrial']});assert.deepEqual(result.warnings,[]);
 const host=createHost(),malloc=host.env.__malloc;
 let calls=0,failAt=0;
-host.env.__malloc=size=>++calls===failAt?0n:malloc(size);
+host.env.__malloc=(size,hc)=>++calls===failAt?0n:malloc(size,hc);
 const instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});host.attach(instance);
 instance.exports.__rt_init();let faults=0;
 //What the first call makes once (the task's lazily made state) stays; take the heap after it.

@@ -293,6 +293,7 @@ export class Jit {
       if (fn.defined || !old) this.functions.set(name,{...fn,fn:instance.exports[name]});
     }
     this.classes.push(...decls.filter(d=>d.kind==="ClassDecl"));
+    for (const g of result.symbols.declared??[]) this.glblHashAdd(g);
     return instance;
   }
   // Defines made at run time stand for their text in parts compiled later.
@@ -384,6 +385,17 @@ export class Jit {
       n.Free(buf);
       return text;
     } finally {n.Free(name);}
+  }
+  // V5.03 PrsGlblVarLst HashAdds a glbl to Fs->hash_table as it compiles
+  // it, so HashFind sees it and one declared again is found first.
+  glblHashAdd({name,addr,size,cnt,array}) {
+    const n=this.native;
+    if (typeof n?.GlblVarHashAdd!=="function") return;
+    const bytes=[...name].map(c=>c.charCodeAt(0)&255),st=n.MAlloc(BigInt(bytes.length+1),0n);
+    try {
+      new Uint8Array(this.host.mem().buffer).set([...bytes,0],Number(st));
+      n.GlblVarHashAdd(st,BigInt(addr),BigInt(size),BigInt(cnt),array?1n:0n);
+    } finally {n.Free(st);}
   }
   include(path,from) {
     const source=this.readFile(path);

@@ -73,9 +73,8 @@ export const HOST_IMPORTS = {
   __kbd_ctrl_alt: {params: [I,I,I], results: []},
   __kbd_leds: {params: [I], results: []},
 
-  __malloc:      { params: [I], results: [I] },
-  __malloc_kernel: {params: [I], results: [I]},
-  __malloc_for: {params: [I,I], results: [I]},
+  __malloc:      { params: [I, I], results: [I] }, // (size,hc) hc is the CHeapCtrl, 0 for none
+  __heap_bp:     { params: [], results: [I] },     // the CBlkPool, V5.03's sys_code_bp
   __free:        { params: [I], results: [] },
   __msize2:      { params: [I], results: [I] },
   __msize:       { params: [I], results: [I] },

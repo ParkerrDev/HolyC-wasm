@@ -342,8 +342,9 @@ Native AdamLog and machine return-address logging are not reproduced. Ordinary
 WASM traps and unrelated JavaScript exceptions are not HolyC exceptions.
 
 `Free` returns allocations to a coalescing heap; `CAlloc` clears reused storage.
-The HolyC allocator keeps its headers, free list and shared-memory lock in linear
-memory, so a complete RAM snapshot restores allocation state. `MAlloc` throws
+A task retains freed blocks smaller than 1 KiB on its own exact-size lists.
+Larger blocks return to the shared pool. The HolyC allocator keeps its headers,
+size lists and lock in linear memory, so a complete RAM snapshot restores them. `MAlloc` throws
 `'OutMem'` on failure. `MemSet` and `MemCpy` return the pointer after the written
 range, as native V5.03 does; overlapping `MemCpy` copies forward byte by byte.
 Nonoverlapping copies and fills use WASM bulk-memory instructions.
@@ -452,7 +453,12 @@ and tests child/parent/session lifetime plus allocation failure and retry.
 Reachable `Spawn`, `Kill`, `Exit`, `GetMsg`, `GetKey`, `GetChar`, `PressAKey`
 `BreakUnlock`, or access to `kbd` requires
 `result.requiredCapabilities` to include `"task-continuations"`. An unreachable
-reference adds no requirement. The module also has a capability-only WASM start
+reference adds no requirement. A synchronous library can compile with
+`keyboard:false` when its host has no keyboard device. This lets code such as
+`StrPrint` check Scroll Lock while reporting a formatting error. Explicit task
+operations still require continuations.
+
+The module also has a capability-only WASM start
 function: an ordinary host or a host without JSPI refuses instantiation before
 source initializers, allocation or main can run. The site must use this metadata
 to decide launch availability before starting a program.
@@ -499,11 +505,21 @@ Yield and message waits release the worker event loop. Suspension flags are
 honored. Task termination callbacks can wait and yield; native `Kill(task,TRUE)`
 can return after a callback starts, before the task dies. Check `TaskValidate`
 when actual death is required. Task-owned allocations are released only after
-the continuation and descendants terminate. `MAlloc(size,task)` supports other
-live tasks; `AMAlloc`/`ACAlloc` and posted messages belong to the session kernel
-owner and survive their sending task. Raw `CHeapCtrl` owners are unsupported.
-The allocator headers/ABI remain unchanged, but new modules require the paired
-host's `__malloc_for` and `__malloc_kernel` imports.
+the continuation and descendants terminate. Each task's heap is a `CHeapCtrl`,
+as V5.03's (Kernel/Heap.HH): `MAlloc(size,task)` takes a live task or a heap,
+each block's header names its heap (`MHeapCtrl`), and `TaskMemAlloced` and
+`TaskMemUsed` count it. `AMAlloc`/`ACAlloc` and posted messages go on Adam's
+(the root's) heap and survive their sending task. V5.03's dying-task queue
+gives other tasks time to finish using the terminated task's allocations. The scheduler unlinks the task immediately and reclaims its heap
+after 200 ms, or when the session ends. A parent can still free a live block
+during that interval. New modules use the paired host's `__malloc(size,hc)`
+and `__heap_bp`.
+
+When a task yields, the scheduler walks the native `next_task` ring from its
+successor. It keeps the task's interrupt-enable bit across suspensions.
+`CLI` and `STI` change that bit. `PUSHFD` and `POPFD` save and restore
+the task's flags on its shadow stack. Arithmetic instructions do not synthesize
+x86 condition codes in this backend.
 
 This is a cooperative, single-core, unshared-memory backend, not a model of
 native CPU contexts or preemption. A task must reach Sleep, Yield or a message
@@ -1090,12 +1106,10 @@ root table before user initializers. Spawn initializes each child's own table
 only after registering that task with the ownership backend; its `next` points
 to the parent's table. Constructor failure unwinds the registered child and its
 owned allocations. Child exit releases its own heap and preserves ancestor
-storage; session disposal releases the root table. HashStr or explicit local
-table utilities alone do not initialize task tables. The root table starts empty:
-this is runtime storage for program-managed entries, not the live TempleOS
-compiler's populated symbol table. Runtime compiler symbols, reflection, class
-member ownership and full compiler bootstrap remain unsupported. Runtime
-define loading and document metadata startup are described below.
+storage. Session disposal releases the root table. Programs that inspect their
+symbols get a `CHashGlblVar` for each compiled global, with its address, size
+and array dimensions. The module owns these records across repeated runs.
+Globals compiled later by `ExePutS` enter the executing task's table.
 
 `npm run test:hash` checks 5,690 native hash decisions, native ownership branches,
 exact removal/ancestor behavior, repeated task lifetimes, 27 allocation failure

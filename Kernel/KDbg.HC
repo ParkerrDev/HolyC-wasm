@@ -14,12 +14,14 @@ U0 GetStrHostInit()
 
 I64 UnusedStk(CTask *task=NULL)
 {//Count of usused bytes in task's stk.
-//V5.03's PUSHFD CLI POPFD go: no interrupt comes between two lines here.
   I64 res;
   if (!task) task=Fs;
+  PUSHFD
+  CLI
   if (task==Fs)
     res=GetRSP()(U8 *)-(&task->stk->stk_base)(U8 *);
   else
     res=task->rsp(U8 *)-(&task->stk->stk_base)(U8 *);
+  POPFD
   return res;
 }

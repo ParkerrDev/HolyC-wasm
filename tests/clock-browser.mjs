@@ -62,8 +62,15 @@ try {
   //V5.03 is non-preemptive (Doc/Welcome.DD) and a key reaches a task through
   //WinMgr (WinMgr.HC:309), so a program waiting for one yields.
   const wait='"READY\\n";while(!ScanChar) Yield;';
-  await start(wait);await message("text");await clocks(0);
-  await page.evaluate(()=>finish());await done();
+  const clockRequests=[];
+  page.on("request",request=>{
+    if(request.url().endsWith("/clock-worker.js"))clockRequests.push(request.url());
+  });
+  //A program using only wall time has no TSC sampler. An active keyboard
+  //uses GetTSC itself when dispatching scan codes.
+  await start('__puts("READY\\n");F64 end=tS+0.2;while(tS<end) {}');
+  await message("text");await done();
+  assert.equal(clockRequests.length,0,"Wall time alone must not start a clock worker");
 
   await start(`I64 a=GetTSC,last=a,b,n=0,back=0; F64 end=tS+0.06;
     while(tS<end) {b=GetTSC;if(b<last)back++;if(b!=last)n++;last=b;}

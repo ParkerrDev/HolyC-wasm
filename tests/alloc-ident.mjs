@@ -41,7 +41,7 @@ assert.equal(host.state.heapPtr,host.state.boot.heapPtr);
 const owned=native('v503/AllocIdentTask');
 const result=compileHolyC(owned.source,{lenient:false,exports:['AllocIdentTask']});assert.deepEqual(result.warnings,[]);
 const runtime=createTaskHost();let fail=false,inst;
-for(const name of ['__malloc','__malloc_for','__malloc_kernel']) {
+for(const name of ['__malloc','__malloc_kernel']) {
   const original=runtime.env[name];
   runtime.env[name]=(...args)=>fail && new DataView(inst.exports.memory.buffer).getBigInt64(result.globals.get('ai_armed').addr,true)?0n:original(...args);
 }

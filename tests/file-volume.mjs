@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {heapUsed} from './heap-used.mjs';
 import {compileHolyC} from '../src/compiler.js';
 import {createHost} from '../src/runtime/host.js';
 import {createTaskHost} from '../src/runtime/tasks.js';
@@ -33,7 +34,7 @@ const tasks=compiled.requiredCapabilities.includes('task-continuations');assert(
 function load(files=[]) {
   const host=(tasks?createTaskHost:createHost)({files,jit:compiled.jit,onText:()=>{}});
   const live=new Set();let boot=null;
-  for(const name of ['__malloc','__malloc_kernel','__malloc_for']) {
+  for(const name of ['__malloc','__malloc_kernel']) {
     const alloc=host.env[name];host.env[name]=(...args)=>{const ptr=alloc(...args);if(ptr>0n)live.add(ptr);return ptr;};
   }
   const free=host.env.__free,booted=host.env.__rt_booted;
@@ -47,14 +48,13 @@ function load(files=[]) {
     try{return call(ptr);}finally{fn.Free(ptr);}
   }
   return {host,fn,path,main:()=>tasks?host.run():fn.__main(),
-    //Clearing the volume leaves only the boot's allocations and the heap the
-    //boot left, unless the volume's data was the top of that heap: then at
-    //least those bytes come back. Disposing the instance empties the heap.
-    async clear(top=0) {
+    async clear(minimumReleased=0) {
+      const used=heapUsed(host);
       fn.DirHostClear();assert.equal(live.size-boot.size,0);
-      if(top) assert(host.state.boot.heapPtr-host.state.heapPtr>=top);
-      else assert.equal(host.state.heapPtr,host.state.boot.heapPtr);
+      const cleared=heapUsed(host);
+      assert(used-cleared>=BigInt(minimumReleased));
       await host.dispose();assert.equal(live.size,0);assert.equal(host.state.heapPtr,16777248);
+      return cleared;
     }};
 }
 const seeded=load([{path:'C:/Keep',bytes:Uint8Array.of(7)}]);await seeded.main();
@@ -67,9 +67,10 @@ new Uint8Array(restored.fn.memory.buffer).set(image);restored.host.state.heapPtr
 assert.deepEqual(restored.host.files(),entries);
 for(const [field,value] of [3n,2n,0xB2D3D12345678n].entries())
   assert.equal(restored.path('C:/Saved.BIN',p=>restored.fn.Info(p,BigInt(field))),value);
-//The image holds seeded's boot, so its clear leaves the heap seeded's boot left.
-restored.fn.DirHostClear();assert.equal(restored.host.state.heapPtr,seeded.host.state.boot.heapPtr);
-const initial=seeded.host.files().length-2;await seeded.clear();
+//The restored volume releases the same live bytes as the original.
+restored.fn.DirHostClear();
+const initial=seeded.host.files().length-2;
+assert.equal(heapUsed(restored.host),await seeded.clear());
 
 const full=load(Array.from({length:nodes-initial},(_,i)=>({path:'C:/Q'+i,bytes:new Uint8Array()})));
 await full.main();assert.equal(full.host.files().length,nodes);

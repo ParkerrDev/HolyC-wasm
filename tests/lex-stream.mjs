@@ -10,7 +10,7 @@ for(const name of cases) {
   const tasks=result.requiredCapabilities.includes('task-continuations');
   let output='',heap=null,count=null;
   const host=(tasks?createTaskHost:createHost)({gfx:new Framebuffer(null),ansi:false,onText:text=>output+=text}),live=new Set();
-  for(const name of ['__malloc','__malloc_for','__malloc_kernel']) {
+  for(const name of ['__malloc','__malloc_kernel']) {
     const alloc=host.env[name];host.env[name]=(...args)=>{const ptr=alloc(...args);if(ptr>0n)live.add(ptr);return ptr;};
   }
   const free=host.env.__free;host.env.__free=ptr=>{free(ptr);live.delete(ptr);};
@@ -36,7 +36,7 @@ assert.deepEqual(count.requiredCapabilities,[]);
 //A program boots only the Adam it reaches: this one reaches no file whose
 //boot allocates, and reading the counter allocates nothing.
 const countHost=createHost();let countCalls=0;
-for(const name of ['__malloc','__malloc_for','__malloc_kernel']) {
+for(const name of ['__malloc','__malloc_kernel']) {
   const alloc=countHost.env[name];countHost.env[name]=(...args)=>{countCalls++;return alloc(...args);};
 }
 const countInstance=new WebAssembly.Instance(new WebAssembly.Module(count.bytes),{env:countHost.env});

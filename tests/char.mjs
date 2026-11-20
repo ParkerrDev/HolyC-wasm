@@ -26,17 +26,21 @@ await host.run();assert.equal(raw,expected,'native echo/prompt control sequences
 assert.equal(text,'A\n65\nPRESS A KEY\n98\n');await host.dispose();
 
 // Note duration belongs to the scheduler, never to a blocking legacy note callback.
+// Notes are the root's only waits, so Other can run only inside one: the root plays until
+// Other has run (the event), at most 100 notes, not on Other's Sleep beating the note's.
 const sound=compileHolyC(`
-I64 progressed=0;
+I64 progressed=0,i;
 U0 Other(U8 *) {Sleep(1);progressed=1;}
 Spawn(&Other,,,,Fs);
-__play_note(440.0,20);
+for (i=0;i<100 && !progressed;i++)
+  __play_note(440.0,20);
 if(!progressed) throw('Blocked');
 `,{lenient:false});
 const tones=[];
 const audio=createTaskHost({snd:{tone:frequency=>tones.push(frequency),note:()=>{throw new Error('legacy blocking note called');}}});
 audio.attach(new WebAssembly.Instance(new WebAssembly.Module(sound.bytes),{env:audio.env}));
-await audio.run();assert.deepEqual(tones,[440,0]);await audio.dispose();
+await audio.run();assert(tones.length>=2 && tones.every((tone,i)=>tone===(i&1?0:440)));
+await audio.dispose();
 let blockedNoteCalls=0;
 const noteOnly=createTaskHost({snd:{note:()=>blockedNoteCalls++}});
 noteOnly.attach(new WebAssembly.Instance(new WebAssembly.Module(sound.bytes),{env:noteOnly.env}));

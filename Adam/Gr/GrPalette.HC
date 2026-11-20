@@ -17,6 +17,7 @@ U0 GrHostPaletteInit()
   if (gr_palette_ready) return;
   MemSet(gr_palette_active,0,sizeof(gr_palette_active));
   gr_palette_ready=TRUE;
+  fp_set_std_palette=&PaletteSetStd;
   for (i=0;i<COLORS_NUM;i++)
     GrPaletteColorSet(i,gr_palette_std[i]);
 }

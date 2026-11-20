@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {heapUsed} from './heap-used.mjs';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {compileHolyC} from '../src/compiler.js';
@@ -26,7 +27,7 @@ function load(result,options={}) {
   const tasks=result.requiredCapabilities.includes('task-continuations');
   let output='';const host=(tasks?createTaskHost:createHost)({...options,jit:result.jit,onText:s=>output+=s});
   const live=new Set();let calls=0,failAt=0,boot=null,seeded=null;
-  for(const name of ['__malloc','__malloc_kernel','__malloc_for']) {
+  for(const name of ['__malloc','__malloc_kernel']) {
     const alloc=host.env[name];host.env[name]=(...args)=>{
       if(++calls===failAt)return 0n;
       const ptr=alloc(...args);if(ptr>0n)live.add(ptr);return ptr;
@@ -51,7 +52,7 @@ assert.deepEqual(layout.output.split('\n').slice(0,2),types.output.split('\n').s
 assert.match(layout.output,/Drive:B 4096\nDrive:C 4096\nBoot:C Home:C:\/Home\n$/);
 const state=native('DirectoryState'),stateResult=build(state.source,['DirHostClear']);
 const paths=load(stateResult);await paths.main();assert.equal(paths.output,state.output);
-paths.fn.DirHostClear();assert.equal(paths.added,0);assert.equal(paths.host.state.heapPtr,paths.bootHeap);
+paths.fn.DirHostClear();assert.equal(paths.added,0);
 await paths.host.dispose();assert.equal(paths.live.size,0);assert.equal(paths.host.state.heapPtr,baseHeap);
 const made=native('DirectoryMake'),make=load(build(made.source,['DirHostClear']));
 await make.main();assert.equal(make.output,made.output);make.fn.DirHostClear();assert.equal(make.added,0);
@@ -69,8 +70,8 @@ const family=load(childResult);let heap,allocations;
 for(let i=0;i<8;i++) {
   family.clearOutput();await family.host.run();assert.equal(family.output,child.output);
   assert.equal(family.host.state.tasks.length,1);
-  heap??=family.host.state.heapPtr;allocations??=family.live.size;
-  assert.equal(family.host.state.heapPtr,heap);assert.equal(family.live.size,allocations);
+  heap??=heapUsed(family.host);allocations??=family.live.size;
+  assert.equal(heapUsed(family.host),heap);assert.equal(family.live.size,allocations);
 }
 assert(family.host.files().some(entry=>Buffer.from(entry.path).toString()==='B:/DirChk/Other'));
 await family.host.dispose();assert.equal(family.live.size,0);assert.equal(family.host.state.heapPtr,baseHeap);
@@ -120,11 +121,9 @@ for(const paths of invalid.slice(1)) {
 // Fail every startup allocation, including seed copies and native node/data
 // publication. The volume is the boot's first work (DirHostInit), so each
 // failure in it releases the complete partial volume. A failure in the rest of
-// the boot (V5.03's Adam after its drives) leaves the volume it built intact.
-// A program boots only the Adam it reaches, so this one reaches Win.HC, whose
-// boot (winmgr.t's CAlloc) comes after the drives.
-const later=build('U0 Volume(){Free(DirCur);} I64 IdleCnt(){return winmgr.t->calc_idle_cnt;}',
-  ['Volume','DirHostClear','IdleCnt']);
+// the boot leaves the volume it built intact. The program's global allocation
+// runs after the drives have been seeded.
+const later=build('U8 *buf=MAlloc(16); U0 Volume(){Free(DirCur);}', ['Volume','DirHostClear']);
 assert.deepEqual(later.requiredCapabilities,[]);
 const counted=load(later,{files});counted.main();
 const startupSites=counted.calls,volumeSites=counted.seeded,volume=counted.host.files();

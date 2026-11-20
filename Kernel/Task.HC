@@ -1,4 +1,17 @@
 
+//V5.03 KernelB.HH's IC_GET_RFLAGS and IC_SET_RFLAGS. A core's RFLAGS is
+//the task's on it, as Yield saves and restores them; IF gates only
+//preemption, which a cooperative core has not.
+public I64 GetRFlags()
+{//Get RFlags register value.
+  return Fs->rflags;
+}
+
+public U0 SetRFlags(I64 d)
+{//Set RFlags register value.
+  Fs->rflags=d;
+}
+
 Bool TaskValidate(CTask *task)
 {//return TRUE if task looks valid.
   if (!(0<task<=I32_MAX) || task->addr!=task ||
@@ -15,18 +28,20 @@ I64 BirthWait(CTask **_task,I64 task_num=-1)
   return (*_task)->task_num;
 }
 
-//V5.03 Kernel/KTask.HC SrvTaskCont through User. One core and no interrupts: no
-//GetRFlags, CLI or SetRFlags, and JobsHndlr gets 0 as Kernel/Job.HC's Adam gives it.
+//V5.03 Kernel/KTask.HC SrvTaskCont through User.
 U0 SrvTaskCont()
 {//Act as server task in a loop handling commands.
+  I64 old_flags=GetRFlags;
   FlushMsgs;
   while (TRUE) {
-    if (JobsHndlr(0) && Fs->title_src==TTS_TASK_NAME)
+    CLI
+    if (JobsHndlr(old_flags) && Fs->title_src==TTS_TASK_NAME)
       MemCpy(Fs->task_title,Fs->task_name,TASK_NAME_LEN);
     FlushMsgs;
     LBts(&Fs->task_flags,TASKf_IDLE);
     LBts(&Fs->task_flags,TASKf_AWAITING_MSG);
     Yield;
+    SetRFlags(old_flags);
   }
 }
 

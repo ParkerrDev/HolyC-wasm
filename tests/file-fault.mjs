@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {heapUsed} from './heap-used.mjs';
 import {compileHolyC} from '../src/compiler.js';
 import {createHost} from '../src/runtime/host.js';
 import {createTaskHost} from '../src/runtime/tasks.js';
@@ -51,7 +52,7 @@ async function create() {
   const host=(tasks?createTaskHost:createHost)({jit:compiled.jit,onText:()=>{},
     files:[{path:'C:/Arc.HC.Z',bytes:Uint8Array.of(1,2,3)}]}),live=new Set();
   let calls=0,failAt=0,boot=null;
-  for(const name of ['__malloc','__malloc_kernel','__malloc_for']) {
+  for(const name of ['__malloc','__malloc_kernel']) {
     const alloc=host.env[name];host.env[name]=(...args)=>{
       if(++calls===failAt)return 0n;
       const ptr=alloc(...args);if(ptr)live.add(ptr);return ptr;
@@ -64,10 +65,9 @@ async function create() {
   await host.run('Setup');
   return {host,fn:instance.exports,live,get added(){return live.size-boot.size;},
     get calls(){return calls;},arm(at=0){calls=0;failAt=at;},
-    //Only the boot's allocations remain, and the heap it left; disposing the
-    //instance returns the empty heap.
+    //Only boot allocations remain until disposal.
     async empty(message) {
-      assert.equal(live.size-boot.size,0,message);assert.equal(host.state.heapPtr,host.state.boot.heapPtr,message);
+      assert.equal(live.size-boot.size,0,message);
       await host.dispose();assert.equal(live.size,0,message);assert.equal(host.state.heapPtr,16777248,message);
     }};
 }
@@ -98,8 +98,8 @@ await unsupported.host.dispose();assert.equal(unsupported.live.size,0);
 const repeat=await create();let heap,live;
 for(let i=0;i<30;i++) {
   for(const mode of [5,3,7,3])assert.equal(repeat.fn.Trial(BigInt(mode)),0n);
-  heap??=repeat.host.state.heapPtr;live??=repeat.live.size;
-  assert.equal(repeat.host.state.heapPtr,heap);assert.equal(repeat.live.size,live);
+  heap??=heapUsed(repeat.host);live??=repeat.live.size;
+  assert.equal(heapUsed(repeat.host),heap);assert.equal(repeat.live.size,live);
 }
 repeat.fn.DirHostClear();assert.equal(repeat.added,0);
 await repeat.host.dispose();assert.equal(repeat.live.size,0);

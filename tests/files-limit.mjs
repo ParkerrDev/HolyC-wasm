@@ -57,7 +57,8 @@ const full=load(Array.from({length:maxNodes-initial},(_,i)=>({path:'C:/Q'+i,byte
 await full.main();assert.equal(full.host.files().length,maxNodes);
 assert.equal(full.string('C:/OneMore',ptr=>full.fn.SeedTry(ptr,0n,0n,0n)),-tag('FsQuota'));
 assert.equal(full.host.files().length,maxNodes);assert.equal(full.fn.__sp.value,16777216n);
-full.fn.DirHostClear();assert.equal(full.host.state.heapPtr,full.host.state.boot.heapPtr);
+const owners=host=>[host.state.boot.allocations,...host.state.tasks.map(task=>task.allocations)];
+full.fn.DirHostClear();const cleared=owners(full.host);
 await full.host.dispose();assert.equal(full.host.state.heapPtr,16777248);
 const before=base.host.files();
 assert.equal(base.string('C:/Huge',ptr=>base.fn.SeedTry(ptr,ptr,BigInt(maxBytes+1),0n)),0n);
@@ -71,7 +72,7 @@ assert.equal(paths.string(segment,ptr=>paths.fn.GrowTry(ptr)),tag('FsPath'));
 assert.equal(paths.string(segment,ptr=>paths.fn.AbsTry(ptr)),tag('FsPath'));
 const exported=paths.host.files();assert(exported.every(entry=>entry.path.length<=maxPath));
 assert.equal(exported.length,initial+parts);
-paths.fn.DirHostClear();assert.equal(paths.host.state.heapPtr,paths.host.state.boot.heapPtr);
-base.fn.DirHostClear();assert.equal(base.host.state.heapPtr,base.host.state.boot.heapPtr);
+paths.fn.DirHostClear();assert.deepEqual(owners(paths.host),cleared);
+base.fn.DirHostClear();assert.deepEqual(owners(base.host),cleared);
 for(const {host} of [paths,base]) {await host.dispose();assert.equal(host.state.heapPtr,16777248);}
 console.log(`Virtual volume limits: ${maxNodes} live nodes, ${maxBytes} seed bytes, ${maxPath}-byte composed paths, rejected-input cleanup and nonmutation pass.`);

@@ -8,11 +8,11 @@ function load(source,{tasks=false,failAt=0,exports=[]}={}) {
   const result=compileHolyC(source,{lenient:false,exports});assert.deepEqual(result.warnings,[]);
   tasks||=result.requiredCapabilities.includes('task-continuations'); //A program that prints is a task.
   let output='',calls=0;const live=new Set(),host=(tasks?createTaskHost:createHost)({ansi:false,onText:s=>output+=s,jit:result.jit});
-  const alloc=host.env.__malloc_kernel;
-  host.env.__malloc_kernel=size=>{if(++calls===failAt)return 0n;const ptr=alloc(size);if(ptr)live.add(ptr);return ptr;};
+  const alloc=host.env.__malloc;
+  host.env.__malloc=(size,hc)=>{if(++calls===failAt)return 0n;const ptr=alloc(size,hc);if(ptr)live.add(ptr);return ptr;};
   const free=host.env.__free;host.env.__free=ptr=>{free(ptr);live.delete(ptr);};
   const instance=new WebAssembly.Instance(new WebAssembly.Module(result.bytes),{env:host.env});host.attach(instance);
-  return {result,host,instance,live,get calls(){return calls;},get output(){return output;},clear(){output='';}};
+  return {result,host,instance,live,alloc,get calls(){return calls;},get output(){return output;},clear(){output='';}};
 }
 const release=test=>{for(const ptr of [...test.live])test.host.env.__free(ptr);assert.equal(test.live.size,0);};
 //A program boots only the Adam it reaches, so its boot is its own: the first
@@ -23,8 +23,9 @@ try {
   let heap,boot;
   for(let i=0;i<5;i++) {
     native.clear();await native.host.run();assert.equal(native.output,proof.output);
-    boot??=native.calls;assert(native.result.globals.has('cmp') && boot>=6);
-    assert.equal(native.calls,boot);assert.equal(native.live.size,boot);
+    //The kernel's heap (V5.03's Adam's) holds the boot's blocks; MAlloc counts all.
+    boot??=native.host.state.boot.allocations;assert(native.result.globals.has('cmp') && boot>=6);
+    assert.equal(native.host.state.boot.allocations,boot);
     if(heap===undefined)heap=native.host.state.heapPtr;else assert.equal(native.host.state.heapPtr,heap);
   }
 } finally {await native.host.dispose();}
@@ -36,7 +37,7 @@ for(const source of [
 ]) {
   const test=load(source,{exports:['Read']});test.instance.exports.__rt_init();
   assert.equal(test.calls,0);assert.equal(test.live.size,0);
-  assert(!WebAssembly.Module.imports(new WebAssembly.Module(test.result.bytes)).some(x=>x.name==='__malloc_kernel'));
+  assert(!WebAssembly.Module.imports(new WebAssembly.Module(test.result.bytes)).some(x=>x.name==='__malloc'));
 }
 const forms=[
   'I64 Read(){return cmp.dual_U16_tokens1[43];}',
@@ -73,7 +74,7 @@ const faultSource='I64 started=0; I64 Read(){return cmp.dual_U16_tokens1[43];} s
 let failed=null;
 for(let failAt=1;failAt<=6;failAt++) {
   const test=load(faultSource,{failAt,exports:['Read']});
-  const warm=test.host.env.__malloc(8n);test.host.env.__free(warm);
+  const warm=test.alloc(8n);test.host.env.__free(warm);
   assert.throws(()=>test.instance.exports.__main(),WebAssembly.Exception);
   assert.equal(test.calls,failAt);assert.equal(test.live.size,0);
   failed??=test.host.state.heapPtr;assert.equal(test.host.state.heapPtr,failed);

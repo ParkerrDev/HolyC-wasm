@@ -1,16 +1,19 @@
 import assert from 'node:assert/strict';
 import {compileHolyC} from '../src/compiler.js';
 import {createHost} from '../src/runtime/host.js';
+import {createTaskHost} from '../src/runtime/tasks.js';
 import {Module,Func,VT} from '../src/wasm/emitter.js';
 import {FONT} from '../src/runtime/font.js';
 
 async function run(source,options={}) {
   const result=compileHolyC(source,{lenient:false,...options});
   const module=new WebAssembly.Module(result.bytes),text=[];
-  const host=createHost({onText:value=>text.push(value)});
+  const tasks=result.requiredCapabilities.includes('task-continuations');
+  const host=(tasks?createTaskHost:createHost)({onText:value=>text.push(value),jit:result.jit});
   const instance=new WebAssembly.Instance(module,{env:host.env});
   host.attach(instance);
-  instance.exports.__main();
+  if (tasks) await host.run();
+  else instance.exports.__main();
   return {...result,module,instance,text};
 }
 const imports=module=>WebAssembly.Module.imports(module).map(entry=>entry.name);

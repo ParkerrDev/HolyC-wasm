@@ -7,7 +7,7 @@ const source=read('CmpFault.HC');
 const result=compileHolyC(source,{lenient:false,exports:[...methods,'CmpFaultDone','CmpModeTrial']});
 assert.deepEqual(result.warnings,[]);
 const host=createTaskHost({ansi:false,onText:()=>{}}),live=new Set();let calls=0,failAt=0,count=0;
-for(const name of ['__malloc','__malloc_for','__malloc_kernel']) {
+for(const name of ['__malloc','__malloc_kernel']) {
   const alloc=host.env[name];host.env[name]=(...args)=>{
     if(++calls===failAt)return 0n;
     const ptr=alloc(...args);if(ptr>0n)live.add(ptr);return ptr;

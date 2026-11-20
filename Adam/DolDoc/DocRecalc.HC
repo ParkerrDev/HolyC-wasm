@@ -1,5 +1,3 @@
-//V5.03 Adam/DolDoc/DocRecalc.HC. One core and no interrupts here, so the
-//PUSHFD/CLI/POPFD round the win_task reads is left out.
 #help_index "DolDoc"
 
 I64 DocWordWrapDel(CDoc *doc,CDocEntry *doc_e,
@@ -314,6 +312,8 @@ public Bool DocRecalc(CDoc *doc,I64 recalc_flags=RECALCt_NORMAL)
       break;
   }
 
+  PUSHFD
+  CLI
   left	=win_task->win_left;
   right =win_task->win_right;
   width =win_task->win_width;
@@ -326,6 +326,7 @@ public Bool DocRecalc(CDoc *doc,I64 recalc_flags=RECALCt_NORMAL)
   pix_top   =win_task->pix_top;
   left_margin=left;
   right_margin=right;
+  POPFD
   if (doc->flags&DOCF_BORDER_DOC) {
     scroll_x=0;
     scroll_y=0;

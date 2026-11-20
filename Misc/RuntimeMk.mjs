@@ -109,6 +109,8 @@ const sources={
   "TASK_MESSAGE_SRC": "Kernel/TaskMsg.HC",
   "TASK_SRC": "Kernel/Task.HC",
   "TASK_TYPES_SRC": "Kernel/Task.HH",
+  "HEAP_TYPES_SRC": "Kernel/Heap.HH",
+  "AMEM_SRC": "Adam/AMem.HC",
   "TASK_SCHEDULE_SRC": "Kernel/TaskSched.HC",
   "TASK_SETTINGS_SRC": "Kernel/TaskSettings.HC",
   "WINDOW_SRC": "Adam/Win.HC",

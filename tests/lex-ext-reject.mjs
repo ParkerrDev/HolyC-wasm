@@ -5,7 +5,7 @@ import {read} from './lex-ext/cases.mjs';
 const r=compileHolyC(read('ExtReject.HC'),{lenient:false,exports:['ExtReject']});assert.deepEqual(r.warnings,[]);
 //It prints, so it is a task program.
 const host=createTaskHost({jit:r.jit}),live=new Set();let armed=false,calls=0;
-for(const name of ['__malloc','__malloc_for','__malloc_kernel']){
+for(const name of ['__malloc','__malloc_kernel']){
  const alloc=host.env[name];host.env[name]=(...args)=>{if(armed)calls++;const p=alloc(...args);if(p>0n)live.add(p);return p;};
 }
 const free=host.env.__free;host.env.__free=p=>{free(p);live.delete(p);};host.env.ExtFaultMark=phase=>{armed=!phase;if(armed)calls=0;};

@@ -76,7 +76,7 @@ I64 Trial() {
 const failures=load(failureResult),original=failures.host.env.__malloc;
 // Reinstantiate after installing the import fault injector.
 let calls=0,failAt=0;
-failures.host.env.__malloc=size=>++calls===failAt?0n:original(size);
+failures.host.env.__malloc=(size,hc)=>++calls===failAt?0n:original(size,hc);
 const failInstance=new WebAssembly.Instance(failureResult.module,{env:failures.host.env});failures.host.attach(failInstance);
 for(const fail of [0,1,2,0,1,2,0]) {
   calls=0;failAt=fail;
@@ -151,8 +151,12 @@ Spawn(&Child,,,,Fs);
 GetMsg;
 `));
 const running=stopped.host.run();
-await new Promise(resolve=>setTimeout(resolve,20));
-assert.equal(stopped.host.state.tasks.length,3);
+//On the event, not the clock: scheduler turns until Child and Grand exist and all three have
+//run to their waits (none still 'new'), a bounded count of turns.
+const started=()=>stopped.host.state.tasks.length===3 &&
+  stopped.host.state.tasks.every(task=>task.status==='waiting');
+for(let turn=0;turn<1000 && !started();turn++) await new Promise(resolve=>setTimeout(resolve,0));
+assert(started(),'the root, Child and Grand exist and have run');
 await stopped.host.stop();await running;
 assert.equal(stopped.host.state.tasks.length,1);
 assert.equal(stopped.host.state.heapPtr,stopped.host.state.boot.heapPtr);await stopped.host.dispose();

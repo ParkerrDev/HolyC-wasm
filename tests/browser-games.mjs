@@ -9,8 +9,8 @@ const {chromium}=await import(pathToFileURL(web+'/node_modules/playwright-core/i
 const mime={'.js':'application/javascript','.html':'text/html','.css':'text/css','.json':'application/json','.svg':'image/svg+xml','.woff2':'font/woff2','.png':'image/png'};
 const server=createServer(async(req,res)=>{try{
  const path=new URL(req.url,'http://localhost').pathname;
- const base=path.startsWith('/holyc-wasm/src/')?compiler:web;
- const file=path.startsWith('/holyc-wasm/src/')?resolve(compiler,path.slice('/holyc-wasm/src/'.length)):resolve(web,'.'+(path==='/'?'/index.html':path));
+ const base=path.startsWith('/hemu/holyc-wasm/src/')?compiler:web;
+ const file=path.startsWith('/hemu/holyc-wasm/src/')?resolve(compiler,path.slice('/hemu/holyc-wasm/src/'.length)):resolve(web,'.'+(path==='/'?'/index.html':path));
  if(!file.startsWith(resolve(base)+'/'))throw new Error('Outside served checkout');
  const body=await readFile(file);
  res.writeHead(200,{'Content-Type':mime[extname(file)]||'application/octet-stream','Cross-Origin-Opener-Policy':'same-origin','Cross-Origin-Embedder-Policy':'require-corp'});
@@ -33,11 +33,26 @@ try {
   await card.getByRole('button',{name:'Run in Browser',exact:true}).click();
   try {await page.waitForFunction(()=>/HolyC-WASM: (compiled|running)/.test(document.querySelector('#gameWinStatus').textContent),null,{timeout:30000});}
   catch(error) {throw new Error(name+' launch: '+await page.locator('#gameWinStatus').innerText()+'; '+await page.locator('#console').innerText(),{cause:error});}
-  await page.waitForTimeout(1000);
-  const before=await page.locator('#screen').evaluate(c=>{const data=c.getContext('2d').getImageData(0,0,640,480).data;let h=0;const colors=new Set();for(let i=0;i<data.length;i+=4){h=(Math.imul(h,65599)+data[i]+256*data[i+1]+65536*data[i+2])>>>0;colors.add(data[i]+256*data[i+1]+65536*data[i+2]);}return{hash:h,colors:colors.size};});
+  const screen=page.locator('#screen');
+  const frame=canvas=>{
+    const data=canvas.getContext('2d').getImageData(0,0,640,480).data,colors=new Set();
+    let hash=0;
+    for(let i=0;i<data.length;i+=4){
+      const rgb=data[i]+256*data[i+1]+65536*data[i+2];
+      hash=(Math.imul(hash,65599)+rgb)>>>0;colors.add(rgb);
+    }
+    return {hash,colors:colors.size};
+  };
+  let before;
+  const deadline=Date.now()+30000;
+  do {
+    before=await screen.evaluate(frame);
+    if(before.colors>=3)break;
+    await page.waitForTimeout(100);
+  } while(Date.now()<deadline);
   assert(before.colors>=3,name+' draws visible colors');
   await page.locator('#screen').focus();await page.keyboard.down(key);await page.waitForTimeout(350);await page.keyboard.up(key);await page.waitForTimeout(250);
-  const after=await page.locator('#screen').evaluate(c=>{const a=c.getContext('2d').getImageData(0,0,640,480).data;let h=0;for(let i=0;i<a.length;i+=4)h=(Math.imul(h,65599)+a[i]+256*a[i+1]+65536*a[i+2])>>>0;return h;});
+  const {hash:after}=await screen.evaluate(frame);
   assert.notEqual(after,before.hash,name+' renders advancing frames');
   assert(await page.evaluate(()=>window.__holycEditor.isRunning()));
   await page.screenshot({path:dir+'/'+name+'.png'});

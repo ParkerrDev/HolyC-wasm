@@ -5,7 +5,7 @@ import {recorded} from './lex-ext/cases.mjs';
 const test=recorded(),result=compileHolyC(test.source,{lenient:false});assert.deepEqual(result.warnings,[]);
 assert.deepEqual(result.requiredCapabilities,['task-continuations']); //It prints, so it is a task.
 let output='',heap,count;const live=new Set(),host=createTaskHost({onText:s=>output+=s,jit:result.jit});
-for(const name of ['__malloc','__malloc_for','__malloc_kernel']){
+for(const name of ['__malloc','__malloc_kernel']){
  const alloc=host.env[name];host.env[name]=(...args)=>{const p=alloc(...args);if(p>0n)live.add(p);return p;};
 }
 const free=host.env.__free;host.env.__free=p=>{free(p);live.delete(p);};

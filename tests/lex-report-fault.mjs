@@ -7,7 +7,7 @@ const source=readFileSync(new URL('lex-report/ReportFault.HC',import.meta.url),'
 const result=compileHolyC(source,{lenient:false,exports:['ReportSetup','ReportDone','ReportTrial','ReportCalls']});
 assert.deepEqual(result.warnings,[]);
 const host=createTaskHost({gfx:new Framebuffer(null),onText:()=>{}}),live=new Set();let calls=0,failAt=0,failures=0,callbacks=0;
-for(const name of ['__malloc','__malloc_for','__malloc_kernel']) {
+for(const name of ['__malloc','__malloc_kernel']) {
   const alloc=host.env[name];host.env[name]=(...args)=>{
     if(++calls===failAt)return 0n;
     const ptr=alloc(...args);if(ptr>0n)live.add(ptr);return ptr;
