@@ -1,6 +1,6 @@
 import {Machine} from "./Machine.js";
 
-export function MachineShared({message,error,earlyWorker=null})
+export function MachineShared({message,error,earlyWorker=null,name="templeos",autoSave=true})
 {//Pages share one guest, disk and request queue through a browser-owned worker.
   const cleared={msg:"Browser data was deleted. Refresh this page.",
     code:"STORAGE_CLEARED",retained:false,started:false,cores:1};
@@ -16,10 +16,10 @@ export function MachineShared({message,error,earlyWorker=null})
     return machine;
   }
   let worker=new SharedWorker(new URL("./MachineHub.js",import.meta.url),
-      {type:"module",name:"templeos",extendedLifetime:true}),
+      {type:"module",name,extendedLifetime:true}),
     port=worker.port,local=null,pending=new Map(),next=1,kind=null,owner=false,
     capture={ready:false,msg:"Wait for TempleOS and C: to finish loading."},
-    busFailed=false,closed=false,Release=null;
+    busFailed=false,closed=false,sharing=false,Release=null;
   function Failed(msg)
   {
     if (closed) return;
@@ -37,8 +37,13 @@ export function MachineShared({message,error,earlyWorker=null})
       pending.delete(m.reply);
       if (m.error) request.Reject(Error(m.error));
       else request.Resolve(m.result);
+    } else if (m.cmd=="sharing") {
+      sharing=m.value;message(m);
     } else if (m.cmd=="host") {
       local=Machine({earlyWorker,message:function (value) {
+        if (!sharing && ["frame","snd","windows"].includes(value.cmd)) {
+          message(value);return;
+        }
         port.postMessage({op:"hostMessage",value},value.buf instanceof ArrayBuffer?[value.buf]:[]);
       },error:function (value) {port.postMessage({op:"hostError",value});}});
       earlyWorker=null;
@@ -80,7 +85,11 @@ export function MachineShared({message,error,earlyWorker=null})
   }
   function Post(value,transfer=[])
   {
-    if (!closed) port.postMessage({op:"post",value},transfer);
+    if (closed) return;
+    if (!sharing && local && owner && !autoSave && ["input","keysUp"].includes(value.cmd)) {
+      local.post(value,transfer);return;
+    }
+    port.postMessage({op:"post",value},transfer);
   }
   Retire=function () {port.postMessage({op:"storageClear"});};
   function Detach()
@@ -93,12 +102,13 @@ export function MachineShared({message,error,earlyWorker=null})
     pending.clear();
   }
   return {
-    Connect() {return Call("connect");},
+    Connect() {return Call("connect",{autoSave});},
+    AutoSave(value) {autoSave=!!value;port.postMessage({op:"autoSave",value:autoSave});},
     Warm(cores) {port.postMessage({op:"warm",value:cores});},
     Start(boot,resumeDisk=false) {return Call("start",{boot,resumeDisk});},
     Restart(boot) {return Call("restart",boot);},
     Stop() {port.postMessage({op:"stop"});},
-    Claim() {port.postMessage({op:"claim"});},
+    Claim() {if (sharing || !owner) port.postMessage({op:"claim"});},
     Visible(value) {port.postMessage({op:"visible",value});},
     Detach,
     post:Post,

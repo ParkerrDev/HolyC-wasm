@@ -1,6 +1,6 @@
 let clients=new Set(),owner=null,starter=null,host=null,boot=null,started=false,
   cache=new Map(),control=Promise.resolve(),saving=null,exports=[],calls=new Map(),
-  next=1,saveTimer=null,dirty=false,
+  next=1,saveTimer=null,dirty=false,autoSave=true,
   machine={kind:null,busFailed:false,capture:{ready:false},
     Warm(cores) {return HostCall("Warm",[cores]);},
     Start(boot,resumeDisk) {return HostCall("Start",[boot,resumeDisk]);},
@@ -33,6 +33,7 @@ function HostSet(client)
 }
 function SaveSoon()
 {
+  if (!autoSave) return;
   dirty=true;clearTimeout(saveTimer);
   saveTimer=setTimeout(Background,3000);
 }
@@ -44,6 +45,12 @@ function Send(client,m)
 function Broadcast(m)
 {
   for (let client of clients) Send(client,m);
+}
+function Sharing()
+{
+  const value=clients.size>1;
+  if (!value) cache.delete("frame");
+  Broadcast({cmd:"sharing",value});
 }
 function State(client)
 {
@@ -76,7 +83,7 @@ function Receive(m)
     "settings","paused","restored","inputMode","smpReady"].includes(m.cmd))
     cache.set(m.cmd,m);
   if (m.cmd=="palette") cache.set("palette"+m.index,m);
-  if (m.cmd=="frame") started=true;
+  if (m.cmd=="frame" || m.cmd=="guestReady" && m.ok) started=true;
   if (m.cmd=="captureState") machine.capture=m;
   if (m.cmd=="diskSave" && m.state=="saving") SaveSoon();
   Broadcast(m);
@@ -109,7 +116,7 @@ function Claim(client)
 }
 function Background()
 {
-  if (!machine.capture.ready || saving || !dirty || !host) return;
+  if (!autoSave || !machine.capture.ready || saving || !dirty || !host) return;
   let hidden=![...clients].some(c=>c.visible),input=cache.get("inputMode");
   if (!hidden && !cache.get("paused")?.value && (input?.game || input?.capture)) return;
   dirty=false;
@@ -127,6 +134,7 @@ function Background()
 function Detach(client)
 {
   if (!clients.delete(client)) return;
+  Sharing();
   if (starter===client) {
     starter=null;
     if (!boot && clients.size && host!==client) {
@@ -166,7 +174,14 @@ async function Handle(client,m)
     for (let request of calls.values()) request.Reject(Error("Browser data was deleted."));
     calls.clear();close();return;
   }
+  if (m.op=="autoSave") {
+    autoSave=!!value;
+    if (autoSave) SaveSoon();
+    else {clearTimeout(saveTimer);saveTimer=null;dirty=false;}
+    return;
+  }
   if (m.op=="connect") {
+    if (!host) autoSave=value?.autoSave!==false;
     client.visible=true;
     State(client);
     for (let state of cache.values()) Send(client,state);
@@ -210,7 +225,13 @@ async function Handle(client,m)
   else if (m.op=="visible") {
     client.visible=!!value;
     if (value) machine.post({cmd:"suspend",value:false});
-    else {dirty=true;control.then(Background);}
+    else {
+      dirty=true;
+      control.then(function () {
+        if (!autoSave && ![...clients].some(c=>c.visible)) machine.post({cmd:"suspend",value:true});
+        else Background();
+      });
+    }
   } else if (m.op=="detach") Detach(client);
   else if (m.op=="stop") {
     if (client===starter && !started) {machine.Stop();boot=null;}
@@ -241,6 +262,7 @@ async function Handle(client,m)
 onconnect=function (e) {
   let client={id:crypto.randomUUID(),port:e.ports[0],visible:false};
   clients.add(client);
+  Sharing();
   client.port.onmessage=async function ({data:m}) {
     try {
       let result=await Handle(client,m);
