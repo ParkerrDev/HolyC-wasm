@@ -21,9 +21,9 @@ U0 __host_palette(I64 i,I64 rgb)
   dev_colors[i]=rgb;
 }
 
-I64 __host_time(I64 idx)
+I64 __host_time(I64)
 {
-  return 1000+idx;
+  return 0x1A0C1F04173B3B;
 }
 
 U0 __host_snd(F64 hz,U64 ns)

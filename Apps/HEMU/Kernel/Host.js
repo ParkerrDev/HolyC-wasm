@@ -18,18 +18,15 @@ export function createHemuHost(opts = {}) {
     __host_msx() { return 0n; }, __host_msy() { return 0n; }, __host_msb() { return 0n; }, __host_wheel() { return 0n; },
     __host_key() { return -1n; }, __host_budget() { return 1000000n; }, __host_dt() { return 16n; },
     __host_ns() { return BigInt(host.env.__host_dt())*1000000n; },
-    // CMOS RTC fields from the host wall clock, so the guest's Now() tracks real date/time (not the
-    // snapshot's frozen clock). idx = the CMOS register the guest selected via OUT 0x70.
     __host_time(idx) {
-      const d = new Date(); idx = Number(idx);
-      if (idx === 0) return BigInt(d.getSeconds());
-      if (idx === 2) return BigInt(d.getMinutes());
-      if (idx === 4) return BigInt(d.getHours());
-      if (idx === 6) return BigInt(d.getDay());
-      if (idx === 7) return BigInt(d.getDate());
-      if (idx === 8) return BigInt(d.getMonth() + 1);
-      if (idx === 9) return BigInt(d.getFullYear() - 2000); // kernel adds 2000
-      return 0n;
+      const d=new Date(),fields=[d.getSeconds(),d.getMinutes(),d.getHours(),
+        d.getDay(),d.getDate(),d.getMonth()+1,d.getFullYear()-2000];
+      idx=Number(idx);
+      if (idx===-1)
+        return fields.reduce((value,n,i)=>value|BigInt(n)<<(8n*BigInt(i)),0n);
+      //Saved older engines request individual CMOS registers.
+      const field=[0,,1,,2,,3,4,5,6][idx];
+      return field===undefined?0n:BigInt(fields[field]);
     },
     __jit_state(_r, _f, _p) { return 0n; }, __jit_compile(_rip) { return 0n; }, __jit_run(rip) { return rip; },
     __jit_x87(_a, _b, _c) {}, __jit_dispatch(_b) { return 0n; }, __jit_chain(_a, _b) {}, __jit_seg(..._a) {},
