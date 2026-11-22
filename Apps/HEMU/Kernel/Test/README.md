@@ -15,7 +15,7 @@ The default suite checks CPU/JIT/device primitives, emulated atomic instructions
 on four actual worker threads, clocks,
 input, completed captures, barriers and snapshot validation. Both engines are
 built before the checks. `--full` adds native raster/video, guest API,
-saved-machine, production-worker and prepared Welcome/tour checks. `--desktop`
+saved-machine, production-worker and prepared desktop/tour checks. `--desktop`
 adds real Chromium window tests on one and four cores, current/legacy saved
 sessions and desktop lifecycle failures; flags can be combined. Each
 check runs in a fresh process and any error stops the runner. Timed worker
@@ -72,7 +72,7 @@ this correction changes newly built engines without changing saved state.
   FPS to the frame message, check clock/refresh pacing, and verify pause.
   `WorkerShim.mjs` supplies browser worker facilities to Node fixtures.
   `WorkerInflate.test.mjs` disables nested workers and resumes both stock
-  topologies from sparse RAM, requiring Welcome and the tour question in the
+  topologies from sparse RAM, requiring the tour question without an added Welcome card in the
   first frame and no correction-job messages. `Stock.test.mjs` checks the
   compressed and reconstructed identities, range validation and paired disks.
 - Guest execution checks cover source errors, exceptions, file readback,
@@ -443,11 +443,11 @@ guest only through IRQ1 make/break bytes; the bridge no longer writes the
 OS keyboard bitmap. Repeat is implemented in HolyC using the guest's PS/2
 0xF3 delay/rate, and excludes modifier/lock/PrintScreen/Pause sequences.
 
-Both prepared stock captures already contain the Welcome task and the native
-Take Tour question. `Welcome.test.mjs` requires both in the first completed
-frame on one and four cores, checks that Shift-Esc closes only Welcome, and
-rejects correction-job or error messages. Full saves retain their own windows.
-The site's `Apps/Help/Welcome.browser.mjs` checks the visible page integration.
+Both prepared stock captures show the native Take Tour question without the
+added Welcome task. `Startup.test.mjs` checks the first completed frame on
+one and four cores and rejects correction-job or error messages. Full saves
+retain their own windows. The site's `Apps/Help/Startup.browser.mjs` checks
+visible startup before the disk arrives and after Restart.
 
 The web and desktop hosts share `Speaker.js`: the current guest tone survives
 host pause, but audible output stops until resume. Restart discards the old

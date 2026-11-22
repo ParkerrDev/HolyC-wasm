@@ -126,9 +126,8 @@ enable passthrough until restarted with a current engine.
 Stock startup resumes a paired RAM/register/disk capture. The
 [native capture recipe](https://github.com/ParkerrDev/HEMU/blob/master/Misc/Capture/README.md) prepares the document-clipping
 and autocomplete display fixes in native source before the OS compiles them.
-It then opens the Welcome card alongside the native Take Tour question and
-captures the stopped machine. There is no guest correction compilation or
-Welcome construction on the browser's startup path.
+It captures the stopped machine at the native Take Tour question, with no added
+Welcome card. There is no guest correction compilation on the browser's startup path.
 
 `stock.json` binds the RAM, stopped register dump, generated register source,
 base disk and changed sectors. Each built engine embeds matching `hemu.stock`

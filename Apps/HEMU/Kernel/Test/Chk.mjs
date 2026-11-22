@@ -16,7 +16,7 @@ const quick=["Machine.test.mjs","GuestRqsts.test.mjs","HostSelfTest.mjs","Measur
   "FpuCvt.test.mjs","FpuCompare.test.mjs","SseCompare.test.mjs","FpuOps.test.mjs","CpuFault.test.mjs","FpuNative.mjs","JitX87.test.mjs","JitX87Mem.test.mjs","Shift.test.mjs","JitZeroShift.test.mjs","JitDiff1.mjs","FrameHeap.test.mjs"],
   full=["GuestCode.test.mjs","GuestWindows.mjs","GuestGui.mjs","GuestFields.mjs","GuestCapture.mjs","MenuClip.test.mjs","ACFlicker.test.mjs","Video.test.mjs","Render.test.mjs","RasterNative.mjs","RasterAlias.mjs","TriangleNative.mjs","Rate.test.mjs","GuestChk.mjs","LargeFile.test.mjs",
     "JitRecycle.mjs","Worker.test.mjs","WorkerInput.test.mjs","WorkerExec.test.mjs","WorkerCpuId.test.mjs","WorkerFault.test.mjs","WorkerWinSurface.test.mjs","WorkerLegacyFault.test.mjs","SavedPatch.test.mjs","WorkerClock.test.mjs","WorkerRate.test.mjs","WorkerPause.test.mjs",
-    "WorkerInflate.test.mjs","WorkerSnapshot.test.mjs","WorkerBus.test.mjs","Idle.test.mjs","Welcome.test.mjs"];
+    "WorkerInflate.test.mjs","WorkerSnapshot.test.mjs","WorkerBus.test.mjs","Idle.test.mjs","Startup.test.mjs"];
 let count=0;
 function Run(path,env={}) {
   console.log("Checking",path);

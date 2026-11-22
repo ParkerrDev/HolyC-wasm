@@ -76,14 +76,10 @@ for (let record of records) {
     throw Error("Native source identity changed: "+record.dir+"/"+record.name);
   if (record.name=="DocRecalc.HC.Z") source=Doc(source);
   else if (record.name=="ACTask.HC.Z") source=AC(source);
-  else source+="\n"+Read("Welcome.HC").toString("latin1");
   let bytes=Archive(Buffer.from(source,"latin1"));
   fat32Upload(disk,record.name,bytes,record.dir);
   outputs[record.dir+"/"+record.name]=Hash(bytes);
 }
-let logo=Read("Welcome.DAT");
-fat32Upload(disk,"Welcome.DAT",logo,"Home");
-outputs["Home/Welcome.DAT"]=Hash(logo);
 inputs["Prepare.mjs"]=Hash(readFileSync(new URL(import.meta.url)));
 let fd=openSync(image,"r+");
 try {
